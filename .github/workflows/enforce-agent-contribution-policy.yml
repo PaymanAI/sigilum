@@ -1,0 +1,181 @@
+name: Enforce Agent Contribution Policy
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  enforce:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR contribution disclosure
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const core = require('@actions/core');
+
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.setFailed('No pull request payload found.');
+              return;
+            }
+
+            const body = pr.body || '';
+            const errors = [];
+
+            const TYPE_HUMAN = 'Human-only (no AI assistance)';
+            const TYPE_AGENT = 'Agent-authored (an AI agent produced substantive changes)';
+
+            const escapeRegex = (input) => input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const hasChecked = (label) => {
+              const re = new RegExp(`-\\s*\\[[xX]\\]\\s*${escapeRegex(label)}`);
+              return re.test(body);
+            };
+
+            const contributionOptions = [TYPE_HUMAN, TYPE_AGENT];
+
+            const selected = contributionOptions.filter(hasChecked);
+            if (selected.length !== 1) {
+              errors.push('Select exactly one option in "Contribution Type".');
+            }
+
+            const selectedType = selected[0] || '';
+            const requiresAgentDisclosure = selectedType === TYPE_AGENT;
+            const requiresSigilumIdentity = selectedType === TYPE_AGENT;
+
+            const normalize = (value) => (value || '').replace(/`/g, '').trim();
+
+            const getField = (label) => {
+              const re = new RegExp(`^${escapeRegex(label)}:\\s*(.*)$`, 'mi');
+              const match = body.match(re);
+              return normalize(match ? match[1] : '');
+            };
+
+            const isPlaceholder = (value) => {
+              const v = normalize(value);
+              if (!v) return true;
+              if (/^<.*>$/.test(v)) return true;
+              return /^(n\\/?a|none|tbd|todo|pending|-|same as above)$/i.test(v);
+            };
+
+            const isBlank = (value) => !normalize(value);
+
+            let namespaceProofUrlParsed = null;
+
+            const namespaceProofUrl = getField('Namespace Accountability Proof URL (GitHub URL binding DID to accountable human/operator)');
+            const humanVerification = getField('Human Verification Summary');
+            const residualUncertainty = getField('Residual Uncertainty');
+
+            const did = getField('Sigilum DID');
+            const agentKey = getField('Agent Public Key');
+            const claimProofUrl = getField('Claim Proof URL (BaseScan/Blockscan tx with approved status)');
+
+            if (requiresAgentDisclosure) {
+              if (isPlaceholder(namespaceProofUrl)) {
+                errors.push('Namespace Accountability Proof URL is required for agent-authored PRs.');
+              } else {
+                try {
+                  namespaceProofUrlParsed = new URL(namespaceProofUrl);
+                  const allowedHosts = new Set([
+                    'github.com',
+                    'raw.githubusercontent.com',
+                    'gist.github.com',
+                    'gist.githubusercontent.com'
+                  ]);
+                  if (!allowedHosts.has(namespaceProofUrlParsed.hostname.toLowerCase())) {
+                    errors.push('Namespace Accountability Proof URL must be a GitHub-hosted URL.');
+                  }
+
+                  const pathParts = namespaceProofUrlParsed.pathname.split('/').filter(Boolean);
+                  if (pathParts.length === 0) {
+                    errors.push('Namespace Accountability Proof URL must include a valid path.');
+                  }
+                } catch (err) {
+                  errors.push('Namespace Accountability Proof URL must be a valid URL.');
+                }
+              }
+
+              if (isPlaceholder(humanVerification)) {
+                errors.push('Human Verification Summary is required for agent-authored PRs.');
+              }
+
+              if (isBlank(residualUncertainty)) {
+                errors.push('Residual Uncertainty is required (use "none" if not applicable).');
+              }
+            }
+
+            if (requiresSigilumIdentity) {
+              if (isPlaceholder(did)) {
+                errors.push('Sigilum DID is required for agent-authored PRs.');
+              } else if (!/^did:sigilum:[a-z0-9][a-z0-9._-]{1,63}$/.test(did)) {
+                errors.push('Sigilum DID must match format did:sigilum:<namespace>.');
+              }
+
+              if (isPlaceholder(agentKey)) {
+                errors.push('Agent Public Key is required for agent-authored PRs.');
+              } else {
+                const keyOk = /^ed25519:[A-Za-z0-9+/_=-]{20,}$/.test(agentKey)
+                  || /^fingerprint:[A-Za-z0-9:_-]{8,}$/.test(agentKey)
+                  || /^sha256:[A-Za-z0-9+/_=-]{16,}$/.test(agentKey);
+                if (!keyOk) {
+                  errors.push('Agent Public Key must be ed25519:<base64> or fingerprint:/sha256: reference.');
+                }
+              }
+
+              if (isPlaceholder(claimProofUrl)) {
+                errors.push('Claim Proof URL is required for agent-authored PRs.');
+              } else {
+                const hasHttp = /^https?:\/\//i.test(claimProofUrl);
+                const hasTxPath = /\/tx\//i.test(claimProofUrl);
+                const hasTxHash = /0x[a-fA-F0-9]{64}/.test(claimProofUrl);
+                if (!(hasHttp && hasTxPath && hasTxHash)) {
+                  errors.push('Claim Proof URL must be a valid transaction link containing /tx/ and a 0x hash.');
+                }
+              }
+
+              if (namespaceProofUrlParsed && !errors.some((e) => e.includes('Namespace Accountability Proof URL'))) {
+                try {
+                  const proofResp = await fetch(namespaceProofUrlParsed.toString(), {
+                    headers: { 'User-Agent': 'sigilum-agent-policy-check' }
+                  });
+                  if (!proofResp.ok) {
+                    errors.push('Namespace Accountability Proof URL must be publicly fetchable.');
+                  } else {
+                    const proofText = await proofResp.text();
+                    if (!proofText.includes(did)) {
+                      errors.push('Namespace Accountability proof content must include the same Sigilum DID.');
+                    }
+                  }
+                } catch (err) {
+                  errors.push('Namespace Accountability Proof URL could not be fetched by CI.');
+                }
+              }
+            }
+
+            if (selectedType === TYPE_HUMAN) {
+              const authorType = pr.user && pr.user.type ? pr.user.type : 'Unknown';
+              if (authorType === 'Bot') {
+                errors.push('Bot-authored PRs cannot be marked as Human-only.');
+              }
+            }
+
+            if (errors.length > 0) {
+              core.summary
+                .addHeading('Agent Contribution Policy Check Failed')
+                .addRaw(errors.map((e) => `- ${e}`).join('\n'))
+                .write();
+
+              core.setFailed(
+                `Contribution policy validation failed:\n${errors.map((e) => `- ${e}`).join('\n')}`
+              );
+              return;
+            }
+
+            core.summary
+              .addHeading('Agent Contribution Policy Check Passed')
+              .addRaw(`- Contribution type: ${selectedType || 'not detected'}`)
+              .write();
