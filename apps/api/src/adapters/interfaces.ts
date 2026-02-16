@@ -6,8 +6,12 @@ export interface DatabaseAdapter {
   batch(...args: Parameters<D1Database["batch"]>): ReturnType<D1Database["batch"]>;
 }
 
+export type QueueSendAdapterOptions = {
+  delaySeconds?: number;
+};
+
 export interface QueueAdapter<TMessage = unknown> {
-  send(message: TMessage): Promise<void>;
+  send(message: TMessage, options?: QueueSendAdapterOptions): Promise<void>;
 }
 
 export type NonceCheckRequest = {
@@ -28,5 +32,6 @@ export interface PlatformAdapters {
   provider: AdapterProvider;
   database: DatabaseAdapter;
   blockchainQueue?: QueueAdapter;
+  webhookQueue?: QueueAdapter;
   nonceStore: NonceStoreAdapter;
 }

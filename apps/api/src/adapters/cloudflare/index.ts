@@ -13,6 +13,9 @@ export function createCloudflareAdapters(env: Env): PlatformAdapters {
     blockchainQueue: env.BLOCKCHAIN_QUEUE
       ? new CloudflareQueueAdapter(env.BLOCKCHAIN_QUEUE)
       : undefined,
+    webhookQueue: env.WEBHOOK_QUEUE
+      ? new CloudflareQueueAdapter(env.WEBHOOK_QUEUE)
+      : undefined,
     nonceStore: new CloudflareNonceStoreAdapter(env.NONCE_STORE_DO),
   };
 }
