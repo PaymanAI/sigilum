@@ -1,0 +1,155 @@
+# ============================================================================
+# Sigilum API - Development Environment Variables (.dev.vars)
+# ============================================================================
+# Copy this file to .dev.vars and fill in your actual values
+# This file is used by `wrangler dev` for local development
+# For production, set these in Cloudflare Workers dashboard or use `wrangler secret put`
+# ============================================================================
+
+ENVIRONMENT=development|production|staging
+
+# ----------------------------------------------------------------------------
+# JWT Authentication
+# ----------------------------------------------------------------------------
+# Secret key for signing JWT tokens (used for dashboard authentication)
+# IMPORTANT: Generate a strong random secret for production
+# Generate with: openssl rand -base64 32
+JWT_SECRET=dev-secret-change-me-in-production-use-openssl-rand-base64-32
+
+# JWT token expiry duration (default: 7 days)
+# Format: "7d" (7 days), "24h" (24 hours), "30m" (30 minutes)
+JWT_EXPIRY=7d
+
+# ----------------------------------------------------------------------------
+# CORS Configuration
+# ----------------------------------------------------------------------------
+# Comma-separated list of allowed origins for CORS
+# For local development, include both your frontend and API URLs
+ALLOWED_ORIGINS=http://localhost:5000,http://localhost:8787,http://127.0.0.1:5000
+
+# ----------------------------------------------------------------------------
+# Blockchain Configuration
+# ----------------------------------------------------------------------------
+# Network: "testnet" (Base Sepolia) or "mainnet" (Base)
+# DEFAULT: testnet (for development/testing)
+BLOCKCHAIN_NETWORK=testnet|mainnet
+
+# RPC URL for blockchain interaction
+# - For testnet (Base Sepolia): https://sepolia.base.org (public) or use Alchemy/Infura
+# - For mainnet (Base): https://mainnet.base.org (public) or use Alchemy/Infura
+# Public RPCs are rate-limited. For production, use a dedicated RPC provider.
+#
+# Alchemy: https://base-sepolia.g.alchemy.com/v2/YOUR_API_KEY
+# Public:  https://sepolia.base.org
+BLOCKCHAIN_RPC_URL=https://sepolia.base.org
+
+# Sigilum Registry Contract Address (deployed on Base Sepolia or Base mainnet)
+# You MUST deploy the SigilumRegistry contract first and paste the address here.
+# See packages/contracts/DEPLOYMENT.md for deployment instructions.
+#
+# Example testnet address: 0x742d35Cc6634C0532925a3b844Bc454e4438f44e
+# Leave empty if not deployed yet (API will throw error on blockchain operations)
+SIGILUM_REGISTRY_ADDRESS=
+
+# Relayer Private Key (for gasless transactions)
+# This wallet pays gas fees on behalf of users for namespace registration and claim operations.
+# SECURITY: This private key MUST be kept secret and should have sufficient ETH for gas.
+#
+# For development: Create a new wallet on Base Sepolia and fund it with testnet ETH from https://www.coinbase.com/faucets/base-ethereum-goerli-faucet
+# For production: Use a secure wallet with multi-sig or hardware wallet setup
+#
+# Format: 0x + 64 hex characters (no spaces)
+# Generate with: cast wallet new (from Foundry)
+RELAYER_PRIVATE_KEY=
+
+# ----------------------------------------------------------------------------
+# Policy & Rate Limiting
+# ----------------------------------------------------------------------------
+# Maximum number of pending authorization requests per namespace before auto-rejection
+# Prevents spam and DoS attacks
+MAX_PENDING_AUTHORIZATIONS=20
+
+# Auto-expire pending claims after N hours
+# Pending claims older than this will be marked as expired by the cron job
+PENDING_AUTHORIZATION_EXPIRY_HOURS=24
+
+# WebAuthn challenge expiry (hours)
+# Registration and authentication challenges expire after this duration
+CHALLENGE_EXPIRY_HOURS=1
+
+# ----------------------------------------------------------------------------
+# Feature Flags & Development Settings
+# ----------------------------------------------------------------------------
+# Adapter provider (currently only cloudflare)
+ADAPTER_PROVIDER=cloudflare
+
+# Enable verbose logging for debugging (true/false)
+DEBUG_LOGGING=true
+
+# Blockchain processing mode
+# - "queue" (production): Async via Cloudflare Queues (default for prod)
+# - "sync" (testing): Wait for blockchain confirmation before returning
+# - "memory" (testing): In-memory queue with immediate async processing
+# - "disabled" (local dev): Skip blockchain operations entirely (fastest for testing)
+BLOCKCHAIN_MODE=disabled|sync|memory|queue
+
+# Webhook durable-delivery retry window in hours (default: 24)
+# Failed deliveries are retried with exponential backoff until this window closes.
+WEBHOOK_RETRY_WINDOW_HOURS=24
+WEBHOOK_FAILURE_THRESHOLD=10
+
+# Optional final-failure alert email settings
+WEBHOOK_ALERT_EMAIL_FROM=alerts@example.com
+# RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxx
+
+# ----------------------------------------------------------------------------
+# Database Configuration (Cloudflare D1)
+# ----------------------------------------------------------------------------
+# D1 database is configured in wrangler.toml, not here
+# The binding name is "DB" and is automatically injected by Cloudflare Workers
+
+# ----------------------------------------------------------------------------
+# Queue Configuration (Cloudflare Queues)
+# ----------------------------------------------------------------------------
+# Queue for blockchain operations is configured in wrangler.toml
+# The binding name is "BLOCKCHAIN_QUEUE" and is automatically injected
+
+# Durable Object nonce store is configured in wrangler.toml
+# The binding name is "NONCE_STORE_DO" and is automatically injected
+
+# ============================================================================
+# QUICK START FOR LOCAL DEVELOPMENT
+# ============================================================================
+# 1. Copy this file: cp .dev.vars.example .dev.vars
+# 2. Generate JWT secret: openssl rand -base64 32
+# 3. Paste JWT secret into JWT_SECRET above
+# 4. (Optional) Deploy SigilumRegistry contract to Base Sepolia:
+#    cd ../../packages/contracts
+#    forge script script/Deploy.s.sol --rpc-url https://sepolia.base.org --broadcast
+# 5. (Optional) Paste contract address into SIGILUM_REGISTRY_ADDRESS
+# 6. (Optional) Create relayer wallet and fund with testnet ETH:
+#    cast wallet new
+#    # Visit https://www.coinbase.com/faucets/base-ethereum-goerli-faucet
+# 7. (Optional) Paste relayer private key into RELAYER_PRIVATE_KEY
+# 8. Start development server: pnpm dev
+#
+# NOTE: Steps 4-7 are only needed if you want to test blockchain integration.
+# For pure API testing, you can leave blockchain vars empty and set BLOCKCHAIN_MODE=disabled
+# ============================================================================
+
+# ============================================================================
+# PRODUCTION DEPLOYMENT CHECKLIST
+# ============================================================================
+# Before deploying to production:
+#
+# 1. [ ] Generate a strong JWT_SECRET (32+ bytes)
+# 2. [ ] Deploy SigilumRegistry to Base mainnet
+# 3. [ ] Set BLOCKCHAIN_NETWORK=mainnet
+# 4. [ ] Use a paid RPC provider (Alchemy, Infura, QuickNode)
+# 5. [ ] Create a secure relayer wallet with multi-sig
+# 6. [ ] Fund relayer wallet with sufficient ETH for gas
+# 7. [ ] Update ALLOWED_ORIGINS to your production domains
+# 9. [ ] Set BLOCKCHAIN_MODE=queue (for best performance)
+# 10. [ ] Enable monitoring and alerting for relayer wallet balance
+# 11. [ ] Set secrets via: wrangler secret put <SECRET_NAME>
+# ============================================================================
