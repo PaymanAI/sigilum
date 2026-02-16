@@ -1,0 +1,10 @@
+{
+  "extends": "@sigilum/config/tsconfig/base.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types"],
+    "lib": ["ES2022"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx"
+  },
+  "include": ["src"]
+}
