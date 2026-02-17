@@ -1,0 +1,22 @@
+{
+  "name": "@sigilum/demo-service-gateway",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Gateway-routed demo service (no native Sigilum SDK integration)",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file=.env src/index.ts",
+    "build": "echo 'demo-service-gateway build not needed'",
+    "start": "tsx --env-file=.env src/index.ts",
+    "clean": "rm -rf .turbo"
+  },
+  "dependencies": {
+    "hono": "^4.6.0",
+    "@hono/node-server": "^1.14.0"
+  },
+  "devDependencies": {
+    "@sigilum/config": "workspace:*",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
