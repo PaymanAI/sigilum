@@ -1,0 +1,85 @@
+# ========================
+# Dependencies
+# ========================
+node_modules/
+
+# ========================
+# Build outputs
+# ========================
+dist/
+out/
+build/
+*.tsbuildinfo
+
+# ========================
+# Turborepo
+# ========================
+.turbo/
+
+# ========================
+# Next.js
+# ========================
+.next/
+
+# ========================
+# Environment & secrets
+# ========================
+.env
+.env.*
+!.env.example
+.dev.vars
+
+# ========================
+# OS files
+# ========================
+.DS_Store
+Thumbs.db
+
+# ========================
+# IDE / Editor
+# ========================
+.idea/
+*.swp
+*.swo
+*~
+
+# ========================
+# Wrangler / Cloudflare Workers
+# ========================
+.wrangler/
+
+# ========================
+# Logs
+# ========================
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ========================
+# Foundry / Solidity (packages/contracts)
+# ========================
+cache/
+broadcast/
+
+# ========================
+# Python (packages/sdk-python)
+# ========================
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ========================
+# Go (packages/sdk-go)
+# ========================
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
