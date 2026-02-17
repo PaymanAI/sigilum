@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -77,5 +79,39 @@ func TestClientIPUsesForwardedHeadersFromTrustedProxy(t *testing.T) {
 
 	if got := clientIP(req, []*net.IPNet{trustedCIDR}); got != "10.0.0.5" {
 		t.Fatalf("expected first forwarded IP for trusted proxy, got %q", got)
+	}
+}
+
+func TestResolveServiceAPIKeyPrefersScopedEnv(t *testing.T) {
+	t.Setenv("SIGILUM_SERVICE_API_KEY_DEMO_SERVICE_GATEWAY", "scoped-key")
+	t.Setenv("SIGILUM_HOME", "")
+
+	if got := resolveServiceAPIKey("demo-service-gateway", "default-key", ""); got != "scoped-key" {
+		t.Fatalf("expected scoped key, got %q", got)
+	}
+}
+
+func TestResolveServiceAPIKeyFallsBackToFile(t *testing.T) {
+	t.Setenv("SIGILUM_SERVICE_API_KEY_DEMO_SERVICE_GATEWAY", "")
+	t.Setenv("SIGILUM_HOME", "")
+
+	tmp := t.TempDir()
+	keyFile := filepath.Join(tmp, "service-api-key-demo-service-gateway")
+	if err := os.WriteFile(keyFile, []byte("  file-key  \n"), 0o600); err != nil {
+		t.Fatalf("write key file: %v", err)
+	}
+
+	if got := resolveServiceAPIKey("demo-service-gateway", "", tmp); got != "file-key" {
+		t.Fatalf("expected file key, got %q", got)
+	}
+}
+
+func TestResolveServiceAPIKeyRejectsUnsafeIDForFileLookup(t *testing.T) {
+	t.Setenv("SIGILUM_SERVICE_API_KEY_DEFAULT", "")
+	t.Setenv("SIGILUM_HOME", "")
+
+	tmp := t.TempDir()
+	if got := resolveServiceAPIKey("../escape", "", tmp); got != "" {
+		t.Fatalf("expected empty key for unsafe id, got %q", got)
 	}
 }

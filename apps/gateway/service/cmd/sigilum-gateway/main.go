@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -131,7 +132,7 @@ func main() {
 		CacheTTL:        cfg.ClaimsCacheTTL,
 		RefreshInterval: cfg.ClaimsCacheRefreshInterval,
 		ResolveServiceAPIKey: func(service string) string {
-			return resolveServiceAPIKey(service, cfg.ServiceAPIKey)
+			return resolveServiceAPIKey(service, cfg.ServiceAPIKey, cfg.SigilumHomeDir)
 		},
 		Logger: log.Printf,
 	})
@@ -665,11 +666,28 @@ func resolveProxyRoute(requestPath string) (connectionID string, upstreamPath st
 	return "", "", false
 }
 
-func resolveServiceAPIKey(connectionID string, defaultValue string) string {
+func resolveServiceAPIKey(connectionID string, defaultValue string, sigilumHomeDir string) string {
 	if scoped := strings.TrimSpace(os.Getenv("SIGILUM_SERVICE_API_KEY_" + serviceAPIKeyEnvSuffix(connectionID))); scoped != "" {
 		return scoped
 	}
-	return strings.TrimSpace(defaultValue)
+	if fallback := strings.TrimSpace(defaultValue); fallback != "" {
+		return fallback
+	}
+	if !isSafeServiceKeyID(connectionID) {
+		return ""
+	}
+	homeDir := strings.TrimSpace(sigilumHomeDir)
+	if homeDir == "" {
+		homeDir = strings.TrimSpace(os.Getenv("SIGILUM_HOME"))
+	}
+	if homeDir == "" {
+		return ""
+	}
+	raw, err := os.ReadFile(filepath.Join(homeDir, "service-api-key-"+connectionID))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(raw))
 }
 
 func serviceAPIKeyEnvSuffix(connectionID string) string {
@@ -703,6 +721,26 @@ func serviceAPIKeyEnvSuffix(connectionID string) string {
 		return "DEFAULT"
 	}
 	return suffix
+}
+
+func isSafeServiceKeyID(value string) bool {
+	v := strings.TrimSpace(value)
+	if len(v) < 3 || len(v) > 64 {
+		return false
+	}
+	for i := 0; i < len(v); i++ {
+		ch := v[i]
+		isLower := ch >= 'a' && ch <= 'z'
+		isDigit := ch >= '0' && ch <= '9'
+		isHyphen := ch == '-'
+		if !isLower && !isDigit && !isHyphen {
+			return false
+		}
+		if (i == 0 || i == len(v)-1) && !isLower && !isDigit {
+			return false
+		}
+	}
+	return true
 }
 
 func writeVerificationFailure(
