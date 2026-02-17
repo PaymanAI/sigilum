@@ -32,11 +32,9 @@ async function deriveKeyMaterial(secret: string): Promise<Uint8Array> {
 type AesUsage = "encrypt" | "decrypt";
 
 async function getAesKey(env: Env, usage: AesUsage[]): Promise<CryptoKey> {
-  const masterSecret = env.WEBHOOK_SECRET_ENCRYPTION_KEY ?? env.JWT_SECRET;
+  const masterSecret = env.WEBHOOK_SECRET_ENCRYPTION_KEY;
   if (!masterSecret) {
-    throw new Error(
-      "WEBHOOK_SECRET_ENCRYPTION_KEY or JWT_SECRET must be configured for webhook secret encryption.",
-    );
+    throw new Error("WEBHOOK_SECRET_ENCRYPTION_KEY must be configured for webhook secret encryption.");
   }
   const keyMaterial = await deriveKeyMaterial(masterSecret);
   return crypto.subtle.importKey(

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "../types.js";
 import { createErrorResponse } from "../utils/validation.js";
 import { validateServiceApiKey } from "./services.js";
+import { getBearerToken, verifyJWT } from "./auth.js";
 
 /** Namespace must be 3-64 characters, alphanumeric and hyphens only. */
 const NAMESPACE_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}[a-zA-Z0-9]$/;
@@ -11,7 +12,6 @@ export const namespacesRouter = new Hono<{ Bindings: Env }>();
 type NamespaceClaimsLookup =
   | {
     available: true;
-    table: "authorizations" | "claims";
     claims: Array<Record<string, unknown>>;
     total: number;
   }
@@ -26,21 +26,20 @@ function toErrorMessage(err: unknown): string {
   return String(err);
 }
 
-function parsePositiveInt(raw: string | undefined, fallback: number, max: number): number {
+function parsePositiveInt(raw: string | undefined, defaultValue: number, max: number): number {
   const parsed = Number.parseInt(raw ?? "", 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  if (!Number.isFinite(parsed) || parsed <= 0) return defaultValue;
   return Math.min(parsed, max);
 }
 
-function parseNonNegativeInt(raw: string | undefined, fallback: number): number {
+function parseNonNegativeInt(raw: string | undefined, defaultValue: number): number {
   const parsed = Number.parseInt(raw ?? "", 10);
-  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  if (!Number.isFinite(parsed) || parsed < 0) return defaultValue;
   return parsed;
 }
 
 async function selectNamespaceClaims(
   env: Env,
-  table: "authorizations" | "claims",
   namespace: string,
   status: string | undefined,
   service: string | undefined,
@@ -48,7 +47,7 @@ async function selectNamespaceClaims(
   offset: number,
 ): Promise<Array<Record<string, unknown>>> {
   let sql = `SELECT claim_id, namespace, service, public_key, agent_ip, status, created_at, approved_at, revoked_at
-             FROM ${table}
+             FROM authorizations
              WHERE namespace = ?`;
   const params: Array<string | number> = [namespace];
   if (status) {
@@ -67,12 +66,11 @@ async function selectNamespaceClaims(
 
 async function countNamespaceClaims(
   env: Env,
-  table: "authorizations" | "claims",
   namespace: string,
   status: string | undefined,
   service: string | undefined,
 ): Promise<number> {
-  let sql = `SELECT COUNT(*) as cnt FROM ${table} WHERE namespace = ?`;
+  let sql = "SELECT COUNT(*) as cnt FROM authorizations WHERE namespace = ?";
   const params: string[] = [namespace];
   if (status) {
     sql += " AND status = ?";
@@ -94,39 +92,31 @@ async function lookupNamespaceClaims(
   limit: number,
   offset: number,
 ): Promise<NamespaceClaimsLookup> {
-  const errors: string[] = [];
-  for (const table of ["authorizations", "claims"] as const) {
-    try {
-      const [claims, total] = await Promise.all([
-        selectNamespaceClaims(env, table, namespace, status, service, limit, offset),
-        countNamespaceClaims(env, table, namespace, status, service),
-      ]);
-      return { available: true, table, claims, total };
-    } catch (err) {
-      errors.push(`${table}: ${toErrorMessage(err)}`);
-    }
+  try {
+    const [claims, total] = await Promise.all([
+      selectNamespaceClaims(env, namespace, status, service, limit, offset),
+      countNamespaceClaims(env, namespace, status, service),
+    ]);
+    return { available: true, claims, total };
+  } catch (err) {
+    return { available: false, error: toErrorMessage(err) };
   }
-  return { available: false, error: errors.join(" | ") };
 }
 
 async function countApprovedClaims(
   env: Env,
   namespace: string,
 ): Promise<ApprovedClaimsCountLookup> {
-  const errors: string[] = [];
-  for (const table of ["authorizations", "claims"] as const) {
-    try {
-      const row = await env.DB.prepare(
-        `SELECT COUNT(*) as cnt
-         FROM ${table}
-         WHERE namespace = ? AND status = 'approved'`,
-      ).bind(namespace).first<{ cnt: number }>();
-      return { available: true, count: row?.cnt ?? 0 };
-    } catch (err) {
-      errors.push(`${table}: ${toErrorMessage(err)}`);
-    }
+  try {
+    const row = await env.DB.prepare(
+      `SELECT COUNT(*) as cnt
+       FROM authorizations
+       WHERE namespace = ? AND status = 'approved'`,
+    ).bind(namespace).first<{ cnt: number }>();
+    return { available: true, count: row?.cnt ?? 0 };
+  } catch (err) {
+    return { available: false, error: toErrorMessage(err) };
   }
-  return { available: false, error: errors.join(" | ") };
 }
 
 async function requireServiceAuth(c: { req: { header: (name: string) => string | undefined }; env: Env }) {
@@ -201,6 +191,18 @@ namespacesRouter.get("/:namespace/claims", async (c) => {
 
   if (!NAMESPACE_RE.test(namespace)) {
     return c.json(createErrorResponse("Invalid namespace format", "VALIDATION_ERROR"), 400);
+  }
+
+  const token = getBearerToken(c);
+  if (!token) {
+    return c.json(createErrorResponse("Authentication required", "UNAUTHORIZED"), 401);
+  }
+  const payload = await verifyJWT(c.env, token);
+  if (!payload) {
+    return c.json(createErrorResponse("Invalid or expired token", "TOKEN_EXPIRED"), 401);
+  }
+  if (payload.namespace !== namespace) {
+    return c.json(createErrorResponse("Not authorized to view claims in this namespace", "FORBIDDEN"), 403);
   }
 
   const status = c.req.query("status") ?? undefined;

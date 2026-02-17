@@ -1,7 +1,5 @@
 import type { Env } from "../types.js";
 
-const DEFAULT_WEBAUTHN_ORIGIN = "http://localhost:5000";
-
 export type ResolvedWebAuthnConfig = {
   rpID: string;
   origins: string[];
@@ -39,12 +37,12 @@ function isRpIdCompatible(originHost: string, rpID: string): boolean {
 }
 
 export function resolveWebAuthnConfig(
-  env: Pick<Env, "WEBAUTHN_ALLOWED_ORIGINS" | "WEBAUTHN_RP_ID" | "ALLOWED_ORIGINS">,
+  env: Pick<Env, "WEBAUTHN_ALLOWED_ORIGINS" | "WEBAUTHN_RP_ID">,
 ): ResolvedWebAuthnConfig {
-  const originsInput =
-    env.WEBAUTHN_ALLOWED_ORIGINS?.trim() ??
-    env.ALLOWED_ORIGINS?.trim() ??
-    DEFAULT_WEBAUTHN_ORIGIN;
+  const originsInput = env.WEBAUTHN_ALLOWED_ORIGINS?.trim();
+  if (!originsInput) {
+    throw new Error("WEBAUTHN_ALLOWED_ORIGINS must be configured");
+  }
 
   const origins = parseOrigins(originsInput);
   if (origins.length === 0) {

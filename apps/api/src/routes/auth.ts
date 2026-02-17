@@ -23,6 +23,7 @@ const RP_NAME = "Sigilum";
 const JWT_ISSUER = "sigilum-api";
 const JWT_AUDIENCE = "sigilum-dashboard";
 const JWT_COOKIE_NAME = "sigilum_token";
+const NAMESPACE_PATTERN = /^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/;
 
 /**
  * Set JWT as httpOnly cookie.
@@ -97,11 +98,9 @@ export async function verifyJWT(env: Env, token: string): Promise<{ userId: stri
 }
 
 /**
- * Extract JWT token from either httpOnly cookie (preferred) or Authorization header (fallback).
- * Cookie-based auth is more secure (XSS-resistant).
+ * Extract JWT token from the httpOnly session cookie.
  */
 export function getBearerToken(c: { req: { header: (name: string) => string | undefined } }): string | null {
-  // First, check for httpOnly cookie (preferred, secure)
   const cookies = c.req.header("Cookie");
   if (cookies) {
     const match = cookies.match(new RegExp(`(?:^|;)\\s*${JWT_COOKIE_NAME}=([^;]+)`));
@@ -109,11 +108,22 @@ export function getBearerToken(c: { req: { header: (name: string) => string | un
       return match[1].trim();
     }
   }
+  return null;
+}
 
-  // Fallback to Authorization header (for backwards compatibility, SDK usage, etc.)
-  const auth = c.req.header("Authorization");
-  if (!auth?.startsWith("Bearer ")) return null;
-  return auth.slice(7).trim() || null;
+function decodeClientDataJSON(raw: string): { challenge?: string } | null {
+  try {
+    const normalized = raw.replace(/-/g, "+").replace(/_/g, "/");
+    const padLen = (4 - (normalized.length % 4)) % 4;
+    const padded = normalized + "=".repeat(padLen);
+    const decoded = atob(padded);
+    const bytes = Uint8Array.from(decoded, (char) => char.charCodeAt(0));
+    const parsed = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed as { challenge?: string };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -123,9 +133,15 @@ export function getBearerToken(c: { req: { header: (name: string) => string | un
  */
 authRouter.get("/signup/options", async (c) => {
   const email = c.req.query("email");
-  const namespace = c.req.query("namespace");
-  if (!email || !namespace || namespace.length < 3) {
-    return c.json(createErrorResponse("Query params email and namespace (min 3 chars) required", "VALIDATION_ERROR"), 400);
+  const namespace = c.req.query("namespace")?.trim();
+  if (!email || !namespace || !NAMESPACE_PATTERN.test(namespace)) {
+    return c.json(
+      createErrorResponse(
+        "Query params email and namespace are required. Namespace must match ^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$",
+        "VALIDATION_ERROR",
+      ),
+      400,
+    );
   }
 
   // Early conflict checks so users don't hit passkey prompt for already-registered identities.
@@ -194,7 +210,12 @@ authRouter.get("/signup/options", async (c) => {
 
 const signupBodySchema = z.object({
   email: z.string().email(),
-  namespace: z.string().min(3).max(64),
+  namespace: z
+    .string()
+    .trim()
+    .min(3)
+    .max(64)
+    .regex(NAMESPACE_PATTERN, "Namespace must match ^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$"),
   passkeyName: z.string().min(1).max(100).optional(),
   credential: z.object({
     id: z.string(),
@@ -230,14 +251,10 @@ authRouter.post("/signup", async (c) => {
     return c.json(createErrorResponse("WebAuthn is not configured correctly", "SERVER_MISCONFIGURED"), 500);
   }
 
-  const clientDataJSON = JSON.parse(
-    new TextDecoder().decode(
-      Uint8Array.from(
-        atob(body.credential.response.clientDataJSON.replace(/-/g, "+").replace(/_/g, "/")),
-        (char) => char.charCodeAt(0),
-      ),
-    ),
-  ) as { challenge?: string };
+  const clientDataJSON = decodeClientDataJSON(body.credential.response.clientDataJSON);
+  if (!clientDataJSON) {
+    return c.json(createErrorResponse("Invalid credential: malformed clientDataJSON", "INVALID_CREDENTIAL"), 400);
+  }
   const challengeFromClient = clientDataJSON.challenge;
   if (!challengeFromClient) {
     return c.json(createErrorResponse("Invalid credential: no challenge in clientDataJSON", "INVALID_CREDENTIAL"), 400);
@@ -412,7 +429,6 @@ authRouter.post("/signup", async (c) => {
           created_at: p.created_at,
         })),
       },
-      token, // Still return token for backwards compatibility
     },
     201,
   );
@@ -481,14 +497,10 @@ authRouter.post("/login", async (c) => {
     return c.json(createErrorResponse("Credential not found", "CREDENTIAL_NOT_FOUND"), 401);
   }
 
-  const clientDataJSON = JSON.parse(
-    new TextDecoder().decode(
-      Uint8Array.from(
-        atob(body.credential.response.clientDataJSON.replace(/-/g, "+").replace(/_/g, "/")),
-        (char) => char.charCodeAt(0),
-      ),
-    ),
-  ) as { challenge?: string };
+  const clientDataJSON = decodeClientDataJSON(body.credential.response.clientDataJSON);
+  if (!clientDataJSON) {
+    return c.json(createErrorResponse("Invalid credential: malformed clientDataJSON", "INVALID_CREDENTIAL"), 400);
+  }
   const challengeFromClient = clientDataJSON.challenge;
   if (!challengeFromClient) {
     return c.json(createErrorResponse("Invalid credential", "INVALID_CREDENTIAL"), 400);
@@ -596,13 +608,12 @@ authRouter.post("/login", async (c) => {
         created_at: p.created_at,
       })),
     },
-    token, // Still return token for backwards compatibility
   });
 });
 
 /**
  * GET /v1/auth/me
- * Return current user from JWT. Supports Authorization: Bearer <token>.
+ * Return current user from the auth cookie JWT.
  */
 authRouter.get("/me", async (c) => {
   const token = getBearerToken(c);
@@ -652,6 +663,62 @@ authRouter.get("/me", async (c) => {
 });
 
 /**
+ * GET /v1/auth/passkeys/options
+ * Returns registration options for adding an additional passkey to the current account.
+ */
+authRouter.get("/passkeys/options", async (c) => {
+  const token = getBearerToken(c);
+  if (!token) return c.json(createErrorResponse("Not authenticated", "UNAUTHORIZED"), 401);
+  const payload = await verifyJWT(c.env, token);
+  if (!payload) return c.json(createErrorResponse("Invalid or expired token", "TOKEN_EXPIRED"), 401);
+
+  let webAuthnConfig;
+  try {
+    webAuthnConfig = resolveWebAuthnConfig(c.env);
+  } catch (err) {
+    console.error("Invalid WebAuthn configuration:", err);
+    return c.json(createErrorResponse("WebAuthn is not configured correctly", "SERVER_MISCONFIGURED"), 500);
+  }
+
+  const existingCredentials = await c.env.DB.prepare(
+    "SELECT id FROM webauthn_credentials WHERE user_id = ?",
+  )
+    .bind(payload.userId)
+    .all<{ id: string }>();
+
+  const excludeCredentials = existingCredentials.results
+    .map((cred) => {
+      if (!cred.id) return null;
+      return { id: cred.id, type: "public-key" as const };
+    })
+    .filter((cred): cred is { id: string; type: "public-key" } => cred !== null);
+
+  const options = await generateRegistrationOptions({
+    rpName: RP_NAME,
+    rpID: webAuthnConfig.rpID,
+    userName: payload.email,
+    userID: crypto.getRandomValues(new Uint8Array(32)),
+    userDisplayName: payload.namespace,
+    attestationType: "none",
+    authenticatorSelection: {
+      authenticatorAttachment: "platform",
+      userVerification: "preferred",
+      residentKey: "preferred",
+    },
+    supportedAlgorithmIDs: [-7, -257],
+    excludeCredentials,
+  });
+
+  await c.env.DB.prepare(
+    "INSERT INTO webauthn_challenges (challenge, type, email, namespace) VALUES (?, 'registration', ?, ?)",
+  )
+    .bind(options.challenge, payload.email, payload.namespace)
+    .run();
+
+  return c.json(options);
+});
+
+/**
  * POST /v1/auth/passkeys
  * Add a new passkey to the current user's account.
  */
@@ -661,7 +728,12 @@ authRouter.post("/passkeys", async (c) => {
   const payload = await verifyJWT(c.env, token);
   if (!payload) return c.json(createErrorResponse("Invalid or expired token", "TOKEN_EXPIRED"), 401);
 
-  const body = await c.req.json<{ name?: string; credential: unknown }>();
+  let body: { name?: string; credential: unknown };
+  try {
+    body = await c.req.json<{ name?: string; credential: unknown }>();
+  } catch {
+    return c.json(createErrorResponse("Invalid request body", "INVALID_JSON"), 400);
+  }
   const passkeyName = body.name?.trim() || "My Passkey";
   const credential = body.credential as RegistrationResponseJSON;
 
@@ -677,15 +749,10 @@ authRouter.post("/passkeys", async (c) => {
     return c.json(createErrorResponse("WebAuthn is not configured correctly", "SERVER_MISCONFIGURED"), 500);
   }
 
-  // Extract challenge from clientDataJSON
-  const clientDataJSON = JSON.parse(
-    new TextDecoder().decode(
-      Uint8Array.from(
-        atob(credential.response.clientDataJSON.replace(/-/g, "+").replace(/_/g, "/")),
-        (char) => char.charCodeAt(0),
-      ),
-    ),
-  ) as { challenge?: string };
+  const clientDataJSON = decodeClientDataJSON(credential.response.clientDataJSON);
+  if (!clientDataJSON) {
+    return c.json(createErrorResponse("Invalid credential: malformed clientDataJSON", "INVALID_CREDENTIAL"), 400);
+  }
   const challengeFromClient = clientDataJSON.challenge;
   if (!challengeFromClient) {
     return c.json(createErrorResponse("Invalid credential: no challenge in clientDataJSON", "INVALID_CREDENTIAL"), 400);
@@ -796,7 +863,12 @@ authRouter.patch("/passkeys/:id", async (c) => {
   if (!payload) return c.json(createErrorResponse("Invalid or expired token", "TOKEN_EXPIRED"), 401);
 
   const passkeyId = c.req.param("id");
-  const body = await c.req.json<{ name?: string }>();
+  let body: { name?: string };
+  try {
+    body = await c.req.json<{ name?: string }>();
+  } catch {
+    return c.json(createErrorResponse("Invalid request body", "INVALID_JSON"), 400);
+  }
   const name = body.name?.trim();
   if (!name || name.length < 1 || name.length > 100) {
     return c.json(createErrorResponse("Name must be 1-100 characters", "VALIDATION_ERROR"), 400);
@@ -865,7 +937,12 @@ authRouter.patch("/settings", async (c) => {
   const payload = await verifyJWT(c.env, token);
   if (!payload) return c.json(createErrorResponse("Invalid or expired token", "TOKEN_EXPIRED"), 401);
 
-  const incoming = await c.req.json<Record<string, unknown>>();
+  let incoming: Record<string, unknown>;
+  try {
+    incoming = await c.req.json<Record<string, unknown>>();
+  } catch {
+    return c.json(createErrorResponse("Invalid request body", "INVALID_JSON"), 400);
+  }
 
   const row = await c.env.DB.prepare("SELECT settings FROM users WHERE id = ?")
     .bind(payload.userId)

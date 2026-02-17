@@ -1,5 +1,6 @@
 import type { Env } from "./types.js";
 import { getConfig } from "./utils/config.js";
+import { isValidWebhookUrl } from "./utils/validation.js";
 import { decryptWebhookSecret } from "./utils/webhook-secrets.js";
 import { enqueueWebhookDelivery, type WebhookDeliveryMessage } from "./utils/webhook-delivery.js";
 
@@ -161,6 +162,20 @@ async function processWebhookDelivery(
   }
 
   if (!subscribedEvents.includes(job.event)) {
+    message.ack();
+    return;
+  }
+
+  const urlValidation = await isValidWebhookUrl(row.url, env);
+  if (!urlValidation.valid) {
+    console.error(
+      `[WebhookQueue] Blocked webhook delivery to invalid target for ${row.id}: ${urlValidation.error ?? "invalid URL"}`,
+    );
+    await env.DB.prepare(
+      "UPDATE webhooks SET active = 0, last_failure_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), failure_count = failure_count + 1 WHERE id = ?",
+    )
+      .bind(row.id)
+      .run();
     message.ack();
     return;
   }

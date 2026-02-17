@@ -33,7 +33,6 @@ async function verifyJWT(env: Env, token: string) {
 }
 
 function getBearerToken(c: { req: { header: (name: string) => string | undefined } }): string | null {
-  // First, check for httpOnly cookie (preferred, secure)
   const JWT_COOKIE_NAME = "sigilum_token";
   const cookies = c.req.header("Cookie");
   if (cookies) {
@@ -42,11 +41,7 @@ function getBearerToken(c: { req: { header: (name: string) => string | undefined
       return match[1].trim();
     }
   }
-
-  // Fallback to Authorization header (for backwards compatibility, SDK usage, etc.)
-  const auth = c.req.header("Authorization");
-  if (!auth?.startsWith("Bearer ")) return null;
-  return auth.slice(7).trim() || null;
+  return null;
 }
 
 async function requireAuth(c: { req: { header: (name: string) => string | undefined }; env: Env; json: (data: unknown, status?: number) => Response }) {
@@ -145,6 +140,13 @@ servicesRouter.post("/", async (c) => {
       return c.json(createErrorResponse("Validation failed", "VALIDATION_ERROR", err.issues), 400);
     }
     return c.json(createErrorResponse("Invalid request body", "INVALID_JSON"), 400);
+  }
+
+  if (body.webhook) {
+    const urlValidation = await isValidWebhookUrl(body.webhook.url, c.env);
+    if (!urlValidation.valid) {
+      return c.json(createErrorResponse(urlValidation.error!, "INVALID_WEBHOOK_URL"), 400);
+    }
   }
 
   // Check slug uniqueness

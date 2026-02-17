@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { SignJWT } from "jose";
 import { app } from "../index.js";
 
 type Row = Record<string, unknown>;
@@ -34,7 +35,6 @@ class MockD1Database {
   services: Array<Row> = [];
   webhooks: Array<Row> = [];
   authorizations: Array<Row> = [];
-  claims: Array<Row> = [];
   users: Array<Row> = [];
 
   prepare(sql: string) {
@@ -108,29 +108,6 @@ class MockD1Database {
       ) as T | null;
     }
 
-    if (
-      sql.includes("FROM claims") &&
-      sql.includes("public_key = ?") &&
-      sql.includes("status = 'approved'")
-    ) {
-      const [namespace, publicKey, service] = params as [string, string, string];
-      const found = this.claims.find(
-        (a) =>
-          a.namespace === namespace &&
-          a.public_key === publicKey &&
-          a.service === service &&
-          a.status === "approved",
-      );
-      return (
-        found
-          ? {
-            claim_id: found.claim_id,
-            approved_at: found.approved_at ?? null,
-          }
-          : null
-      ) as T | null;
-    }
-
     if (sql.includes("FROM users WHERE namespace = ?")) {
       const [namespace] = params as [string];
       const user = this.users.find((u) => u.namespace === namespace);
@@ -147,14 +124,6 @@ class MockD1Database {
     if (sql.includes("COUNT(*) as cnt") && sql.includes("FROM authorizations") && sql.includes("namespace = ?")) {
       const [namespace] = params as [string];
       const cnt = this.authorizations.filter(
-        (a) => a.namespace === namespace && a.status === "approved",
-      ).length;
-      return { cnt } as T;
-    }
-
-    if (sql.includes("COUNT(*) as cnt") && sql.includes("FROM claims") && sql.includes("namespace = ?")) {
-      const [namespace] = params as [string];
-      const cnt = this.claims.filter(
         (a) => a.namespace === namespace && a.status === "approved",
       ).length;
       return { cnt } as T;
@@ -274,6 +243,24 @@ async function sha256Hex(value: string): Promise<string> {
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+async function createSessionCookie(
+  env: { JWT_SECRET: string },
+  claims?: { userId?: string; email?: string; namespace?: string },
+): Promise<string> {
+  const token = await new SignJWT({
+    email: claims?.email ?? "alice@example.com",
+    namespace: claims?.namespace ?? "alice",
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(claims?.userId ?? "user_1")
+    .setIssuer("sigilum-api")
+    .setAudience("sigilum-dashboard")
+    .setIssuedAt()
+    .setExpirationTime("1h")
+    .sign(new TextEncoder().encode(env.JWT_SECRET));
+  return `sigilum_token=${token}`;
 }
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -527,6 +514,8 @@ function req(path: string, init?: RequestInit) {
     ENVIRONMENT: "test",
     ALLOWED_ORIGINS: "https://dashboard.sigilum.id,http://localhost:3000",
     JWT_SECRET: "test-jwt-secret",
+    WEBAUTHN_ALLOWED_ORIGINS: "http://localhost:3000",
+    WEBAUTHN_RP_ID: "localhost",
     WEBHOOK_SECRET_ENCRYPTION_KEY: "test-webhook-secret",
     DB: db as unknown as D1Database,
     NONCE_STORE_DO: nonceNamespace as unknown as DurableObjectNamespace,
@@ -584,6 +573,33 @@ describe("Namespaces claims cache endpoint", () => {
 });
 
 describe("Namespaces upstream behavior", () => {
+  it("requires namespace-owner auth for namespace claims listing", async () => {
+    const res = await req("/v1/namespaces/alice/claims");
+    expect(res.status).toBe(401);
+  });
+
+  it("forbids namespace claims listing for other namespaces", async () => {
+    const cookie = await createSessionCookie({ JWT_SECRET: "test-jwt-secret" }, {
+      userId: "user_1",
+      email: "alice@example.com",
+      namespace: "alice",
+    });
+    const res = await req("/v1/namespaces/bob/claims", {
+      headers: { Cookie: cookie },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("allows namespace-owner claims listing", async () => {
+    const cookie = await createSessionCookie({ JWT_SECRET: "test-jwt-secret" });
+    const res = await req("/v1/namespaces/alice/claims", {
+      headers: { Cookie: cookie },
+    });
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { claims: Array<{ claim_id: string }> };
+    expect(data.claims.some((claim) => claim.claim_id === "cl_1")).toBe(true);
+  });
+
   it("resolves namespace from D1", async () => {
     const res = await req("/v1/namespaces/alice");
     expect(res.status).toBe(200);
@@ -597,37 +613,13 @@ describe("Namespaces upstream behavior", () => {
   });
 });
 
-describe("Verify endpoint fallback behavior", () => {
+describe("Verify endpoint behavior", () => {
   it("verifies from authorizations table", async () => {
     const res = await req("/v1/verify?namespace=alice&public_key=ed25519:pk1&service=my-service");
     expect(res.status).toBe(200);
     const data = (await res.json()) as Record<string, unknown>;
     expect(data.authorized).toBe(true);
     expect(data.claim_id).toBe("cl_1");
-  });
-
-  it("falls back to legacy claims table if authorizations table is unavailable", async () => {
-    db.claims.push({
-      claim_id: "legacy_cl_1",
-      namespace: "legacy",
-      public_key: "ed25519:legacy",
-      service: "my-service",
-      status: "approved",
-    });
-
-    const originalFirst = db.first.bind(db);
-    db.first = async <T>(sql: string, params: unknown[]): Promise<T | null> => {
-      if (sql.includes("FROM authorizations") && sql.includes("status = 'approved'")) {
-        throw new Error("no such table: authorizations");
-      }
-      return originalFirst<T>(sql, params);
-    };
-
-    const res = await req("/v1/verify?namespace=legacy&public_key=ed25519:legacy&service=my-service");
-    expect(res.status).toBe(200);
-    const data = (await res.json()) as Record<string, unknown>;
-    expect(data.authorized).toBe(true);
-    expect(data.claim_id).toBe("legacy_cl_1");
   });
 });
 
@@ -643,10 +635,86 @@ describe("DID resolution", () => {
 });
 
 describe("Removed redundant webhook surface", () => {
-  it("returns 404 for legacy /v1/webhooks endpoints", async () => {
+  it("returns 404 for removed /v1/webhooks endpoints", async () => {
     const res = await req("/v1/webhooks", {
       headers: { Authorization: "Bearer test-api-key" },
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("Service bootstrap webhook validation", () => {
+  it("rejects non-public webhook targets during service creation", async () => {
+    const cookie = await createSessionCookie({ JWT_SECRET: "test-jwt-secret" });
+    const res = await req("/v1/services", {
+      method: "POST",
+      headers: {
+        Cookie: cookie,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "Payments",
+        slug: "payments-service",
+        domain: "payments.example.com",
+        description: "Payment service",
+        webhook: {
+          url: "http://10.0.0.10/webhook",
+          secret: "0123456789abcdef",
+        },
+      }),
+    });
+    expect(res.status).toBe(400);
+    const data = (await res.json()) as { code?: string };
+    expect(data.code).toBe("INVALID_WEBHOOK_URL");
+  });
+});
+
+describe("Auth payload hardening", () => {
+  it("returns add-passkey options for authenticated users", async () => {
+    const cookie = await createSessionCookie({ JWT_SECRET: "test-jwt-secret" });
+    const res = await req("/v1/auth/passkeys/options", {
+      headers: { Cookie: cookie },
+    });
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { challenge?: string };
+    expect(typeof data.challenge).toBe("string");
+    expect(data.challenge?.length).toBeGreaterThan(0);
+  });
+
+  it("rejects invalid namespace format in signup options", async () => {
+    const res = await req("/v1/auth/signup/options?email=test@example.com&namespace=alice_");
+    expect(res.status).toBe(400);
+    const data = (await res.json()) as { code?: string };
+    expect(data.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("rejects uppercase namespace in signup options", async () => {
+    const res = await req("/v1/auth/signup/options?email=test@example.com&namespace=Alice");
+    expect(res.status).toBe(400);
+    const data = (await res.json()) as { code?: string };
+    expect(data.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns controlled 400 for malformed signup clientDataJSON", async () => {
+    const res = await req("/v1/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "new-user@example.com",
+        namespace: "new-user",
+        credential: {
+          id: "cred_1",
+          rawId: "cred_1",
+          type: "public-key",
+          response: {
+            attestationObject: "AA==",
+            clientDataJSON: "!!!not-base64url!!!",
+          },
+        },
+      }),
+    });
+    expect(res.status).toBe(400);
+    const data = (await res.json()) as { code?: string };
+    expect(data.code).toBe("INVALID_CREDENTIAL");
   });
 });

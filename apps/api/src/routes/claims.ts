@@ -36,7 +36,7 @@ claimsRouter.post("/", async (c) => {
 
   const authHeader = c.req.header("Authorization");
   if (!authHeader?.startsWith("Bearer ")) {
-    return c.json(createErrorResponse("Missing or invalid Authorization header. Use: Bearer sk_live_...", "UNAUTHORIZED"), 401);
+    return c.json(createErrorResponse("Missing or invalid Authorization header. Use: Bearer <service_api_key>", "UNAUTHORIZED"), 401);
   }
   const apiKey = authHeader.slice(7).trim();
   const serviceInfo = await validateServiceApiKey(c.env.DB, apiKey);
