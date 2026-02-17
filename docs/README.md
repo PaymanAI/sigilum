@@ -12,5 +12,13 @@ This folder contains all long-form project documentation.
 
 ## API Docs
 
-- `../apps/api/README.md` - API guide and endpoint overview.
-- `../apps/api/ENV_VARS.md` - API environment variables and Cloudflare binding configuration.
+- [`apps/api/README.md`](../apps/api/README.md) - API guide and endpoint overview.
+- [`apps/api/ENV_VARS.md`](../apps/api/ENV_VARS.md) - API environment variables and Cloudflare binding configuration.
+
+## SDK Docs
+
+- [`sdks/README.md`](../sdks/README.md) - SDK index and shared contract notes.
+- [`sdks/sdk-ts/README.md`](../sdks/sdk-ts/README.md) - TypeScript SDK.
+- [`sdks/sdk-python/README.md`](../sdks/sdk-python/README.md) - Python SDK.
+- [`sdks/sdk-go/README.md`](../sdks/sdk-go/README.md) - Go SDK.
+- [`sdks/sdk-java/README.md`](../sdks/sdk-java/README.md) - Java SDK.
