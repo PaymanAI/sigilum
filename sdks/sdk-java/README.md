@@ -29,8 +29,8 @@ Sigilum.CertifyOptions certify = new Sigilum.CertifyOptions();
 certify.namespace = "alice";
 Sigilum.SigilumBindings bindings = Sigilum.certify(certify);
 
-bindings.request(
-  "/claims?status=approved",
+bindings.fetch(
+  "/v1/namespaces/" + bindings.namespace,
   "GET",
   Map.of(),
   null

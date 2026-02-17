@@ -30,7 +30,10 @@ result, _ := sigilum.InitIdentity(sigilum.InitIdentityOptions{Namespace: "alice"
 _ = result
 
 bindings, _ := sigilum.Certify(sigilum.CertifyOptions{Namespace: "alice"})
-resp, err := bindings.Request(context.Background(), "/claims?status=approved", "GET", nil, nil)
+resp, err := bindings.Do(context.Background(), sigilum.SignRequestInput{
+	URL:    "/v1/namespaces/" + bindings.Namespace,
+	Method: "GET",
+})
 if err != nil {
 	log.Fatal(err)
 }

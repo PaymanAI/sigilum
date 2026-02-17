@@ -38,7 +38,10 @@ class Agent:
 agent = Agent()
 sigilum.certify(agent, namespace="alice")
 
-response = agent.sigilum.request("/claims?status=approved", method="GET")
+response = agent.sigilum.fetch(
+    url=f"/v1/namespaces/{agent.sigilum.namespace}",
+    method="GET",
+)
 print(response.status)
 print(response.read().decode("utf-8"))
 ```
@@ -46,8 +49,8 @@ print(response.read().decode("utf-8"))
 ## Signed request
 
 ```python
-agent.sigilum.request(
-    "/claims?status=approved",
+agent.sigilum.fetch(
+    url=f"/v1/namespaces/{agent.sigilum.namespace}",
     method="GET",
 )
 ```

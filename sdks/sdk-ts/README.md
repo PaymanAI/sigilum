@@ -41,7 +41,7 @@ import * as sigilum from "@sigilum/sdk";
 
 const agent = sigilum.certify({});
 
-const response = await agent.sigilum.request("/claims?status=approved", {
+const response = await agent.sigilum.fetch(`/v1/namespaces/${agent.sigilum.namespace}`, {
   method: "GET",
 });
 
@@ -54,7 +54,7 @@ console.log(data);
 ```ts
 const agent = sigilum.certify(createAgent(...));
 
-await agent.sigilum.request("/claims?status=approved", {
+await agent.sigilum.fetch(`/v1/namespaces/${agent.sigilum.namespace}`, {
   method: "GET",
 });
 ```
