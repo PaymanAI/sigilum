@@ -17,7 +17,7 @@ class SigilumRFC9421ConformanceTest {
 
   @Test
   void rfc9421ProfileVectorsAndStrictChecks() throws Exception {
-    Path fixturePath = Path.of("..", "shared", "test-vectors", "http-signatures-rfc9421.json");
+    Path fixturePath = Path.of("..", "test-vectors", "http-signatures-rfc9421.json");
     JsonNode fixture = MAPPER.readTree(Files.readString(fixturePath, StandardCharsets.UTF_8));
     long created = fixture.get("fixed").get("created").asLong();
     String nonce = fixture.get("fixed").get("nonce").asText();

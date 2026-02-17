@@ -27,7 +27,7 @@ type rfcFixture struct {
 
 func loadRFCFixture(t *testing.T) rfcFixture {
 	t.Helper()
-	path := filepath.Join("..", "..", "shared", "test-vectors", "http-signatures-rfc9421.json")
+	path := filepath.Join("..", "..", "test-vectors", "http-signatures-rfc9421.json")
 	bytes, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)

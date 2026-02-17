@@ -10,7 +10,7 @@ from sigilum.identity_store import init_identity, load_identity
 
 def _fixture() -> dict:
     root = Path(__file__).resolve().parents[3]
-    path = root / "sdks" / "shared" / "test-vectors" / "http-signatures-rfc9421.json"
+    path = root / "sdks" / "test-vectors" / "http-signatures-rfc9421.json"
     return json.loads(path.read_text(encoding="utf-8"))
 
 

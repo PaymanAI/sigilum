@@ -24,7 +24,7 @@ type Fixture = {
 function readFixture(): Fixture {
   const fixturePath = path.resolve(
     process.cwd(),
-    "../shared/test-vectors/http-signatures-rfc9421.json",
+    "../test-vectors/http-signatures-rfc9421.json",
   );
   return JSON.parse(fs.readFileSync(fixturePath, "utf8")) as Fixture;
 }

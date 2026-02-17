@@ -1,0 +1,41 @@
+{
+  "profile": "sigilum-rfc9421-v1",
+  "fixed": {
+    "created": 1700000000,
+    "nonce": "123e4567-e89b-12d3-a456-426614174000"
+  },
+  "vectors": [
+    {
+      "name": "get-no-body-fragment",
+      "method": "GET",
+      "url": "https://api.sigilum.local/v1/namespaces/alice/claims?status=approved#fragment",
+      "body": null,
+      "expected_target_uri": "https://api.sigilum.local/v1/namespaces/alice/claims?status=approved",
+      "expected_method_component": "get",
+      "expected_components": [
+        "@method",
+        "@target-uri",
+        "sigilum-namespace",
+        "sigilum-agent-key",
+        "sigilum-agent-cert"
+      ]
+    },
+    {
+      "name": "post-with-body",
+      "method": "POST",
+      "url": "https://api.sigilum.local/v1/namespaces/alice/claims",
+      "body": "{\"action\":\"approve\"}",
+      "expected_target_uri": "https://api.sigilum.local/v1/namespaces/alice/claims",
+      "expected_method_component": "post",
+      "expected_content_digest": "sha-256=:5toCTO6LRikiTvJ0Ha+F6ucUxaTs3wMsnaImDBR0NZg=:",
+      "expected_components": [
+        "@method",
+        "@target-uri",
+        "content-digest",
+        "sigilum-namespace",
+        "sigilum-agent-key",
+        "sigilum-agent-cert"
+      ]
+    }
+  ]
+}
