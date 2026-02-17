@@ -98,6 +98,13 @@ BLOCKCHAIN_MODE=disabled|sync|memory|queue
 WEBHOOK_RETRY_WINDOW_HOURS=24
 WEBHOOK_FAILURE_THRESHOLD=10
 
+# Webhook SSRF policy
+# Default is strict (private/internal targets blocked).
+# Set true only for trusted internal deployments that need private IP webhook targets.
+# WEBHOOK_ALLOW_PRIVATE_TARGETS=true
+# Optional DNS-over-HTTPS resolver for hostname checks (default shown):
+# WEBHOOK_DNS_RESOLVER_URL=https://cloudflare-dns.com/dns-query
+
 # Optional final-failure alert email settings
 WEBHOOK_ALERT_EMAIL_FROM=alerts@example.com
 # RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxx

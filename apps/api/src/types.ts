@@ -10,6 +10,8 @@ export interface Env {
   NONCE_STORE_DO?: DurableObjectNamespace;
   WEBHOOK_ALERT_EMAIL_FROM?: string;
   RESEND_API_KEY?: string; // Optional: preferred transport for alert emails
+  WEBHOOK_ALLOW_PRIVATE_TARGETS?: string; // Optional: allow private/internal webhook IP targets
+  WEBHOOK_DNS_RESOLVER_URL?: string; // Optional: override DoH endpoint used for SSRF DNS checks
   // CACHE: KVNamespace;
 
   // Blockchain configuration

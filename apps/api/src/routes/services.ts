@@ -581,7 +581,7 @@ servicesRouter.post("/:serviceId/webhooks", async (c) => {
   }
 
   // SSRF protection: validate webhook URL
-  const urlValidation = await isValidWebhookUrl(body.url);
+  const urlValidation = await isValidWebhookUrl(body.url, c.env);
   if (!urlValidation.valid) {
     return c.json(createErrorResponse(urlValidation.error!, "INVALID_WEBHOOK_URL"), 400);
   }

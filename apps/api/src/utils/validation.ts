@@ -2,7 +2,9 @@
  * SSRF protection: validate that a URL doesn't point to internal/private IP ranges.
  * This resolves DNS so hostnames that map to private IPs are rejected.
  */
-const DNS_RESOLVER_URL = "https://cloudflare-dns.com/dns-query";
+import type { Env } from "../types.js";
+
+const DEFAULT_DNS_RESOLVER_URL = "https://cloudflare-dns.com/dns-query";
 const DNS_RECORD_TYPES = ["A", "AAAA"] as const;
 
 interface DnsJsonAnswer {
@@ -87,11 +89,39 @@ function toErrorMessage(err: unknown): string {
   return String(err);
 }
 
-async function resolveHostnameToIPs(hostname: string): Promise<string[]> {
+function parseBooleanFlag(value: string | undefined): boolean {
+  return value?.trim().toLowerCase() === "true";
+}
+
+function getDnsResolverUrl(env?: Pick<Env, "WEBHOOK_DNS_RESOLVER_URL">): string {
+  const configured = env?.WEBHOOK_DNS_RESOLVER_URL?.trim();
+  if (!configured) return DEFAULT_DNS_RESOLVER_URL;
+  try {
+    const parsed = new URL(configured);
+    if (!["https:", "http:"].includes(parsed.protocol)) {
+      return DEFAULT_DNS_RESOLVER_URL;
+    }
+    return parsed.toString();
+  } catch {
+    return DEFAULT_DNS_RESOLVER_URL;
+  }
+}
+
+function buildDnsQueryUrl(baseResolverUrl: string, hostname: string, recordType: "A" | "AAAA"): string {
+  const url = new URL(baseResolverUrl);
+  url.searchParams.set("name", hostname);
+  url.searchParams.set("type", recordType);
+  return url.toString();
+}
+
+async function resolveHostnameToIPs(
+  hostname: string,
+  resolverBaseUrl: string,
+): Promise<string[]> {
   const resolved = new Set<string>();
 
   for (const recordType of DNS_RECORD_TYPES) {
-    const url = `${DNS_RESOLVER_URL}?name=${encodeURIComponent(hostname)}&type=${recordType}`;
+    const url = buildDnsQueryUrl(resolverBaseUrl, hostname, recordType);
     let response: Response;
     try {
       response = await fetch(url, {
@@ -131,7 +161,10 @@ async function resolveHostnameToIPs(hostname: string): Promise<string[]> {
   return [...resolved];
 }
 
-export async function isValidWebhookUrl(urlString: string): Promise<{ valid: boolean; error?: string }> {
+export async function isValidWebhookUrl(
+  urlString: string,
+  env?: Pick<Env, "WEBHOOK_ALLOW_PRIVATE_TARGETS" | "WEBHOOK_DNS_RESOLVER_URL">,
+): Promise<{ valid: boolean; error?: string }> {
   let url: URL;
   try {
     url = new URL(urlString);
@@ -154,9 +187,11 @@ export async function isValidWebhookUrl(urlString: string): Promise<{ valid: boo
     return { valid: false, error: "Cannot use localhost URLs" };
   }
 
+  const allowPrivateTargets = parseBooleanFlag(env?.WEBHOOK_ALLOW_PRIVATE_TARGETS);
+
   const directIPv4 = parseIPv4(hostname);
   if (directIPv4) {
-    if (isBlockedIPv4(directIPv4)) {
+    if (!allowPrivateTargets && isBlockedIPv4(directIPv4)) {
       return { valid: false, error: "Cannot use non-public IPv4 addresses" };
     }
     return { valid: true };
@@ -164,7 +199,7 @@ export async function isValidWebhookUrl(urlString: string): Promise<{ valid: boo
 
   // Handle direct IPv6 literals.
   if (hostname.includes(":")) {
-    if (isBlockedIPv6(hostname)) {
+    if (!allowPrivateTargets && isBlockedIPv6(hostname)) {
       return { valid: false, error: "Cannot use non-public IPv6 addresses" };
     }
     return { valid: true };
@@ -173,7 +208,7 @@ export async function isValidWebhookUrl(urlString: string): Promise<{ valid: boo
   // Resolve hostnames and block if any result is private/internal.
   let resolvedIPs: string[];
   try {
-    resolvedIPs = await resolveHostnameToIPs(hostname);
+    resolvedIPs = await resolveHostnameToIPs(hostname, getDnsResolverUrl(env));
   } catch (err) {
     return { valid: false, error: `Unable to resolve hostname safely: ${toErrorMessage(err)}` };
   }
@@ -185,7 +220,7 @@ export async function isValidWebhookUrl(urlString: string): Promise<{ valid: boo
   for (const resolvedIP of resolvedIPs) {
     const resolvedV4 = parseIPv4(resolvedIP);
     if (resolvedV4) {
-      if (isBlockedIPv4(resolvedV4)) {
+      if (!allowPrivateTargets && isBlockedIPv4(resolvedV4)) {
         return {
           valid: false,
           error: `Hostname resolves to non-public IP address (${resolvedIP})`,
@@ -194,7 +229,7 @@ export async function isValidWebhookUrl(urlString: string): Promise<{ valid: boo
       continue;
     }
 
-    if (resolvedIP.includes(":") && isBlockedIPv6(resolvedIP)) {
+    if (resolvedIP.includes(":") && !allowPrivateTargets && isBlockedIPv6(resolvedIP)) {
       return {
         valid: false,
         error: `Hostname resolves to non-public IP address (${resolvedIP})`,

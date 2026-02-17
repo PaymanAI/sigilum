@@ -56,6 +56,26 @@ describe("isValidWebhookUrl", () => {
     expect(result.error).toContain("non-public IP address");
   });
 
+  it("allows private IPv4 literal when internal targets are enabled", async () => {
+    const result = await isValidWebhookUrl(
+      "http://10.0.0.10/webhook",
+      { WEBHOOK_ALLOW_PRIVATE_TARGETS: "true" },
+    );
+    expect(result.valid).toBe(true);
+  });
+
+  it("allows hostnames resolving to private IPs when internal targets are enabled", async () => {
+    stubDns({
+      "internal-allowed.example.com": { A: ["10.1.2.3"] },
+    });
+
+    const result = await isValidWebhookUrl(
+      "https://internal-allowed.example.com/webhook",
+      { WEBHOOK_ALLOW_PRIVATE_TARGETS: "true" },
+    );
+    expect(result.valid).toBe(true);
+  });
+
   it("rejects hostnames that resolve to private IPv6 addresses", async () => {
     stubDns({
       "internal-v6.example.com": { AAAA: ["fd00::1"] },
