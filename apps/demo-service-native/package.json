@@ -1,0 +1,24 @@
+{
+  "name": "@sigilum/demo-service-native",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Native Sigilum demo service for end-to-end testing",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file=.env src/index.ts",
+    "build": "echo 'demo-service-native build not needed'",
+    "start": "tsx --env-file=.env src/index.ts",
+    "clean": "rm -rf .turbo"
+  },
+  "dependencies": {
+    "hono": "^4.6.0",
+    "@hono/node-server": "^1.14.0",
+    "@sigilum/sdk": "workspace:*",
+    "@sigilum/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@sigilum/config": "workspace:*",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
