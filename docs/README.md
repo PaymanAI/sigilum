@@ -14,6 +14,7 @@ This folder contains all long-form project documentation.
 
 - [`apps/api/README.md`](../apps/api/README.md) - API guide and endpoint overview.
 - [`apps/api/ENV_VARS.md`](../apps/api/ENV_VARS.md) - API environment variables and Cloudflare binding configuration.
+- [`apps/gateway/README.md`](../apps/gateway/README.md) - Gateway behavior, routes, configuration, and assumptions.
 
 ## SDK Docs
 
