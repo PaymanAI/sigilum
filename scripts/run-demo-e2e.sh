@@ -74,6 +74,54 @@ wait_for_url() {
   return 1
 }
 
+ensure_demo_gateway_connection() {
+  local connection_id="demo-service-gateway"
+  local response_file status delete_status payload
+
+  payload="$(CONNECTION_ID="$connection_id" \
+    CONNECTION_NAME="Demo Service (Gateway)" \
+    BASE_URL="$UPSTREAM_URL" \
+    AUTH_MODE="header_key" \
+    AUTH_HEADER_NAME="X-Demo-Service-Gateway-Key" \
+    AUTH_PREFIX="" \
+    AUTH_SECRET_KEY="upstream_key" \
+    AUTH_SECRET_VALUE="$UPSTREAM_KEY" \
+    node -e '
+const payload = {
+  id: process.env.CONNECTION_ID,
+  name: process.env.CONNECTION_NAME,
+  base_url: process.env.BASE_URL,
+  auth_mode: process.env.AUTH_MODE,
+  auth_header_name: process.env.AUTH_HEADER_NAME,
+  auth_prefix: process.env.AUTH_PREFIX,
+  auth_secret_key: process.env.AUTH_SECRET_KEY,
+  secrets: { [process.env.AUTH_SECRET_KEY]: process.env.AUTH_SECRET_VALUE },
+};
+process.stdout.write(JSON.stringify(payload));
+')"
+
+  delete_status="$(curl -sS -o /dev/null -w "%{http_code}" \
+    -X DELETE "${GATEWAY_URL}/api/admin/connections/${connection_id}" || true)"
+  if [[ "$delete_status" != "200" && "$delete_status" != "204" && "$delete_status" != "404" ]]; then
+    echo "Warning: delete of existing ${connection_id} returned HTTP ${delete_status}" >&2
+  fi
+
+  response_file="$(mktemp "${TMPDIR:-/tmp}/sigilum-e2e-connection-XXXXXX.json")"
+  status="$(curl -sS -o "$response_file" -w "%{http_code}" \
+    -H "Content-Type: application/json" \
+    -X POST "${GATEWAY_URL}/api/admin/connections" \
+    --data "$payload")"
+  if [[ "$status" != "201" ]]; then
+    echo "Failed to ensure ${connection_id} via gateway admin API (HTTP ${status})" >&2
+    cat "$response_file" >&2 || true
+    rm -f "$response_file"
+    return 1
+  fi
+  rm -f "$response_file"
+
+  echo "Ensured gateway connection ${connection_id} -> ${UPSTREAM_URL}"
+}
+
 echo "Logs: ${LOG_DIR}"
 
 if curl -sf "${API_URL}/health" >/dev/null 2>&1 && curl -sf "${GATEWAY_URL}/health" >/dev/null 2>&1; then
@@ -107,6 +155,9 @@ fi
 
 NATIVE_KEY="$(tr -d '\r\n' <"${NATIVE_KEY_FILE}")"
 UPSTREAM_KEY="$(tr -d '\r\n' <"${UPSTREAM_KEY_FILE}")"
+
+echo "Ensuring gateway demo connection points at ${UPSTREAM_URL}..."
+ensure_demo_gateway_connection
 
 echo "Starting demo-service-native on ${NATIVE_URL}..."
 (
@@ -143,4 +194,3 @@ else
   echo "E2E simulator failed. See logs in ${LOG_DIR}" >&2
   exit 1
 fi
-
