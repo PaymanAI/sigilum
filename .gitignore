@@ -47,6 +47,7 @@ Thumbs.db
 # Wrangler / Cloudflare Workers
 # ========================
 .wrangler/
+apps/api/wrangler.toml
 
 # ========================
 # Logs

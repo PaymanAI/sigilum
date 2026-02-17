@@ -58,12 +58,30 @@ require_cmd() {
   fi
 }
 
+ensure_api_wrangler_config() {
+  local api_dir="${ROOT_DIR}/apps/api"
+  local config_path="${api_dir}/wrangler.toml"
+  local template_path="${api_dir}/wrangler.toml.example"
+
+  if [[ -f "$config_path" ]]; then
+    return 0
+  fi
+  if [[ ! -f "$template_path" ]]; then
+    echo "Missing Wrangler config template: ${template_path}" >&2
+    exit 1
+  fi
+
+  cp "$template_path" "$config_path"
+  echo "Created ${config_path} from template."
+}
+
 sql_escape() {
   printf "%s" "$1" | sed "s/'/''/g"
 }
 
 run_local_d1() {
   local query="$1"
+  ensure_api_wrangler_config
   (
     cd "$ROOT_DIR/apps/api"
     pnpm exec wrangler d1 execute sigilum-api --local --command "$query" >/dev/null
@@ -277,6 +295,7 @@ configure_gateway_connection() {
 add_service() {
   require_cmd pnpm
   require_cmd node
+  ensure_api_wrangler_config
 
   local namespace="${GATEWAY_SIGILUM_NAMESPACE:-johndee}"
   local service_slug=""

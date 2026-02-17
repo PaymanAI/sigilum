@@ -2,6 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
+import { copyFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -24,11 +25,28 @@ const identitiesHome = process.env.SIM_IDENTITIES_HOME ?? path.join(rootDir, ".s
 
 const bodyPayload = JSON.stringify("ping");
 
+function ensureApiWranglerConfig() {
+  const apiDir = path.join(rootDir, "apps", "api");
+  const configPath = path.join(apiDir, "wrangler.toml");
+  const templatePath = path.join(apiDir, "wrangler.toml.example");
+
+  if (existsSync(configPath)) {
+    return;
+  }
+  if (!existsSync(templatePath)) {
+    throw new Error(`Missing Wrangler config template: ${templatePath}`);
+  }
+
+  copyFileSync(templatePath, configPath);
+  console.log(`Created ${configPath} from template.`);
+}
+
 function sqlEscape(value) {
   return String(value).replace(/'/g, "''");
 }
 
 function runLocalD1(sql) {
+  ensureApiWranglerConfig();
   const result = spawnSync(
     "pnpm",
     ["exec", "wrangler", "d1", "execute", "sigilum-api", "--local", "--command", sql],

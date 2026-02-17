@@ -110,6 +110,14 @@ Configure env (from `apps/api`):
 cp .dev.vars.example .dev.vars
 ```
 
+If `wrangler.toml` is missing, create it from template:
+
+```bash
+cp wrangler.toml.example wrangler.toml
+```
+
+Local stack scripts (`scripts/run-local-api-gateway.sh`, `scripts/sigilum-service.sh`) auto-create this file when needed.
+
 Environment reference:
 - `apps/api/ENV_VARS.md`
 

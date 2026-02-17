@@ -74,6 +74,13 @@ Starts local API + gateway by running:
 
 - `scripts/run-local-api-gateway.sh`
 
+Behavior notes:
+
+- by default, gateway binaries are built/reused from `./.local/bin` to reduce memory usage on small machines
+- set `GATEWAY_BUILD_BINARIES=false` to force `go run` mode
+- on low-memory Docker sandboxes (for example 4 GB), prefer keeping binary mode enabled and avoid running gateway compile tasks in parallel with Wrangler startup
+- if `apps/api/wrangler.toml` is missing, the script auto-creates it from `apps/api/wrangler.toml.example`
+
 Example:
 
 ```bash

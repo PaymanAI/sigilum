@@ -1,0 +1,67 @@
+name = "sigilum-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+[vars]
+ENVIRONMENT = "development"
+ADAPTER_PROVIDER = "cloudflare"
+WEBAUTHN_ALLOWED_ORIGINS = "https://sigilum.id"
+WEBAUTHN_RP_ID = "sigilum.id"
+# JWT_SECRET: set via wrangler secret put JWT_SECRET (or use default in dev)
+
+# Blockchain configuration
+BLOCKCHAIN_NETWORK = "testnet"
+BLOCKCHAIN_RPC_URL = "https://sepolia.base.org"
+SIGILUM_REGISTRY_ADDRESS = "0xFdfF9642793780cAd5a30cbEFD1aF19aC0b45DAC"
+BLOCKCHAIN_MODE = "disabled"  # Safe onboarding default: opt into "queue" only after chain env is configured
+WEBHOOK_RETRY_WINDOW_HOURS = "24"
+# WEBHOOK_ALLOW_PRIVATE_TARGETS = "true" # only for trusted internal deployments
+# WEBHOOK_DNS_RESOLVER_URL = "https://cloudflare-dns.com/dns-query"
+# WEBHOOK_ALERT_EMAIL_FROM = "alerts@sigilum.dev"
+# RESEND_API_KEY: set via wrangler secret put RESEND_API_KEY
+# RELAYER_PRIVATE_KEY: set via wrangler secret put RELAYER_PRIVATE_KEY
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sigilum-api"
+database_id = "16a7efa1-93c6-4d85-867d-c19faa9dc2bc"
+
+# Cron trigger: auto-expire stale pending requests every 15 minutes
+[triggers]
+crons = ["*/15 * * * *"]
+
+# KV namespace for caching
+# [[kv_namespaces]]
+# binding = "CACHE"
+# id = ""
+
+# Queue for blockchain operations (register namespace, approve claims, etc.)
+[[queues.producers]]
+binding = "BLOCKCHAIN_QUEUE"
+queue = "sigilum-blockchain"
+
+[[queues.producers]]
+binding = "WEBHOOK_QUEUE"
+queue = "sigilum-webhook-delivery"
+
+[[queues.consumers]]
+queue = "sigilum-blockchain"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "sigilum-blockchain-dlq"
+
+[[queues.consumers]]
+queue = "sigilum-webhook-delivery"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "sigilum-webhook-delivery-dlq"
+
+[[durable_objects.bindings]]
+name = "NONCE_STORE_DO"
+class_name = "NonceStoreDurableObject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["NonceStoreDurableObject"]

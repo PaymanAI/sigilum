@@ -15,6 +15,25 @@ require_cmd pnpm
 require_cmd go
 require_cmd node
 
+ensure_api_wrangler_config() {
+  local api_dir="${ROOT_DIR}/apps/api"
+  local config_path="${api_dir}/wrangler.toml"
+  local template_path="${api_dir}/wrangler.toml.example"
+
+  if [[ -f "$config_path" ]]; then
+    return 0
+  fi
+  if [[ ! -f "$template_path" ]]; then
+    echo "Missing Wrangler config template: ${template_path}" >&2
+    exit 1
+  fi
+
+  cp "$template_path" "$config_path"
+  echo "Created ${config_path} from template."
+}
+
+ensure_api_wrangler_config
+
 : "${API_PORT:=8787}"
 : "${BLOCKCHAIN_MODE:=disabled}"
 : "${SIGILUM_REGISTRY_URL:=http://127.0.0.1:${API_PORT}}"
@@ -23,6 +42,10 @@ require_cmd node
 : "${GATEWAY_ADDR:=:38100}"
 : "${GATEWAY_DATA_DIR:=${ROOT_DIR}/.local/gateway-data}"
 : "${GATEWAY_SERVICE_CATALOG_FILE:=${GATEWAY_DATA_DIR}/service-catalog.json}"
+: "${GATEWAY_BUILD_BINARIES:=true}"
+: "${GATEWAY_BIN_DIR:=${ROOT_DIR}/.local/bin}"
+: "${GATEWAY_SERVICE_BINARY:=${GATEWAY_BIN_DIR}/sigilum-gateway}"
+: "${GATEWAY_CLI_BINARY:=${GATEWAY_BIN_DIR}/sigilum-gateway-cli}"
 # Namespace for the gateway's own Sigilum signer identity used on gateway->API requests.
 # This is NOT the service slug and does not restrict incoming agent namespaces.
 : "${GATEWAY_SIGILUM_NAMESPACE:=johndee}"
@@ -75,6 +98,49 @@ generate_service_api_key() {
 
 generate_proxy_demo_secret() {
   node -e "const crypto=require('node:crypto'); process.stdout.write('gw_demo_'+crypto.randomBytes(24).toString('hex'));"
+}
+
+gateway_binary_needs_rebuild() {
+  local binary_path="$1"
+  if [[ ! -x "$binary_path" ]]; then
+    return 0
+  fi
+  if find "$ROOT_DIR/apps/gateway/service" -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) -newer "$binary_path" -print -quit | grep -q .; then
+    return 0
+  fi
+  return 1
+}
+
+build_gateway_binaries() {
+  if [[ "${GATEWAY_BUILD_BINARIES}" != "true" ]]; then
+    return 0
+  fi
+
+  mkdir -p "$GATEWAY_BIN_DIR"
+  local build_service="false"
+  local build_cli="false"
+
+  if gateway_binary_needs_rebuild "$GATEWAY_SERVICE_BINARY"; then
+    build_service="true"
+  fi
+  if gateway_binary_needs_rebuild "$GATEWAY_CLI_BINARY"; then
+    build_cli="true"
+  fi
+
+  if [[ "$build_service" == "false" && "$build_cli" == "false" ]]; then
+    return 0
+  fi
+
+  echo "Building gateway binaries before startup (lower memory than go run)..."
+  (
+    cd "$ROOT_DIR/apps/gateway/service"
+    if [[ "$build_service" == "true" ]]; then
+      go build -o "$GATEWAY_SERVICE_BINARY" ./cmd/sigilum-gateway
+    fi
+    if [[ "$build_cli" == "true" ]]; then
+      go build -o "$GATEWAY_CLI_BINARY" ./cmd/sigilum-gateway-cli
+    fi
+  )
 }
 
 load_or_create_value() {
@@ -144,11 +210,18 @@ ensure_local_service_and_key() {
 }
 
 gateway_cli() {
+  if [[ "${GATEWAY_BUILD_BINARIES}" == "true" && -x "$GATEWAY_CLI_BINARY" ]]; then
+    GATEWAY_DATA_DIR="$GATEWAY_DATA_DIR" \
+      GATEWAY_MASTER_KEY="$GATEWAY_MASTER_KEY" \
+      "$GATEWAY_CLI_BINARY" "$@"
+    return 0
+  fi
+
   (
     cd "$ROOT_DIR/apps/gateway/service"
     GATEWAY_DATA_DIR="$GATEWAY_DATA_DIR" \
-    GATEWAY_MASTER_KEY="$GATEWAY_MASTER_KEY" \
-    go run ./cmd/sigilum-gateway-cli "$@"
+      GATEWAY_MASTER_KEY="$GATEWAY_MASTER_KEY" \
+      go run ./cmd/sigilum-gateway-cli "$@"
   )
 }
 
@@ -300,6 +373,7 @@ EOF
 fi
 
 mkdir -p "$GATEWAY_DATA_DIR"
+build_gateway_binaries
 
 if [[ "${GATEWAY_LOCAL_BOOTSTRAP}" == "true" ]]; then
   bootstrap_local_registry_access
@@ -323,22 +397,32 @@ echo "Starting API on http://127.0.0.1:${API_PORT} (BLOCKCHAIN_MODE=${BLOCKCHAIN
 ) &
 API_PID=$!
 
-echo "Starting Gateway on ${GATEWAY_ADDR} (registry=${SIGILUM_REGISTRY_URL})"
+gateway_start_cmd="go run ./cmd/sigilum-gateway"
+if [[ "${GATEWAY_BUILD_BINARIES}" == "true" && -x "$GATEWAY_SERVICE_BINARY" ]]; then
+  gateway_start_cmd="$GATEWAY_SERVICE_BINARY"
+fi
+
+echo "Starting Gateway on ${GATEWAY_ADDR} (registry=${SIGILUM_REGISTRY_URL}, cmd=${gateway_start_cmd})"
 (
   cd "$ROOT_DIR/apps/gateway/service"
-  BLOCKCHAIN_MODE="$BLOCKCHAIN_MODE" \
-  SIGILUM_REGISTRY_URL="$SIGILUM_REGISTRY_URL" \
-  SIGILUM_API_URL="$SIGILUM_API_URL" \
-  GATEWAY_ADDR="$GATEWAY_ADDR" \
-  GATEWAY_DATA_DIR="$GATEWAY_DATA_DIR" \
-  GATEWAY_SERVICE_CATALOG_FILE="$GATEWAY_SERVICE_CATALOG_FILE" \
-  GATEWAY_MASTER_KEY="$GATEWAY_MASTER_KEY" \
-  GATEWAY_SIGILUM_NAMESPACE="$GATEWAY_SIGILUM_NAMESPACE" \
-  GATEWAY_SIGILUM_HOME="$GATEWAY_SIGILUM_HOME" \
-  GATEWAY_ALLOW_UNSIGNED_PROXY="$GATEWAY_ALLOW_UNSIGNED_PROXY" \
-  GATEWAY_ALLOW_UNSIGNED_CONNECTIONS="$GATEWAY_ALLOW_UNSIGNED_CONNECTIONS" \
-  SIGILUM_SERVICE_API_KEY="${SIGILUM_SERVICE_API_KEY:-}" \
-  go run ./cmd/sigilum-gateway
+  export BLOCKCHAIN_MODE="$BLOCKCHAIN_MODE"
+  export SIGILUM_REGISTRY_URL="$SIGILUM_REGISTRY_URL"
+  export SIGILUM_API_URL="$SIGILUM_API_URL"
+  export GATEWAY_ADDR="$GATEWAY_ADDR"
+  export GATEWAY_DATA_DIR="$GATEWAY_DATA_DIR"
+  export GATEWAY_SERVICE_CATALOG_FILE="$GATEWAY_SERVICE_CATALOG_FILE"
+  export GATEWAY_MASTER_KEY="$GATEWAY_MASTER_KEY"
+  export GATEWAY_SIGILUM_NAMESPACE="$GATEWAY_SIGILUM_NAMESPACE"
+  export GATEWAY_SIGILUM_HOME="$GATEWAY_SIGILUM_HOME"
+  export GATEWAY_ALLOW_UNSIGNED_PROXY="$GATEWAY_ALLOW_UNSIGNED_PROXY"
+  export GATEWAY_ALLOW_UNSIGNED_CONNECTIONS="$GATEWAY_ALLOW_UNSIGNED_CONNECTIONS"
+  export SIGILUM_SERVICE_API_KEY="${SIGILUM_SERVICE_API_KEY:-}"
+
+  if [[ "${GATEWAY_BUILD_BINARIES}" == "true" && -x "$GATEWAY_SERVICE_BINARY" ]]; then
+    "$GATEWAY_SERVICE_BINARY"
+  else
+    go run ./cmd/sigilum-gateway
+  fi
 ) &
 GATEWAY_PID=$!
 
