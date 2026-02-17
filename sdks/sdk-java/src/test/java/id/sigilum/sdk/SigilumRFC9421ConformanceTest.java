@@ -29,7 +29,7 @@ class SigilumRFC9421ConformanceTest {
     Sigilum.initIdentity(init);
     Sigilum.SigilumIdentity identity = Sigilum.loadIdentity(new Sigilum.LoadIdentityOptions("alice", home));
 
-    Iterator<JsonNode> vectors = fixture.get("vectors").elements();
+    Iterator<JsonNode> vectors = fixture.get("vectors").iterator();
     while (vectors.hasNext()) {
       JsonNode vector = vectors.next();
       String name = vector.get("name").asText();
@@ -51,7 +51,7 @@ class SigilumRFC9421ConformanceTest {
       assertTrue(signatureInput.contains("nonce=\"" + nonce + "\""), name + ": nonce mismatch");
 
       StringBuilder expectedComponents = new StringBuilder("(");
-      Iterator<JsonNode> components = vector.get("expected_components").elements();
+      Iterator<JsonNode> components = vector.get("expected_components").iterator();
       boolean first = true;
       while (components.hasNext()) {
         if (!first) expectedComponents.append(" ");
