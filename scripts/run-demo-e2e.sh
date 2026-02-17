@@ -126,6 +126,15 @@ kill_listeners_on_port() {
 
   echo "Force-stopping lingering ${label} listener(s) on :${port}: ${pids}"
   kill -9 ${pids} 2>/dev/null || true
+
+  sleep 1
+  pids="$(listener_pids_for_port "$port")"
+  if [[ -n "$pids" ]]; then
+    echo "Unable to reclaim ${label} port :${port}; still listening PID(s): ${pids}" >&2
+    return 1
+  fi
+
+  return 0
 }
 
 clean_start_ports() {
@@ -135,9 +144,22 @@ clean_start_ports() {
   kill_listeners_on_port "$UPSTREAM_PORT" "gateway demo upstream"
 }
 
+ensure_stack_alive() {
+  if [[ "${STACK_STARTED}" == "true" ]] && [[ -n "${STACK_PID}" ]] && ! kill -0 "${STACK_PID}" 2>/dev/null; then
+    echo "Local API+gateway stack exited unexpectedly during e2e bootstrap." >&2
+    if [[ -f "${LOG_DIR}/stack.log" ]]; then
+      echo "--- stack log tail (${LOG_DIR}/stack.log) ---" >&2
+      tail -n 200 "${LOG_DIR}/stack.log" >&2 || true
+    fi
+    exit 1
+  fi
+}
+
 ensure_demo_gateway_connection() {
   local connection_id="demo-service-gateway"
   local response_file status delete_status payload
+  local max_attempts=20
+  local attempt=1
 
   payload="$(CONNECTION_ID="$connection_id" \
     CONNECTION_NAME="Demo Service (Gateway)" \
@@ -161,26 +183,57 @@ const payload = {
 process.stdout.write(JSON.stringify(payload));
 ')"
 
-  delete_status="$(curl -sS -o /dev/null -w "%{http_code}" \
-    -X DELETE "${GATEWAY_URL}/api/admin/connections/${connection_id}" || true)"
-  if [[ "$delete_status" != "200" && "$delete_status" != "204" && "$delete_status" != "404" ]]; then
-    echo "Warning: delete of existing ${connection_id} returned HTTP ${delete_status}" >&2
-  fi
+  while [[ "$attempt" -le "$max_attempts" ]]; do
+    ensure_stack_alive
 
-  response_file="$(mktemp "${TMPDIR:-/tmp}/sigilum-e2e-connection-XXXXXX.json")"
-  status="$(curl -sS -o "$response_file" -w "%{http_code}" \
-    -H "Content-Type: application/json" \
-    -X POST "${GATEWAY_URL}/api/admin/connections" \
-    --data "$payload")"
-  if [[ "$status" != "201" ]]; then
+    delete_status="$(curl -sS -o /dev/null -w "%{http_code}" \
+      -X DELETE "${GATEWAY_URL}/api/admin/connections/${connection_id}" || true)"
+    if [[ "$delete_status" != "200" && "$delete_status" != "204" && "$delete_status" != "404" && "$delete_status" != "000" ]]; then
+      echo "Warning: delete of existing ${connection_id} returned HTTP ${delete_status}" >&2
+    fi
+
+    response_file="$(mktemp "${TMPDIR:-/tmp}/sigilum-e2e-connection-XXXXXX.json")"
+    status="$(curl -sS -o "$response_file" -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -X POST "${GATEWAY_URL}/api/admin/connections" \
+      --data "$payload" || true)"
+    if [[ "$status" == "201" ]]; then
+      rm -f "$response_file"
+      echo "Ensured gateway connection ${connection_id} -> ${UPSTREAM_URL}"
+      return 0
+    fi
+
+    if [[ "$status" == "000" || "$status" == "502" || "$status" == "503" || "$status" == "504" ]]; then
+      rm -f "$response_file"
+      if [[ "$attempt" -lt "$max_attempts" ]]; then
+        echo "Gateway admin endpoint not ready (attempt ${attempt}/${max_attempts}, HTTP ${status}); retrying..."
+        sleep 1
+        attempt=$((attempt + 1))
+        continue
+      fi
+      echo "Failed to reach gateway admin endpoint after ${max_attempts} attempts (last HTTP ${status})." >&2
+      if [[ -f "${LOG_DIR}/stack.log" ]]; then
+        echo "--- stack log tail (${LOG_DIR}/stack.log) ---" >&2
+        tail -n 200 "${LOG_DIR}/stack.log" >&2 || true
+      fi
+      return 1
+    fi
+
     echo "Failed to ensure ${connection_id} via gateway admin API (HTTP ${status})" >&2
     cat "$response_file" >&2 || true
     rm -f "$response_file"
     return 1
-  fi
-  rm -f "$response_file"
+  done
 
-  echo "Ensured gateway connection ${connection_id} -> ${UPSTREAM_URL}"
+  echo "Failed to ensure ${connection_id}: retry loop exhausted unexpectedly." >&2
+  return 1
+}
+
+wait_for_gateway_admin() {
+  local admin_url="${GATEWAY_URL}/api/admin/connections"
+  wait_for_url "Gateway admin API" "${admin_url}" 90 "${LOG_DIR}/stack.log"
+  ensure_stack_alive
+  probe_status "Gateway admin API probe" "200" "GET" "${admin_url}"
 }
 
 echo "Logs: ${LOG_DIR}"
@@ -212,11 +265,14 @@ elif [[ "$api_ready" == "false" && "$gateway_ready" == "false" ]]; then
 
   wait_for_url "API" "${API_URL}/health" 180 "${LOG_DIR}/stack.log"
   wait_for_url "Gateway" "${GATEWAY_URL}/health" 180 "${LOG_DIR}/stack.log"
+  ensure_stack_alive
 else
   echo "Detected partial stack state (API ready=${api_ready}, gateway ready=${gateway_ready})." >&2
   echo "Stop existing local processes or run a clean stack, then rerun e2e tests." >&2
   exit 1
 fi
+
+wait_for_gateway_admin
 
 NATIVE_KEY_FILE="${SIGILUM_WORKSPACE_DIR}/service-api-key-demo-service-native"
 UPSTREAM_KEY_FILE="${SIGILUM_WORKSPACE_DIR}/gateway-connection-secret-demo-service-gateway"
