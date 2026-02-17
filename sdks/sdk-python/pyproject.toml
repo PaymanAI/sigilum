@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sigilum"
+version = "0.0.1"
+description = "Sigilum Python SDK — one-line local agent identity and RFC 9421 request signatures"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [
+    { name = "Sigilum", email = "dev@sigilum.id" },
+]
+dependencies = [
+    "pynacl>=1.5.0",
+]
+
+[project.scripts]
+sigilum = "sigilum.cli:main"
+
+[project.urls]
+Homepage = "https://sigilum.id"
+Repository = "https://github.com/sigilum/sdk-python"
+Documentation = "https://docs.sigilum.id"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sigilum"]
