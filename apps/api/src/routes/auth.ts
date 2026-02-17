@@ -314,7 +314,7 @@ authRouter.post("/signup", async (c) => {
   // Use batch transaction to ensure atomicity
   await c.env.DB.batch([
     c.env.DB.prepare(
-      "INSERT INTO users (id, email, namespace, plan, settings, updated_at) VALUES (?, ?, ?, 'builder', NULL, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+      "INSERT INTO users (id, email, namespace, settings, updated_at) VALUES (?, ?, ?, NULL, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
     ).bind(userId, body.email, body.namespace),
     c.env.DB.prepare(
       "INSERT INTO webauthn_credentials (id, user_id, public_key, counter, device_type, backed_up, transports, name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -375,7 +375,7 @@ authRouter.post("/signup", async (c) => {
   const token = await signJWT(c.env, userId, body.email, body.namespace);
 
   // Fetch complete user profile
-  const userRow = await c.env.DB.prepare("SELECT id, email, namespace, plan, paid_until, settings, registration_tx_hash, created_at, updated_at FROM users WHERE id = ?")
+  const userRow = await c.env.DB.prepare("SELECT id, email, namespace, settings, registration_tx_hash, created_at, updated_at FROM users WHERE id = ?")
     .bind(userId)
     .first();
 
@@ -400,8 +400,6 @@ authRouter.post("/signup", async (c) => {
         id: userId,
         email: body.email,
         namespace: body.namespace,
-        plan: userRow?.plan ?? "builder",
-        paid_until: userRow?.paid_until ?? null,
         settings,
         registration_tx_hash: userRow?.registration_tx_hash ?? null,
         created_at: userRow?.created_at,
@@ -552,7 +550,7 @@ authRouter.post("/login", async (c) => {
     .bind(verification.authenticationInfo.newCounter, credentialId)
     .run();
 
-  const userRow = await c.env.DB.prepare("SELECT id, email, namespace, plan, paid_until, settings, registration_tx_hash, created_at, updated_at FROM users WHERE id = ?")
+  const userRow = await c.env.DB.prepare("SELECT id, email, namespace, settings, registration_tx_hash, created_at, updated_at FROM users WHERE id = ?")
     .bind(credRow.user_id)
     .first();
   if (!userRow) {
@@ -586,8 +584,6 @@ authRouter.post("/login", async (c) => {
       id: userRow.id,
       email: userRow.email,
       namespace: userRow.namespace,
-      plan: userRow.plan,
-      paid_until: userRow.paid_until,
       settings,
       registration_tx_hash: userRow.registration_tx_hash ?? null,
       created_at: userRow.created_at,
@@ -619,7 +615,7 @@ authRouter.get("/me", async (c) => {
     return c.json(createErrorResponse("Invalid or expired token", "TOKEN_EXPIRED"), 401);
   }
 
-  const row = await c.env.DB.prepare("SELECT id, email, namespace, plan, paid_until, settings, registration_tx_hash, created_at, updated_at FROM users WHERE id = ?")
+  const row = await c.env.DB.prepare("SELECT id, email, namespace, settings, registration_tx_hash, created_at, updated_at FROM users WHERE id = ?")
     .bind(payload.userId)
     .first();
   if (!row) {
@@ -641,8 +637,6 @@ authRouter.get("/me", async (c) => {
     id: row.id,
     email: row.email,
     namespace: row.namespace,
-    plan: row.plan,
-    paid_until: row.paid_until,
     settings,
     registration_tx_hash: row.registration_tx_hash ?? null,
     created_at: row.created_at,
@@ -859,30 +853,6 @@ authRouter.delete("/passkeys/:id", async (c) => {
     .run();
 
   return c.json({ success: true });
-});
-
-/**
- * PATCH /v1/auth/plan
- * Update the user's plan directly.
- */
-authRouter.patch("/plan", async (c) => {
-  const token = getBearerToken(c);
-  if (!token) return c.json(createErrorResponse("Not authenticated", "UNAUTHORIZED"), 401);
-  const payload = await verifyJWT(c.env, token);
-  if (!payload) return c.json(createErrorResponse("Invalid or expired token", "TOKEN_EXPIRED"), 401);
-
-  const body = await c.req.json<{ plan?: string }>();
-  const plan = body.plan?.trim();
-  const validPlans = ["free", "builder", "scale"];
-  if (!plan || !validPlans.includes(plan)) {
-    return c.json(createErrorResponse(`Plan must be one of: ${validPlans.join(", ")}`, "VALIDATION_ERROR"), 400);
-  }
-
-  await c.env.DB.prepare("UPDATE users SET plan = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?")
-    .bind(plan, payload.userId)
-    .run();
-
-  return c.json({ success: true, plan });
 });
 
 /**

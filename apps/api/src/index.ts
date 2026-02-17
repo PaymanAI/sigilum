@@ -6,7 +6,7 @@ import { namespacesRouter } from "./routes/namespaces.js";
 import { claimsRouter } from "./routes/claims.js";
 import { verifyRouter } from "./routes/verify.js";
 import { didRouter } from "./routes/did.js";
-import { webhooksRouter, dispatchWebhookEvent } from "./routes/webhooks.js";
+import { dispatchWebhookEvent } from "./routes/webhooks.js";
 import { authRouter } from "./routes/auth.js";
 import { servicesRouter } from "./routes/services.js";
 import type { Env } from "./types.js";
@@ -42,14 +42,6 @@ app.use("*", prettyJSON());
 
 // ─── Health Check ────────────────────────────────────────────────────────────
 
-app.get("/", (c) => {
-  return c.json({
-    name: "Sigilum API",
-    version: "0.1.0",
-    status: "ok",
-  });
-});
-
 app.get("/health", (c) => {
   return c.json({ status: "ok", timestamp: new Date().toISOString() });
 });
@@ -59,7 +51,6 @@ app.get("/health", (c) => {
 app.route("/v1/namespaces", namespacesRouter);
 app.route("/v1/claims", claimsRouter);
 app.route("/v1/verify", verifyRouter);
-app.route("/v1/webhooks", webhooksRouter);
 app.route("/v1/auth", authRouter);
 app.route("/v1/services", servicesRouter);
 app.route("/.well-known/did", didRouter);

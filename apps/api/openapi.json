@@ -41,10 +41,6 @@
       "description": "DID document resolution"
     },
     {
-      "name": "Webhooks",
-      "description": "Webhook subscription management"
-    },
-    {
       "name": "Auth",
       "description": "Dashboard authentication and account management"
     },
@@ -54,47 +50,6 @@
     }
   ],
   "paths": {
-    "/": {
-      "get": {
-        "operationId": "getRoot",
-        "tags": [
-          "Health"
-        ],
-        "summary": "API info",
-        "description": "Returns basic API information and status.",
-        "responses": {
-          "200": {
-            "description": "API info",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": [
-                    "name",
-                    "version",
-                    "status"
-                  ],
-                  "properties": {
-                    "name": {
-                      "type": "string",
-                      "example": "Sigilum API"
-                    },
-                    "version": {
-                      "type": "string",
-                      "example": "0.1.0"
-                    },
-                    "status": {
-                      "type": "string",
-                      "example": "ok"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/health": {
       "get": {
         "operationId": "getHealth",
@@ -503,6 +458,26 @@
               }
             }
           },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not authorized for this namespace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Error",
             "content": {
@@ -513,7 +488,16 @@
               }
             }
           }
-        }
+        },
+        "description": "Retrieve details for a specific claim by ID. Requires namespace-owner authentication.",
+        "security": [
+          {
+            "CookieAuth": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/v1/claims/{claimId}/approve": {
@@ -839,239 +823,6 @@
             }
           },
           "400": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/webhooks": {
-      "post": {
-        "operationId": "createWebhook",
-        "tags": [
-          "Webhooks"
-        ],
-        "summary": "Create webhook",
-        "description": "Create a webhook for the authenticated service API key.",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateWebhookRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Webhook created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WebhookResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      },
-      "get": {
-        "operationId": "listWebhooks",
-        "tags": [
-          "Webhooks"
-        ],
-        "summary": "List webhooks",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 200,
-              "default": 50
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Webhook list",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WebhookListResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/webhooks/{webhookId}": {
-      "delete": {
-        "operationId": "deleteWebhook",
-        "tags": [
-          "Webhooks"
-        ],
-        "summary": "Delete webhook",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "webhookId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Webhook deleted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeleteWebhookResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      },
-      "patch": {
-        "operationId": "toggleWebhook",
-        "tags": [
-          "Webhooks"
-        ],
-        "summary": "Update webhook active state",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "webhookId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateWebhookRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Webhook updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ToggleWebhookResponse"
-                }
-              }
-            }
-          },
-          "401": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -1632,65 +1383,6 @@
         }
       }
     },
-    "/v1/auth/plan": {
-      "patch": {
-        "operationId": "authUpdatePlan",
-        "tags": [
-          "Auth"
-        ],
-        "summary": "Update account plan",
-        "security": [
-          {
-            "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PlanUpdateRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Plan updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PlanUpdateResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/auth/settings": {
       "patch": {
         "operationId": "authUpdateSettings",
@@ -2083,85 +1775,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SimpleSuccessResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/services/{serviceId}/plan": {
-      "patch": {
-        "operationId": "updateServicePlan",
-        "tags": [
-          "Services"
-        ],
-        "summary": "Update service plan",
-        "security": [
-          {
-            "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "serviceId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ServicePlanUpdateRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Service plan updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServicePlanUpdateResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -3158,15 +2771,6 @@
           }
         }
       },
-      "UpdateWebhookRequest": {
-        "type": "object",
-        "properties": {
-          "active": {
-            "type": "boolean"
-          }
-        },
-        "additionalProperties": false
-      },
       "WebhookResponse": {
         "type": "object",
         "required": [
@@ -3250,21 +2854,6 @@
           },
           "webhook_id": {
             "type": "string"
-          }
-        }
-      },
-      "ToggleWebhookResponse": {
-        "type": "object",
-        "required": [
-          "success",
-          "active"
-        ],
-        "properties": {
-          "success": {
-            "type": "boolean"
-          },
-          "active": {
-            "type": "boolean"
           }
         }
       },
@@ -3473,8 +3062,6 @@
           "id",
           "email",
           "namespace",
-          "plan",
-          "paid_until",
           "settings",
           "registration_tx_hash",
           "created_at",
@@ -3491,21 +3078,6 @@
           },
           "namespace": {
             "type": "string"
-          },
-          "plan": {
-            "type": "string",
-            "enum": [
-              "free",
-              "builder",
-              "scale"
-            ]
-          },
-          "paid_until": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
           },
           "settings": {
             "type": "object",
@@ -3595,42 +3167,6 @@
           },
           "name": {
             "type": "string"
-          }
-        }
-      },
-      "PlanUpdateRequest": {
-        "type": "object",
-        "required": [
-          "plan"
-        ],
-        "properties": {
-          "plan": {
-            "type": "string",
-            "enum": [
-              "free",
-              "builder",
-              "scale"
-            ]
-          }
-        }
-      },
-      "PlanUpdateResponse": {
-        "type": "object",
-        "required": [
-          "success",
-          "plan"
-        ],
-        "properties": {
-          "success": {
-            "type": "boolean"
-          },
-          "plan": {
-            "type": "string",
-            "enum": [
-              "free",
-              "builder",
-              "scale"
-            ]
           }
         }
       },
@@ -3749,8 +3285,6 @@
           "slug",
           "domain",
           "description",
-          "plan",
-          "paid_until",
           "created_at",
           "updated_at",
           "registration_tx_hash",
@@ -3777,16 +3311,6 @@
               "string",
               "null"
             ]
-          },
-          "plan": {
-            "type": "string"
-          },
-          "paid_until": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
           },
           "created_at": {
             "type": "string",
@@ -3833,7 +3357,6 @@
           "slug",
           "domain",
           "description",
-          "plan",
           "created_at",
           "registration_tx_hash"
         ],
@@ -3851,9 +3374,6 @@
             "type": "string"
           },
           "description": {
-            "type": "string"
-          },
-          "plan": {
             "type": "string"
           },
           "created_at": {
@@ -3900,8 +3420,6 @@
           "slug",
           "domain",
           "description",
-          "plan",
-          "paid_until",
           "created_at",
           "updated_at",
           "registration_tx_hash"
@@ -3930,16 +3448,6 @@
               "string",
               "null"
             ]
-          },
-          "plan": {
-            "type": "string"
-          },
-          "paid_until": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
           },
           "created_at": {
             "type": "string",
@@ -3974,40 +3482,6 @@
           }
         },
         "additionalProperties": false
-      },
-      "ServicePlanUpdateRequest": {
-        "type": "object",
-        "required": [
-          "plan"
-        ],
-        "properties": {
-          "plan": {
-            "type": "string",
-            "enum": [
-              "free",
-              "managed"
-            ]
-          }
-        }
-      },
-      "ServicePlanUpdateResponse": {
-        "type": "object",
-        "required": [
-          "success",
-          "plan"
-        ],
-        "properties": {
-          "success": {
-            "type": "boolean"
-          },
-          "plan": {
-            "type": "string",
-            "enum": [
-              "free",
-              "managed"
-            ]
-          }
-        }
       },
       "ServiceApiKeySummary": {
         "type": "object",

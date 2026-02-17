@@ -82,11 +82,7 @@ export const servicesRouter = new Hono<{ Bindings: Env }>();
 // ─── Slug validation ────────────────────────────────────────────────────────
 
 const slugRegex = /^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/;
-const PLAN_SERVICE_REGISTRATION_LIMITS: Record<string, number> = {
-  free: 5,
-  builder: 5,
-  scale: 10,
-};
+const MAX_SERVICES_PER_ACCOUNT = 5;
 
 const webhookSchema = z.object({
   url: z.string().url("Must be a valid URL").max(2048),
@@ -118,13 +114,13 @@ servicesRouter.get("/", async (c) => {
   if (!payload) return c.json(createErrorResponse("Not authenticated", "UNAUTHORIZED"), 401);
 
   const rows = await c.env.DB.prepare(
-    `SELECT s.id, s.name, s.slug, s.domain, s.description, s.plan, s.paid_until, s.created_at, s.updated_at,
+    `SELECT s.id, s.name, s.slug, s.domain, s.description, s.created_at, s.updated_at,
             s.registration_tx_hash,
             COUNT(k.id) as active_key_count
      FROM services s
      LEFT JOIN service_api_keys k ON k.service_id = s.id AND k.revoked_at IS NULL
      WHERE s.owner_user_id = ?
-     GROUP BY s.id, s.name, s.slug, s.domain, s.description, s.plan, s.paid_until, s.created_at, s.updated_at, s.registration_tx_hash
+     GROUP BY s.id, s.name, s.slug, s.domain, s.description, s.created_at, s.updated_at, s.registration_tx_hash
      ORDER BY s.created_at ASC`,
   )
     .bind(payload.userId)
@@ -159,29 +155,30 @@ servicesRouter.post("/", async (c) => {
     return c.json(createErrorResponse("A service with this slug already exists", "CONFLICT"), 409);
   }
 
-  // Check service limit based on user plan
-  const user = await c.env.DB.prepare("SELECT plan FROM users WHERE id = ?")
-    .bind(payload.userId)
-    .first<{ plan: string }>();
-  const userPlan = user?.plan ?? "builder";
+  // Check service limit per account
   const serviceCount = await c.env.DB.prepare(
     "SELECT COUNT(*) as cnt FROM services WHERE owner_user_id = ?",
   )
     .bind(payload.userId)
     .first<{ cnt: number }>();
 
-  const limit = PLAN_SERVICE_REGISTRATION_LIMITS[userPlan] ?? 5;
-  if ((serviceCount?.cnt ?? 0) >= limit) {
-    return c.json(createErrorResponse(`Your ${userPlan} plan allows up to ${limit} service(s). Upgrade to add more.`, "SERVICE_LIMIT_REACHED"), 403);
+  if ((serviceCount?.cnt ?? 0) >= MAX_SERVICES_PER_ACCOUNT) {
+    return c.json(
+      createErrorResponse(
+        `Maximum ${MAX_SERVICES_PER_ACCOUNT} services per account reached.`,
+        "SERVICE_LIMIT_REACHED",
+      ),
+      403,
+    );
   }
 
   const id = crypto.randomUUID();
 
   // Step 1: Create service in database first
   await c.env.DB.prepare(
-    "INSERT INTO services (id, owner_user_id, name, slug, domain, description, plan, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+    "INSERT INTO services (id, owner_user_id, name, slug, domain, description, updated_at) VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
   )
-    .bind(id, payload.userId, body.name, body.slug, body.domain, body.description, userPlan)
+    .bind(id, payload.userId, body.name, body.slug, body.domain, body.description)
     .run();
 
   // Step 2: Queue blockchain registration (async, non-blocking)
@@ -242,7 +239,6 @@ servicesRouter.post("/", async (c) => {
       slug: body.slug,
       domain: body.domain,
       description: body.description,
-      plan: userPlan,
       created_at: created?.created_at ?? new Date().toISOString(),
       registration_tx_hash: created?.registration_tx_hash ?? null,
       webhook: webhookResult,
@@ -261,7 +257,7 @@ servicesRouter.get("/:serviceId", async (c) => {
 
   const serviceId = c.req.param("serviceId");
   const svc = await c.env.DB.prepare(
-    "SELECT * FROM services WHERE id = ? AND owner_user_id = ?",
+    "SELECT id, owner_user_id, name, slug, domain, description, created_at, updated_at, registration_tx_hash FROM services WHERE id = ? AND owner_user_id = ?",
   )
     .bind(serviceId, payload.userId)
     .first();
@@ -339,38 +335,6 @@ servicesRouter.delete("/:serviceId", async (c) => {
     .run();
 
   return c.json({ success: true });
-});
-
-/**
- * PATCH /v1/services/:serviceId/plan
- * Change service plan.
- */
-servicesRouter.patch("/:serviceId/plan", async (c) => {
-  const payload = await requireAuth(c);
-  if (!payload) return c.json(createErrorResponse("Not authenticated", "UNAUTHORIZED"), 401);
-
-  const serviceId = c.req.param("serviceId");
-  const svc = await c.env.DB.prepare(
-    "SELECT id FROM services WHERE id = ? AND owner_user_id = ?",
-  )
-    .bind(serviceId, payload.userId)
-    .first();
-  if (!svc) return c.json(createErrorResponse("Service not found", "NOT_FOUND"), 404);
-
-  const body = await c.req.json<{ plan?: string }>();
-  const plan = body.plan?.trim();
-  const validPlans = ["free", "managed"];
-  if (!plan || !validPlans.includes(plan)) {
-    return c.json(createErrorResponse(`Plan must be one of: ${validPlans.join(", ")}`, "VALIDATION_ERROR"), 400);
-  }
-
-  await c.env.DB.prepare(
-    "UPDATE services SET plan = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
-  )
-    .bind(plan, serviceId)
-    .run();
-
-  return c.json({ success: true, plan });
 });
 
 // ─── API Keys ───────────────────────────────────────────────────────────────
@@ -645,17 +609,17 @@ servicesRouter.delete("/:serviceId/webhooks/:webhookId", async (c) => {
 export async function validateServiceApiKey(
   db: D1Database,
   rawKey: string,
-): Promise<{ serviceId: string; slug: string; plan: string } | null> {
+): Promise<{ serviceId: string; slug: string } | null> {
   const keyHash = await hashApiKey(rawKey);
   const row = await db
     .prepare(
-      `SELECT k.id as key_id, k.service_id, s.slug, s.plan
+      `SELECT k.id as key_id, k.service_id, s.slug
        FROM service_api_keys k
        JOIN services s ON s.id = k.service_id
        WHERE k.key_hash = ? AND k.revoked_at IS NULL`,
     )
     .bind(keyHash)
-    .first<{ key_id: string; service_id: string; slug: string; plan: string }>();
+    .first<{ key_id: string; service_id: string; slug: string }>();
 
   if (!row) return null;
 
@@ -665,5 +629,5 @@ export async function validateServiceApiKey(
     .run()
     .catch(() => {});
 
-  return { serviceId: row.service_id, slug: row.slug, plan: row.plan };
+  return { serviceId: row.service_id, slug: row.slug };
 }

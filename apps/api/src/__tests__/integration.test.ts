@@ -54,7 +54,6 @@ class MockD1Database {
         key_id: key.id,
         service_id: key.service_id,
         slug: service.slug,
-        plan: service.plan,
       } as T;
     }
 
@@ -310,7 +309,6 @@ beforeEach(async () => {
   db.services.push({
     id: "svc_1",
     slug: "my-service",
-    plan: "builder",
   });
   db.serviceApiKeys.push({
     id: "key_1",
@@ -358,11 +356,12 @@ function req(path: string, init?: RequestInit) {
 }
 
 describe("Health and basic routing", () => {
-  it("GET / returns API metadata", async () => {
-    const res = await req("/");
+  it("GET /health returns health status", async () => {
+    const res = await req("/health");
     expect(res.status).toBe(200);
     const data = (await res.json()) as Record<string, unknown>;
-    expect(data).toMatchObject({ name: "Sigilum API", status: "ok" });
+    expect(data.status).toBe("ok");
+    expect(typeof data.timestamp).toBe("string");
   });
 
   it("unknown route returns 404", async () => {
@@ -370,6 +369,13 @@ describe("Health and basic routing", () => {
     expect(res.status).toBe(404);
     const data = (await res.json()) as Record<string, unknown>;
     expect(data.error).toBe("Not found");
+  });
+});
+
+describe("Claims endpoint auth", () => {
+  it("requires auth for GET /v1/claims/:claimId", async () => {
+    const res = await req("/v1/claims/cl_1");
+    expect(res.status).toBe(401);
   });
 });
 
@@ -458,37 +464,11 @@ describe("DID resolution", () => {
   });
 });
 
-describe("Webhooks endpoints with DB binding", () => {
-  it("creates, lists, and deletes webhook with valid service API key", async () => {
-    const createRes = await req("/v1/webhooks", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer test-api-key",
-      },
-      body: JSON.stringify({
-        url: "https://example.com/webhook",
-        events: ["request.approved"],
-        secret: "long-enough-secret-value",
-      }),
-    });
-    expect(createRes.status).toBe(201);
-    const created = (await createRes.json()) as { id: string };
-    expect(created.id).toMatch(/^wh_/);
-
-    const listRes = await req("/v1/webhooks", {
+describe("Removed redundant webhook surface", () => {
+  it("returns 404 for legacy /v1/webhooks endpoints", async () => {
+    const res = await req("/v1/webhooks", {
       headers: { Authorization: "Bearer test-api-key" },
     });
-    expect(listRes.status).toBe(200);
-    const listed = (await listRes.json()) as { webhooks: unknown[] };
-    expect(listed.webhooks.length).toBe(1);
-
-    const deleteRes = await req(`/v1/webhooks/${created.id}`, {
-      method: "DELETE",
-      headers: { Authorization: "Bearer test-api-key" },
-    });
-    expect(deleteRes.status).toBe(200);
-    const deleted = (await deleteRes.json()) as Record<string, unknown>;
-    expect(deleted).toMatchObject({ deleted: true, webhook_id: created.id });
+    expect(res.status).toBe(404);
   });
 });

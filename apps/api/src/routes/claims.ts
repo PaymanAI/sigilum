@@ -10,28 +10,10 @@ import { enqueueApproveClaim, enqueueRevokeClaim } from "../utils/blockchain-que
 import { ipMatchesCIDR } from "../utils/ip-matching.js";
 import { getAdapters } from "../adapters/index.js";
 
-type PlanTier = "free" | "builder" | "scale";
-
-/** Maximum approved agents per service, by plan. */
-export const PLAN_AGENT_LIMITS: Record<PlanTier, number> = {
-  free: 10,
-  builder: 10,
-  scale: 100,
-};
-
-/** Maximum distinct services a user's agents can connect to, by plan. */
-export const PLAN_SERVICE_LIMITS: Record<PlanTier, number> = {
-  free: 10,
-  builder: 10,
-  scale: Infinity,
-};
-
-function normalizePlan(value?: string): PlanTier {
-  if (value === "builder" || value === "scale" || value === "free") {
-    return value;
-  }
-  return "builder";
-}
+/** Maximum approved agents per service. */
+export const MAX_APPROVED_AGENTS_PER_SERVICE = 10;
+/** Maximum distinct services a namespace can connect to. */
+export const MAX_CONNECTED_SERVICES_PER_NAMESPACE = 10;
 
 const submitClaimSchema = z.object({
   namespace: z.string().min(3).max(64),
@@ -101,12 +83,12 @@ claimsRouter.post("/", async (c) => {
     );
   }
 
-  // Look up namespace owner to check plan limits
+  // Look up namespace owner
   const nsOwner = await c.env.DB.prepare(
-    "SELECT id, plan FROM users WHERE namespace = ?",
+    "SELECT id FROM users WHERE namespace = ?",
   )
     .bind(body.namespace)
-    .first() as { id: string; plan?: string } | null;
+    .first() as { id: string } | null;
 
   if (!nsOwner) {
     return c.json(createErrorResponse(`Namespace "${body.namespace}" not found`, "NOT_FOUND"), 404);
@@ -152,9 +134,8 @@ claimsRouter.post("/", async (c) => {
     );
   }
 
-  const plan = normalizePlan(nsOwner.plan);
-  const agentLimit = PLAN_AGENT_LIMITS[plan];
-  const serviceLimit = PLAN_SERVICE_LIMITS[plan];
+  const agentLimit = MAX_APPROVED_AGENTS_PER_SERVICE;
+  const serviceLimit = MAX_CONNECTED_SERVICES_PER_NAMESPACE;
 
   // Count distinct services the user already has approved agents for
   const svcCountRow = await c.env.DB.prepare(
@@ -191,14 +172,14 @@ claimsRouter.post("/", async (c) => {
       .run();
 
     return c.json(
-      {
-        claim_id: claimId,
-        status: "rejected",
-        service: serviceInfo.slug,
-        message: `Auto-rejected: namespace owner's ${plan} plan allows ${serviceLimit} service connections (${connectedServices} currently connected).`,
-      },
-      201,
-    );
+        {
+          claim_id: claimId,
+          status: "rejected",
+          service: serviceInfo.slug,
+          message: `Auto-rejected: namespace owner allows up to ${serviceLimit} service connections (${connectedServices} currently connected).`,
+        },
+        201,
+      );
   }
 
   // Auto-reject if namespace owner has reached their agent-per-service limit
@@ -217,14 +198,14 @@ claimsRouter.post("/", async (c) => {
       .run();
 
     return c.json(
-      {
-        claim_id: claimId,
-        status: "rejected",
-        service: serviceInfo.slug,
-        message: `Auto-rejected: namespace owner's ${plan} plan allows ${agentLimit} agents per service (${currentCount} currently approved).`,
-      },
-      201,
-    );
+        {
+          claim_id: claimId,
+          status: "rejected",
+          service: serviceInfo.slug,
+          message: `Auto-rejected: namespace owner allows up to ${agentLimit} agents per service (${currentCount} currently approved).`,
+        },
+        201,
+      );
   }
 
   // Check max pending requests limit (policy setting)
@@ -286,146 +267,141 @@ claimsRouter.post("/", async (c) => {
     }
   }
 
-  // Check auto-approve rules (Scale plan only)
-  if (plan === "scale") {
-    const autoApproveTrusted = policySettings.autoApproveTrusted === true;
-    const autoApproveIP = policySettings.autoApproveIP === true;
-    const trustedServices: string[] = Array.isArray(policySettings.trustedServices) ? policySettings.trustedServices as string[] : [];
-    const trustedIPRanges: string[] = Array.isArray(policySettings.trustedIPRanges) ? policySettings.trustedIPRanges as string[] : [];
+  // Check auto-approve rules
+  const autoApproveTrusted = policySettings.autoApproveTrusted === true;
+  const autoApproveIP = policySettings.autoApproveIP === true;
+  const trustedServices: string[] = Array.isArray(policySettings.trustedServices) ? policySettings.trustedServices as string[] : [];
+  const trustedIPRanges: string[] = Array.isArray(policySettings.trustedIPRanges) ? policySettings.trustedIPRanges as string[] : [];
 
-    let shouldAutoApprove = false;
+  let shouldAutoApprove = false;
 
-    // Check if the service is in the trusted list
-    if (autoApproveTrusted && trustedServices.includes(body.service)) {
-      shouldAutoApprove = true;
-    }
+  // Check if the service is in the trusted list
+  if (autoApproveTrusted && trustedServices.includes(body.service)) {
+    shouldAutoApprove = true;
+  }
 
-    // Check if the agent IP matches a trusted IP range
-    if (autoApproveIP && trustedIPRanges.length > 0) {
-      for (const range of trustedIPRanges) {
-        if (ipMatchesCIDR(body.agent_ip, range)) {
-          shouldAutoApprove = true;
-          break;
-        }
+  // Check if the agent IP matches a trusted IP range
+  if (autoApproveIP && trustedIPRanges.length > 0) {
+    for (const range of trustedIPRanges) {
+      if (ipMatchesCIDR(body.agent_ip, range)) {
+        shouldAutoApprove = true;
+        break;
       }
     }
+  }
 
-    if (shouldAutoApprove) {
-      // Pre-check service connection limit (if this would be the first agent for a new service)
-      const preAutoCountRow = await c.env.DB.prepare(
-        "SELECT COUNT(*) as cnt FROM authorizations WHERE namespace = ? AND service = ? AND status = 'approved'",
+  if (shouldAutoApprove) {
+    // Pre-check service connection limit (if this would be the first agent for a new service)
+    const preAutoCountRow = await c.env.DB.prepare(
+      "SELECT COUNT(*) as cnt FROM authorizations WHERE namespace = ? AND service = ? AND status = 'approved'",
+    )
+      .bind(body.namespace, body.service)
+      .first() as { cnt: number } | null;
+    const preAutoCount = preAutoCountRow?.cnt ?? 0;
+
+    if (preAutoCount === 0) {
+      const autoSvcCountRow = await c.env.DB.prepare(
+        "SELECT COUNT(DISTINCT service) as cnt FROM authorizations WHERE namespace = ? AND status = 'approved'",
       )
-        .bind(body.namespace, body.service)
+        .bind(body.namespace)
         .first() as { cnt: number } | null;
-      const preAutoCount = preAutoCountRow?.cnt ?? 0;
+      const autoConnectedServices = autoSvcCountRow?.cnt ?? 0;
 
-      if (preAutoCount === 0) {
-        const autoSvcCountRow = await c.env.DB.prepare(
-          "SELECT COUNT(DISTINCT service) as cnt FROM authorizations WHERE namespace = ? AND status = 'approved'",
+      if (autoConnectedServices >= serviceLimit) {
+        // Service limit reached, create as pending instead
+        await c.env.DB.prepare(
+          `INSERT INTO authorizations (claim_id, namespace, service, public_key, agent_ip, status, approved_at, revoked_at)
+           VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL)
+           ON CONFLICT(namespace, service, public_key) DO UPDATE SET
+             claim_id = excluded.claim_id,
+             agent_ip = excluded.agent_ip,
+             status = excluded.status,
+             approved_at = NULL,
+             revoked_at = NULL`,
         )
-          .bind(body.namespace)
-          .first() as { cnt: number } | null;
-        const autoConnectedServices = autoSvcCountRow?.cnt ?? 0;
-        const autoServiceLimit = (PLAN_SERVICE_LIMITS[plan] ?? PLAN_SERVICE_LIMITS.free) as number;
+          .bind(claimId, body.namespace, body.service, body.public_key, body.agent_ip)
+          .run();
 
-        if (autoConnectedServices >= autoServiceLimit) {
-          // Service limit reached, create as pending instead
-          await c.env.DB.prepare(
-            `INSERT INTO authorizations (claim_id, namespace, service, public_key, agent_ip, status, approved_at, revoked_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL)
-             ON CONFLICT(namespace, service, public_key) DO UPDATE SET
-               claim_id = excluded.claim_id,
-               agent_ip = excluded.agent_ip,
-               status = excluded.status,
-               approved_at = NULL,
-               revoked_at = NULL`,
-          )
-            .bind(claimId, body.namespace, body.service, body.public_key, body.agent_ip)
-            .run();
-
-          return c.json(
-            {
-              claim_id: claimId,
-              status: "pending",
-              service: serviceInfo.slug,
-              message: `Service limit reached (${autoServiceLimit}). Auto-approval skipped; awaiting manual review.`,
-            },
-            201,
-          );
-        }
-      }
-
-      const autoAgentLimit = (PLAN_AGENT_LIMITS[plan] ?? PLAN_AGENT_LIMITS.free) as number;
-
-      // Ensure a pending row exists for this request first.
-      await c.env.DB.prepare(
-        `INSERT INTO authorizations (claim_id, namespace, service, public_key, agent_ip, status, approved_at, revoked_at)
-         VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL)
-         ON CONFLICT(namespace, service, public_key) DO UPDATE SET
-           claim_id = excluded.claim_id,
-           agent_ip = excluded.agent_ip,
-           status = excluded.status,
-           approved_at = NULL,
-           revoked_at = NULL`,
-      )
-        .bind(claimId, body.namespace, body.service, body.public_key, body.agent_ip)
-        .run();
-
-      // Atomically approve only if limit is still available.
-      const autoApproveUpdate = await c.env.DB.prepare(
-        `UPDATE authorizations
-         SET status = 'approved', approved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-         WHERE claim_id = ?
-           AND status = 'pending'
-           AND (
-             SELECT COUNT(*) FROM authorizations
-             WHERE namespace = ? AND service = ? AND status = 'approved'
-           ) < ?`,
-      )
-        .bind(claimId, body.namespace, body.service, autoAgentLimit)
-        .run();
-
-      if ((autoApproveUpdate.meta.changes ?? 0) === 0) {
         return c.json(
           {
             claim_id: claimId,
             status: "pending",
             service: serviceInfo.slug,
-            message: `Agent limit reached due to concurrent requests (${autoAgentLimit}). Auto-approval skipped; awaiting manual review.`,
+            message: `Service limit reached (${serviceLimit}). Auto-approval skipped; awaiting manual review.`,
           },
           201,
         );
       }
+    }
 
-      // Queue blockchain approval (async, non-blocking)
-      try {
-        await enqueueApproveClaim(c.env, claimId, body.namespace, body.public_key, body.service, body.agent_ip);
-        console.log(`Claim "${claimId}" auto-approval queued for blockchain submission`);
-      } catch (error) {
-        console.error("Failed to queue auto-approval to blockchain (agent can still work):", error);
-        // Don't fail the request - database is source of truth, blockchain is audit log
-      }
+    // Ensure a pending row exists for this request first.
+    await c.env.DB.prepare(
+      `INSERT INTO authorizations (claim_id, namespace, service, public_key, agent_ip, status, approved_at, revoked_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL)
+       ON CONFLICT(namespace, service, public_key) DO UPDATE SET
+         claim_id = excluded.claim_id,
+         agent_ip = excluded.agent_ip,
+         status = excluded.status,
+         approved_at = NULL,
+         revoked_at = NULL`,
+    )
+      .bind(claimId, body.namespace, body.service, body.public_key, body.agent_ip)
+      .run();
 
-      // Dispatch webhook event for successful auto-approval
-      await dispatchWebhookEvent(c.env.DB, "request.approved", {
-        claim_id: claimId,
-        namespace: body.namespace,
-        service: body.service,
-        public_key: body.public_key,
-        agent_ip: body.agent_ip,
-        auto_approved: true,
-      }, c.env);
+    // Atomically approve only if limit is still available.
+    const autoApproveUpdate = await c.env.DB.prepare(
+      `UPDATE authorizations
+       SET status = 'approved', approved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+       WHERE claim_id = ?
+         AND status = 'pending'
+         AND (
+           SELECT COUNT(*) FROM authorizations
+           WHERE namespace = ? AND service = ? AND status = 'approved'
+         ) < ?`,
+    )
+      .bind(claimId, body.namespace, body.service, agentLimit)
+      .run();
 
+    if ((autoApproveUpdate.meta.changes ?? 0) === 0) {
       return c.json(
         {
           claim_id: claimId,
-          status: "approved",
+          status: "pending",
           service: serviceInfo.slug,
-          message: "Auto-approved by namespace owner's policy rules.",
+          message: `Agent limit reached due to concurrent requests (${agentLimit}). Auto-approval skipped; awaiting manual review.`,
         },
         201,
       );
     }
+
+    // Queue blockchain approval (async, non-blocking)
+    try {
+      await enqueueApproveClaim(c.env, claimId, body.namespace, body.public_key, body.service, body.agent_ip);
+      console.log(`Claim "${claimId}" auto-approval queued for blockchain submission`);
+    } catch (error) {
+      console.error("Failed to queue auto-approval to blockchain (agent can still work):", error);
+      // Don't fail the request - database is source of truth, blockchain is audit log
+    }
+
+    // Dispatch webhook event for successful auto-approval
+    await dispatchWebhookEvent(c.env.DB, "request.approved", {
+      claim_id: claimId,
+      namespace: body.namespace,
+      service: body.service,
+      public_key: body.public_key,
+      agent_ip: body.agent_ip,
+      auto_approved: true,
+    }, c.env);
+
+    return c.json(
+      {
+        claim_id: claimId,
+        status: "approved",
+        service: serviceInfo.slug,
+        message: "Auto-approved by namespace owner's policy rules.",
+      },
+      201,
+    );
   }
 
   // Store claim in database as pending (no blockchain interaction yet)
@@ -455,21 +431,29 @@ claimsRouter.post("/", async (c) => {
 
 /**
  * GET /v1/claims/:claimId
- * Get claim details by ID.
+ * Get claim details by ID. Requires namespace owner JWT auth.
  */
 claimsRouter.get("/:claimId", async (c) => {
+  const token = getBearerToken(c);
+  if (!token) return c.json(createErrorResponse("Authentication required", "UNAUTHORIZED"), 401);
+  const payload = await verifyJWT(c.env, token);
+  if (!payload) return c.json(createErrorResponse("Invalid or expired token", "TOKEN_EXPIRED"), 401);
+
   const claimId = c.req.param("claimId");
   const row = await c.env.DB.prepare("SELECT * FROM authorizations WHERE claim_id = ?")
     .bind(claimId)
-    .first();
+    .first() as Record<string, unknown> | null;
 
   if (!row) return c.json(createErrorResponse("Claim not found", "NOT_FOUND"), 404);
+  if (row.namespace !== payload.namespace) {
+    return c.json(createErrorResponse("Not authorized to view claims in this namespace", "FORBIDDEN"), 403);
+  }
   return c.json(row);
 });
 
 /**
  * POST /v1/claims/:claimId/approve
- * Approve a pending access request. Enforces plan agent-per-service limits.
+ * Approve a pending access request. Enforces agent-per-service and service-connection limits.
  */
 claimsRouter.post("/:claimId/approve", async (c) => {
   // Authenticate the namespace owner
@@ -490,13 +474,8 @@ claimsRouter.post("/:claimId/approve", async (c) => {
     return c.json(createErrorResponse("Not authorized to approve claims in this namespace", "FORBIDDEN"), 403);
   }
 
-  // Look up the user's plan
-  const user = await c.env.DB.prepare("SELECT plan FROM users WHERE id = ?")
-    .bind(payload.userId)
-    .first() as { plan?: string } | null;
-  const plan = normalizePlan(user?.plan);
-  const agentLimit = PLAN_AGENT_LIMITS[plan];
-  const serviceLimit = PLAN_SERVICE_LIMITS[plan];
+  const agentLimit = MAX_APPROVED_AGENTS_PER_SERVICE;
+  const serviceLimit = MAX_CONNECTED_SERVICES_PER_NAMESPACE;
 
   // Pre-check service connection limit (if this would be the first agent for a new service)
   const preCountRow = await c.env.DB.prepare(
@@ -516,9 +495,9 @@ claimsRouter.post("/:claimId/approve", async (c) => {
 
     if (connectedServices >= serviceLimit) {
       return c.json(createErrorResponse(
-        `Service limit reached. Your ${plan} plan allows ${serviceLimit} service connections. Currently connected to ${connectedServices}. Upgrade your plan to connect to more services.`,
+        `Service limit reached. Maximum ${serviceLimit} service connections. Currently connected to ${connectedServices}.`,
         "SERVICE_LIMIT_REACHED",
-        { service_limit: serviceLimit, services_connected: connectedServices, plan },
+        { service_limit: serviceLimit, services_connected: connectedServices },
       ), 403);
     }
   }
@@ -546,9 +525,9 @@ claimsRouter.post("/:claimId/approve", async (c) => {
     const currentCount = currentCountRow?.cnt ?? 0;
 
     return c.json(createErrorResponse(
-      `Agent limit reached due to concurrent approvals. Your ${plan} plan allows ${agentLimit} agents per service. Currently ${currentCount} approved.`,
+      `Agent limit reached due to concurrent approvals. Maximum ${agentLimit} agents per service. Currently ${currentCount} approved.`,
       "AGENT_LIMIT_REACHED",
-      { agent_limit: agentLimit, current: currentCount, plan },
+      { agent_limit: agentLimit, current: currentCount },
     ), 409);
   }
 
