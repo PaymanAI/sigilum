@@ -9,3 +9,8 @@ This folder contains all long-form project documentation.
 - `governance/` - trust registries, issuer policy, and operational governance.
 - `compliance/` - regulatory mapping and audit requirements.
 - `roadmap/` - milestones, phases, and delivery plan.
+
+## API Docs
+
+- `../apps/api/README.md` - API guide and endpoint overview.
+- `../apps/api/ENV_VARS.md` - API environment variables and Cloudflare binding configuration.

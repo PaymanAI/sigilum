@@ -79,6 +79,12 @@ RELAYER_PRIVATE_KEY=
 # Prevents spam and DoS attacks
 MAX_PENDING_AUTHORIZATIONS=20
 
+# Maximum active API keys per service
+MAX_API_KEYS_PER_SERVICE=5
+
+# Maximum active webhooks per service
+MAX_WEBHOOKS_PER_SERVICE=5
+
 # Auto-expire pending claims after N hours
 # Pending claims older than this will be marked as expired by the cron job
 PENDING_AUTHORIZATION_EXPIRY_HOURS=24

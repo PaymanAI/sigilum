@@ -13,6 +13,11 @@ It provides:
 
 OpenAPI: `apps/api/openapi.json`
 
+## Related Docs
+
+- API guide: `apps/api/README.md`
+- Environment variables and bindings: `apps/api/ENV_VARS.md`
+
 ## Runtime and Adapters
 
 - API framework: Hono

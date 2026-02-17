@@ -1,0 +1,30 @@
+{
+  "name": "sigilum",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Identity for AI Agents — the consent layer for the agentic web",
+  "packageManager": "pnpm@10.29.3",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "quickstart": "pnpm run quickstart:setup && pnpm run quickstart:up",
+    "quickstart:setup": "node scripts/quickstart-setup.mjs",
+    "quickstart:up": "node scripts/quickstart-up.mjs",
+    "quickstart:check": "node scripts/quickstart-check.mjs",
+    "openclaw:launch": "node scripts/openclaw-launch.mjs",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "clean": "turbo run clean && rm -rf node_modules .turbo",
+    "demo:service": "cd apps/demo-service && pnpm dev",
+    "test:agent": "tsx scripts/test-agent.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "turbo": "^2.8.9",
+    "typescript": "^5.9.3"
+  }
+}
