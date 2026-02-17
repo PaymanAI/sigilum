@@ -5,7 +5,7 @@ Sigilum API is the backend for namespace-based agent authorization.
 It provides:
 - Namespace identity (`did:sigilum:<namespace>`)
 - Authenticated service registration and API key management
-- Claim lifecycle (`submit -> approve/reject -> revoke`)
+- Authorization request lifecycle (`submit -> approve/reject -> revoke`)
 - Verification endpoints for SDK/runtime checks
 - Dashboard auth (WebAuthn + JWT)
 - Durable webhook delivery
@@ -35,8 +35,8 @@ The API is adapter-based; Cloudflare is the current implementation, not a hard p
 
 1. Namespace owner signs up and authenticates (`/v1/auth/*`).
 2. Owner registers service and generates API key (`/v1/services/*`).
-3. Service submits claim requests (`POST /v1/claims`) with signed headers + nonce replay protection.
-4. Namespace owner approves/rejects/revokes claim (`/v1/claims/{claimId}/*`).
+3. Service submits authorization requests (`POST /v1/claims`) with signed headers + nonce replay protection.
+4. Namespace owner approves/rejects/revokes authorization (`/v1/claims/{claimId}/*`).
 5. Service checks authorization via:
    - `GET /v1/verify` (point lookup)
    - `GET /v1/namespaces/claims` (approved-claims cache feed)
@@ -56,6 +56,7 @@ All protected endpoints (`/v1/*` and `/.well-known/*`) require valid Sigilum sig
 - `POST /v1/auth/login`
 - `GET /v1/auth/me`
 - `POST /v1/auth/logout`
+- `GET /v1/auth/passkeys/options`
 - `POST /v1/auth/passkeys`
 - `GET /v1/auth/passkeys`
 - `PATCH /v1/auth/passkeys/{id}`
@@ -65,12 +66,12 @@ All protected endpoints (`/v1/*` and `/.well-known/*`) require valid Sigilum sig
 
 ### Namespaces, DID, verification
 - `GET /v1/namespaces/{namespace}`
-- `GET /v1/namespaces/{namespace}/claims`
+- `GET /v1/namespaces/{namespace}/claims` (namespace-owner auth)
 - `GET /v1/namespaces/claims` (service API key)
 - `GET /.well-known/did/{did}`
 - `GET /v1/verify`
 
-### Claims
+### Authorizations
 - `POST /v1/claims` (service API key)
 - `GET /v1/claims/{claimId}` (namespace-owner auth)
 - `POST /v1/claims/{claimId}/approve`

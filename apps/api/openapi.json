@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Sigilum API",
-    "description": "Agent identity and authorization registry. Manages namespaces, claims, verification, DID resolution, webhooks, and dashboard authentication.",
+    "description": "Agent identity and authorization registry. Manages namespaces, authorization requests (stored as claims), verification, DID resolution, webhooks, and dashboard authentication.",
     "version": "0.1.0",
     "contact": {
       "name": "Sigilum",
@@ -29,8 +29,8 @@
       "description": "Namespace resolution and claim listing"
     },
     {
-      "name": "Claims",
-      "description": "Submit and manage authorization claims"
+      "name": "Authorizations",
+      "description": "Authorization request lifecycle (route names retain /claims for compatibility)."
     },
     {
       "name": "Verify",
@@ -92,8 +92,8 @@
         "tags": [
           "Namespaces"
         ],
-        "summary": "List approved claims for authenticated service",
-        "description": "Returns approved claims for the service tied to the provided API key.",
+        "summary": "List approved service authorizations",
+        "description": "Get approved authorization records for a service across namespaces (used by SDK/gateway cache). Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
         "security": [
           {
             "BearerAuth": []
@@ -162,7 +162,27 @@
             }
           }
         }
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
+        }
+      ]
     },
     "/v1/namespaces/{namespace}": {
       "get": {
@@ -171,7 +191,7 @@
           "Namespaces"
         ],
         "summary": "Resolve namespace",
-        "description": "Resolve a namespace to its current metadata and active approved claim count.",
+        "description": "Resolve a namespace to its current metadata and active approved claim count. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
         "parameters": [
           {
             "name": "namespace",
@@ -227,7 +247,27 @@
             }
           }
         }
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
+        }
+      ]
     },
     "/v1/namespaces/{namespace}/claims": {
       "get": {
@@ -235,8 +275,8 @@
         "tags": [
           "Namespaces"
         ],
-        "summary": "Get claims for namespace",
-        "description": "List claims for a namespace with optional status/service filtering.",
+        "summary": "Get authorization requests for namespace",
+        "description": "List authorization requests for a namespace with optional status/service filtering. Requires namespace-owner authentication. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
         "parameters": [
           {
             "name": "namespace",
@@ -290,7 +330,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Claims",
+            "description": "Authorization requests",
             "content": {
               "application/json": {
                 "schema": {
@@ -319,17 +359,42 @@
               }
             }
           }
+        },
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
         }
-      }
+      ]
     },
     "/v1/claims": {
       "post": {
         "operationId": "submitClaim",
         "tags": [
-          "Claims"
+          "Authorizations"
         ],
-        "summary": "Submit claim",
-        "description": "Submit an authorization request on behalf of an agent. Requires a service API key.",
+        "summary": "Submit authorization request",
+        "description": "Submit an authorization request on behalf of an agent to a service. Requires a service API key. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
         "security": [
           {
             "BearerAuth": []
@@ -347,7 +412,7 @@
         },
         "responses": {
           "200": {
-            "description": "Existing pending or approved claim",
+            "description": "Existing pending or approved authorization request",
             "content": {
               "application/json": {
                 "schema": {
@@ -357,7 +422,7 @@
             }
           },
           "201": {
-            "description": "Claim created",
+            "description": "Authorization request created",
             "content": {
               "application/json": {
                 "schema": {
@@ -427,15 +492,35 @@
             }
           }
         }
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
+        }
+      ]
     },
     "/v1/claims/{claimId}": {
       "get": {
         "operationId": "getClaim",
         "tags": [
-          "Claims"
+          "Authorizations"
         ],
-        "summary": "Get claim",
+        "summary": "Get authorization request",
         "parameters": [
           {
             "name": "claimId",
@@ -489,31 +574,45 @@
             }
           }
         },
-        "description": "Retrieve details for a specific claim by ID. Requires namespace-owner authentication.",
+        "description": "Retrieve details for a specific authorization request by ID. Requires namespace-owner authentication. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ]
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
+        }
+      ]
     },
     "/v1/claims/{claimId}/approve": {
       "post": {
         "operationId": "approveClaim",
         "tags": [
-          "Claims"
+          "Authorizations"
         ],
-        "summary": "Approve pending claim",
-        "description": "Approve a pending claim in your namespace.",
+        "summary": "Approve authorization request",
+        "description": "Approve a pending authorization request in your namespace. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "parameters": [
@@ -578,21 +677,38 @@
             }
           }
         }
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
+        }
+      ]
     },
     "/v1/claims/{claimId}/reject": {
       "post": {
         "operationId": "rejectClaim",
         "tags": [
-          "Claims"
+          "Authorizations"
         ],
-        "summary": "Reject pending claim",
+        "summary": "Reject authorization request",
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "parameters": [
@@ -646,22 +762,40 @@
               }
             }
           }
+        },
+        "description": "Reject a pending authorization request in your namespace. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
         }
-      }
+      ]
     },
     "/v1/claims/{claimId}/revoke": {
       "post": {
         "operationId": "revokeClaim",
         "tags": [
-          "Claims"
+          "Authorizations"
         ],
-        "summary": "Revoke approved claim",
+        "summary": "Revoke authorization",
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "parameters": [
@@ -715,8 +849,29 @@
               }
             }
           }
+        },
+        "description": "Revoke an approved authorization request in your namespace. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
         }
-      }
+      ]
     },
     "/v1/verify": {
       "get": {
@@ -725,7 +880,7 @@
           "Verify"
         ],
         "summary": "Verify agent authorization",
-        "description": "Check whether a public key is currently approved for a service/namespace pair.",
+        "description": "Check whether a public key is currently approved for a service/namespace pair. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
         "parameters": [
           {
             "name": "namespace",
@@ -784,7 +939,27 @@
             }
           }
         }
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
+        }
+      ]
     },
     "/.well-known/did/{did}": {
       "get": {
@@ -793,7 +968,7 @@
           "DID"
         ],
         "summary": "Resolve DID document",
-        "description": "Resolve a `did:sigilum:<namespace>` DID to a DID document.",
+        "description": "Resolve a `did:sigilum:<namespace>` DID to a DID document. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
         "parameters": [
           {
             "name": "did",
@@ -843,7 +1018,27 @@
             }
           }
         }
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
+        }
+      ]
     },
     "/v1/auth/signup/options": {
       "get": {
@@ -914,8 +1109,29 @@
               }
             }
           }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
         }
-      }
+      ]
     },
     "/v1/auth/signup": {
       "post": {
@@ -936,7 +1152,7 @@
         },
         "responses": {
           "201": {
-            "description": "Account created",
+            "description": "Account created (session cookie set)",
             "content": {
               "application/json": {
                 "schema": {
@@ -975,8 +1191,29 @@
               }
             }
           }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
         }
-      }
+      ]
     },
     "/v1/auth/login/options": {
       "get": {
@@ -1006,8 +1243,29 @@
               }
             }
           }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
         }
-      }
+      ]
     },
     "/v1/auth/login": {
       "post": {
@@ -1028,7 +1286,7 @@
         },
         "responses": {
           "200": {
-            "description": "Login success",
+            "description": "Login success (session cookie set)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1067,8 +1325,29 @@
               }
             }
           }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
         }
-      }
+      ]
     },
     "/v1/auth/me": {
       "get": {
@@ -1080,9 +1359,6 @@
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "responses": {
@@ -1106,8 +1382,29 @@
               }
             }
           }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
         }
-      }
+      ]
     },
     "/v1/auth/passkeys": {
       "post": {
@@ -1119,9 +1416,6 @@
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "requestBody": {
@@ -1175,7 +1469,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
       },
       "get": {
         "operationId": "authListPasskeys",
@@ -1186,9 +1481,6 @@
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "parameters": [
@@ -1234,8 +1526,29 @@
               }
             }
           }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
         }
-      }
+      ]
     },
     "/v1/auth/passkeys/{id}": {
       "patch": {
@@ -1247,9 +1560,6 @@
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "parameters": [
@@ -1313,7 +1623,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
       },
       "delete": {
         "operationId": "authDeletePasskey",
@@ -1324,9 +1635,6 @@
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "parameters": [
@@ -1380,8 +1688,29 @@
               }
             }
           }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
         }
-      }
+      ]
     },
     "/v1/auth/settings": {
       "patch": {
@@ -1393,9 +1722,6 @@
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "requestBody": {
@@ -1429,8 +1755,29 @@
               }
             }
           }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
         }
-      }
+      ]
     },
     "/v1/auth/account": {
       "delete": {
@@ -1442,9 +1789,6 @@
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "responses": {
@@ -1468,8 +1812,29 @@
               }
             }
           }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
         }
-      }
+      ]
     },
     "/v1/auth/logout": {
       "post": {
@@ -1478,7 +1843,7 @@
           "Auth"
         ],
         "summary": "Logout",
-        "description": "Clears auth cookie and returns success.",
+        "description": "Clears auth cookie and returns success. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
         "responses": {
           "200": {
             "description": "Logged out",
@@ -1491,7 +1856,27 @@
             }
           }
         }
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
+        }
+      ]
     },
     "/v1/services": {
       "get": {
@@ -1503,9 +1888,6 @@
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "responses": {
@@ -1529,7 +1911,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
       },
       "post": {
         "operationId": "createService",
@@ -1540,9 +1923,6 @@
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "requestBody": {
@@ -1606,8 +1986,29 @@
               }
             }
           }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
         }
-      }
+      ]
     },
     "/v1/services/{serviceId}": {
       "get": {
@@ -1619,9 +2020,6 @@
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "parameters": [
@@ -1665,7 +2063,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
       },
       "patch": {
         "operationId": "updateService",
@@ -1676,9 +2075,6 @@
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "parameters": [
@@ -1742,7 +2138,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
       },
       "delete": {
         "operationId": "deleteService",
@@ -1753,9 +2150,6 @@
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "parameters": [
@@ -1799,8 +2193,29 @@
               }
             }
           }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
         }
-      }
+      ]
     },
     "/v1/services/{serviceId}/keys": {
       "get": {
@@ -1812,9 +2227,6 @@
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "parameters": [
@@ -1878,7 +2290,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
       },
       "post": {
         "operationId": "createServiceApiKey",
@@ -1889,9 +2302,6 @@
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "parameters": [
@@ -1955,8 +2365,29 @@
               }
             }
           }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
         }
-      }
+      ]
     },
     "/v1/services/{serviceId}/keys/{keyId}": {
       "delete": {
@@ -1968,9 +2399,6 @@
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "parameters": [
@@ -2022,8 +2450,29 @@
               }
             }
           }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
         }
-      }
+      ]
     },
     "/v1/services/{serviceId}/webhooks": {
       "get": {
@@ -2035,9 +2484,6 @@
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "parameters": [
@@ -2101,7 +2547,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
       },
       "post": {
         "operationId": "createServiceWebhook",
@@ -2112,9 +2559,6 @@
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "parameters": [
@@ -2178,8 +2622,29 @@
               }
             }
           }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
         }
-      }
+      ]
     },
     "/v1/services/{serviceId}/webhooks/{webhookId}": {
       "delete": {
@@ -2191,9 +2656,6 @@
         "security": [
           {
             "CookieAuth": []
-          },
-          {
-            "BearerAuth": []
           }
         ],
         "parameters": [
@@ -2245,8 +2707,96 @@
               }
             }
           }
+        },
+        "description": "Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present)."
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
         }
-      }
+      ]
+    },
+    "/v1/auth/passkeys/options": {
+      "get": {
+        "operationId": "authPasskeyOptions",
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Get add-passkey WebAuthn options",
+        "description": "Returns registration options for adding an additional passkey to the current account. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
+        "security": [
+          {
+            "CookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "WebAuthn registration options",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebAuthnOptions"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SignatureInputHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SignatureHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentKeyHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumAgentCertHeader"
+        },
+        {
+          "$ref": "#/components/parameters/ContentDigestHeader"
+        }
+      ]
     }
   },
   "components": {
@@ -2254,13 +2804,13 @@
       "BearerAuth": {
         "type": "http",
         "scheme": "bearer",
-        "description": "Service API key or dashboard JWT"
+        "description": "Service API key passed as Authorization: Bearer <service_api_key>."
       },
       "CookieAuth": {
         "type": "apiKey",
         "in": "cookie",
         "name": "sigilum_token",
-        "description": "Dashboard auth cookie"
+        "description": "Dashboard auth cookie."
       }
     },
     "schemas": {
@@ -2955,7 +3505,8 @@
           "namespace": {
             "type": "string",
             "minLength": 3,
-            "maxLength": 64
+            "maxLength": 64,
+            "pattern": "^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$"
           },
           "passkeyName": {
             "type": "string",
@@ -3111,15 +3662,11 @@
       "AuthResponse": {
         "type": "object",
         "required": [
-          "user",
-          "token"
+          "user"
         ],
         "properties": {
           "user": {
             "$ref": "#/components/schemas/UserProfile"
-          },
-          "token": {
-            "type": "string"
           }
         }
       },
@@ -3568,6 +4115,62 @@
             "type": "string"
           }
         }
+      }
+    },
+    "parameters": {
+      "SignatureInputHeader": {
+        "name": "signature-input",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "RFC 9421 Signature-Input header for Sigilum signed-auth."
+      },
+      "SignatureHeader": {
+        "name": "signature",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "RFC 9421 Signature header for Sigilum signed-auth."
+      },
+      "SigilumNamespaceHeader": {
+        "name": "sigilum-namespace",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Sigilum namespace bound to the signing certificate."
+      },
+      "SigilumAgentKeyHeader": {
+        "name": "sigilum-agent-key",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Sigilum agent public key (ed25519:<base64>)."
+      },
+      "SigilumAgentCertHeader": {
+        "name": "sigilum-agent-cert",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Base64url-encoded Sigilum agent certificate JSON."
+      },
+      "ContentDigestHeader": {
+        "name": "content-digest",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Required for requests with a non-empty body. Must match the SHA-256 digest of the exact request body."
       }
     }
   }
