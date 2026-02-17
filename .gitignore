@@ -64,7 +64,7 @@ cache/
 broadcast/
 
 # ========================
-# Python (packages/sdk-python)
+# Python (sdks/sdk-python)
 # ========================
 __pycache__/
 *.pyc
@@ -76,7 +76,7 @@ __pycache__/
 .ruff_cache/
 
 # ========================
-# Go (packages/sdk-go)
+# Go (sdks/sdk-go)
 # ========================
 *.exe
 *.exe~
