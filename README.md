@@ -19,5 +19,6 @@ Sigilum is an open protocol and implementation effort focused on verifiable agen
 
 - [Manifesto](./MANIFESTO.md)
 - [Docs Index](./docs/README.md)
+- [CLI Guide](./docs/cli/README.md)
 - [SDKs Index](./sdks/README.md)
 - [API Guide](./apps/api/README.md)
