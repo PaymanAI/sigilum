@@ -112,6 +112,9 @@ Run full local e2e flow (recommended smoke test):
 ./sigilum e2e-tests
 ```
 
+By default, `e2e-tests` performs a clean start by stopping listeners on ports `8787`, `38100`, `11000`, `11100` before bootstrapping.
+Set `SIGILUM_E2E_CLEAN_START=false` to reuse already running processes.
+
 This starts:
 - API on `http://127.0.0.1:8787`
 - Gateway on `http://127.0.0.1:38100`

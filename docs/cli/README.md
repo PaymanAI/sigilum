@@ -157,7 +157,8 @@ sigilum service add \
 
 Runs end-to-end tests using bundled demo services:
 
-- starts local stack if needed
+- by default, performs clean-start by stopping listeners on ports `8787`, `38100`, `11000`, `11100`
+- starts local stack
 - starts demo native + gateway upstream services
 - runs `scripts/test-agent-simulator.mjs`
 - prints pass/fail matrix
@@ -166,6 +167,12 @@ Example:
 
 ```bash
 sigilum e2e-tests
+```
+
+Reuse currently running processes instead of clean-start:
+
+```bash
+SIGILUM_E2E_CLEAN_START=false sigilum e2e-tests
 ```
 
 ### `sigilum agent-simulator`

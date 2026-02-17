@@ -14,6 +14,7 @@ require_cmd() {
 require_cmd pnpm
 require_cmd node
 require_cmd curl
+require_cmd lsof
 
 : "${API_PORT:=8787}"
 : "${GATEWAY_PORT:=38100}"
@@ -21,6 +22,7 @@ require_cmd curl
 : "${UPSTREAM_PORT:=11100}"
 : "${BLOCKCHAIN_MODE:=disabled}"
 : "${SIGILUM_WORKSPACE_DIR:=${ROOT_DIR}/.sigilum-workspace}"
+: "${SIGILUM_E2E_CLEAN_START:=true}"
 
 API_URL="http://127.0.0.1:${API_PORT}"
 GATEWAY_URL="http://127.0.0.1:${GATEWAY_PORT}"
@@ -74,6 +76,65 @@ wait_for_url() {
   return 1
 }
 
+probe_status() {
+  local name="$1"
+  local expected_status="$2"
+  local method="$3"
+  local url="$4"
+  local body="${5:-}"
+  local status
+
+  if [[ -n "$body" ]]; then
+    status="$(curl -sS -o /dev/null -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -X "$method" "$url" \
+      --data "$body" || true)"
+  else
+    status="$(curl -sS -o /dev/null -w "%{http_code}" -X "$method" "$url" || true)"
+  fi
+
+  if [[ "$status" != "$expected_status" ]]; then
+    echo "${name} expected HTTP ${expected_status}, got ${status} (${method} ${url})" >&2
+    return 1
+  fi
+}
+
+listener_pids_for_port() {
+  local port="$1"
+  lsof -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' | sed -E 's/[[:space:]]+$//' || true
+}
+
+kill_listeners_on_port() {
+  local port="$1"
+  local label="$2"
+  local pids
+  pids="$(listener_pids_for_port "$port")"
+  if [[ -z "$pids" ]]; then
+    return 0
+  fi
+
+  echo "Stopping existing ${label} listener(s) on :${port}: ${pids}"
+  kill ${pids} 2>/dev/null || true
+
+  for _ in $(seq 1 8); do
+    sleep 1
+    pids="$(listener_pids_for_port "$port")"
+    if [[ -z "$pids" ]]; then
+      return 0
+    fi
+  done
+
+  echo "Force-stopping lingering ${label} listener(s) on :${port}: ${pids}"
+  kill -9 ${pids} 2>/dev/null || true
+}
+
+clean_start_ports() {
+  kill_listeners_on_port "$API_PORT" "API"
+  kill_listeners_on_port "$GATEWAY_PORT" "gateway"
+  kill_listeners_on_port "$NATIVE_PORT" "native demo"
+  kill_listeners_on_port "$UPSTREAM_PORT" "gateway demo upstream"
+}
+
 ensure_demo_gateway_connection() {
   local connection_id="demo-service-gateway"
   local response_file status delete_status payload
@@ -124,9 +185,23 @@ process.stdout.write(JSON.stringify(payload));
 
 echo "Logs: ${LOG_DIR}"
 
-if curl -sf "${API_URL}/health" >/dev/null 2>&1 && curl -sf "${GATEWAY_URL}/health" >/dev/null 2>&1; then
+if [[ "${SIGILUM_E2E_CLEAN_START}" == "true" ]]; then
+  echo "Clean start enabled: terminating existing listeners on Sigilum e2e ports."
+  clean_start_ports
+fi
+
+api_ready="false"
+gateway_ready="false"
+if curl -sf "${API_URL}/health" >/dev/null 2>&1; then
+  api_ready="true"
+fi
+if curl -sf "${GATEWAY_URL}/health" >/dev/null 2>&1; then
+  gateway_ready="true"
+fi
+
+if [[ "$api_ready" == "true" && "$gateway_ready" == "true" ]]; then
   echo "API and gateway already running; reusing existing stack."
-else
+elif [[ "$api_ready" == "false" && "$gateway_ready" == "false" ]]; then
   echo "Starting local API + gateway stack..."
   (
     cd "${ROOT_DIR}"
@@ -137,6 +212,10 @@ else
 
   wait_for_url "API" "${API_URL}/health" 180 "${LOG_DIR}/stack.log"
   wait_for_url "Gateway" "${GATEWAY_URL}/health" 180 "${LOG_DIR}/stack.log"
+else
+  echo "Detected partial stack state (API ready=${api_ready}, gateway ready=${gateway_ready})." >&2
+  echo "Stop existing local processes or run a clean stack, then rerun e2e tests." >&2
+  exit 1
 fi
 
 NATIVE_KEY_FILE="${SIGILUM_WORKSPACE_DIR}/service-api-key-demo-service-native"
@@ -159,29 +238,43 @@ UPSTREAM_KEY="$(tr -d '\r\n' <"${UPSTREAM_KEY_FILE}")"
 echo "Ensuring gateway demo connection points at ${UPSTREAM_URL}..."
 ensure_demo_gateway_connection
 
-echo "Starting demo-service-native on ${NATIVE_URL}..."
-(
-  cd "${ROOT_DIR}/apps/demo-service-native"
-  PORT="${NATIVE_PORT}" \
-  SIGILUM_API_URL="${API_URL}" \
-  SIGILUM_API_KEY="${NATIVE_KEY}" \
-  pnpm exec tsx src/index.ts
-) >"${LOG_DIR}/native.log" 2>&1 &
-NATIVE_PID=$!
+if curl -sf "${NATIVE_URL}/" >/dev/null 2>&1; then
+  echo "Native demo service already running at ${NATIVE_URL}; reusing."
+else
+  echo "Starting demo-service-native on ${NATIVE_URL}..."
+  (
+    cd "${ROOT_DIR}/apps/demo-service-native"
+    PORT="${NATIVE_PORT}" \
+    SIGILUM_API_URL="${API_URL}" \
+    SIGILUM_API_KEY="${NATIVE_KEY}" \
+    pnpm exec tsx src/index.ts
+  ) >"${LOG_DIR}/native.log" 2>&1 &
+  NATIVE_PID=$!
 
-echo "Starting demo-service-gateway on ${UPSTREAM_URL}..."
-(
-  cd "${ROOT_DIR}/apps/demo-service-gateway"
-  PORT="${UPSTREAM_PORT}" \
-  DEMO_GATEWAY_CONNECTION_ID="demo-service-gateway" \
-  DEMO_UPSTREAM_HEADER="X-Demo-Service-Gateway-Key" \
-  DEMO_UPSTREAM_KEY="${UPSTREAM_KEY}" \
-  pnpm exec tsx src/index.ts
-) >"${LOG_DIR}/gateway-demo.log" 2>&1 &
-GW_DEMO_PID=$!
+  wait_for_url "Native demo service" "${NATIVE_URL}/" 120 "${LOG_DIR}/native.log"
+fi
 
-wait_for_url "Native demo service" "${NATIVE_URL}/" 120 "${LOG_DIR}/native.log"
-wait_for_url "Gateway demo service" "${UPSTREAM_URL}/health" 120 "${LOG_DIR}/gateway-demo.log"
+if curl -sf "${UPSTREAM_URL}/health" >/dev/null 2>&1; then
+  echo "Gateway demo upstream already running at ${UPSTREAM_URL}; reusing."
+else
+  echo "Starting demo-service-gateway on ${UPSTREAM_URL}..."
+  (
+    cd "${ROOT_DIR}/apps/demo-service-gateway"
+    PORT="${UPSTREAM_PORT}" \
+    DEMO_GATEWAY_CONNECTION_ID="demo-service-gateway" \
+    DEMO_UPSTREAM_HEADER="X-Demo-Service-Gateway-Key" \
+    DEMO_UPSTREAM_KEY="${UPSTREAM_KEY}" \
+    pnpm exec tsx src/index.ts
+  ) >"${LOG_DIR}/gateway-demo.log" 2>&1 &
+  GW_DEMO_PID=$!
+
+  wait_for_url "Gateway demo service" "${UPSTREAM_URL}/health" 120 "${LOG_DIR}/gateway-demo.log"
+fi
+
+PING_BODY='"ping"'
+probe_status "Gateway connection lookup" "200" "GET" "${GATEWAY_URL}/api/admin/connections/demo-service-gateway"
+probe_status "Native unsigned probe" "401" "POST" "${NATIVE_URL}/v1/ping" "${PING_BODY}"
+probe_status "Gateway unsigned probe" "403" "POST" "${GATEWAY_URL}/proxy/demo-service-gateway/v1/ping" "${PING_BODY}"
 
 echo "Running end-to-end simulator..."
 if SIM_API_URL="${API_URL}" \
