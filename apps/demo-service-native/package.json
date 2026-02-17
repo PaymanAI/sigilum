@@ -13,8 +13,7 @@
   "dependencies": {
     "hono": "^4.11.9",
     "@hono/node-server": "^1.19.9",
-    "@sigilum/sdk": "workspace:*",
-    "@sigilum/shared": "workspace:*"
+    "@sigilum/sdk": "workspace:*"
   },
   "devDependencies": {
     "@sigilum/config": "workspace:*",
