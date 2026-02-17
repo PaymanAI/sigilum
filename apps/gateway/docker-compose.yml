@@ -1,0 +1,27 @@
+services:
+  envoy:
+    image: envoyproxy/envoy:v1.31-latest
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+    ports:
+      - "38000:38000"
+      - "38200:38200"
+    volumes:
+      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+    depends_on:
+      - sigilum-gateway
+
+  sigilum-gateway:
+    build:
+      context: ../..
+      dockerfile: apps/gateway/service/Dockerfile
+    image: sigilum-gateway:dev
+    restart: unless-stopped
+    env_file:
+      - .env
+    expose:
+      - "38100"
+    volumes:
+      - gateway_data_v2:/var/lib/sigilum-gateway
+
+volumes:
+  gateway_data_v2:

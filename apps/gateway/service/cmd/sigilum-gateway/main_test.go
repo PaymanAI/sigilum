@@ -1,0 +1,81 @@
+package main
+
+import (
+	"errors"
+	"net"
+	"net/http/httptest"
+	"testing"
+)
+
+func TestValidateSignatureComponentsNoBody(t *testing.T) {
+	input := `sig1=("@method" "@target-uri" "sigilum-namespace" "sigilum-agent-key" "sigilum-agent-cert");created=1;keyid="did:sigilum:alice#ed25519-test";alg="ed25519";nonce="abc"`
+	if err := validateSignatureComponents(input, false); err != nil {
+		t.Fatalf("expected valid component set, got error: %v", err)
+	}
+}
+
+func TestValidateSignatureComponentsWithBody(t *testing.T) {
+	input := `sig1=("@method" "@target-uri" "content-digest" "sigilum-namespace" "sigilum-agent-key" "sigilum-agent-cert");created=1;keyid="did:sigilum:alice#ed25519-test";alg="ed25519";nonce="abc"`
+	if err := validateSignatureComponents(input, true); err != nil {
+		t.Fatalf("expected valid component set, got error: %v", err)
+	}
+}
+
+func TestValidateSignatureComponentsRejectsWrongSet(t *testing.T) {
+	input := `sig1=("@method" "@target-uri" "sigilum-namespace" "sigilum-agent-key");created=1;keyid="did:sigilum:alice#ed25519-test";alg="ed25519";nonce="abc"`
+	err := validateSignatureComponents(input, false)
+	if !errors.Is(err, errInvalidSignedComponentSet) {
+		t.Fatalf("expected invalid component set error, got: %v", err)
+	}
+}
+
+func TestValidateSignatureComponentsRejectsMalformedInput(t *testing.T) {
+	err := validateSignatureComponents("not-a-signature-input", false)
+	if !errors.Is(err, errInvalidSignatureInputFormat) {
+		t.Fatalf("expected invalid Signature-Input format error, got: %v", err)
+	}
+}
+
+func TestRequestAbsoluteURLIgnoresForwardedProtoFromUntrustedProxy(t *testing.T) {
+	req := httptest.NewRequest("GET", "http://gateway.local/proxy/slack", nil)
+	req.Host = "gateway.example"
+	req.RemoteAddr = "203.0.113.10:2345"
+	req.Header.Set("X-Forwarded-Proto", "https")
+
+	if got := requestAbsoluteURL(req, nil); got != "http://gateway.example/proxy/slack" {
+		t.Fatalf("expected untrusted forwarded proto to be ignored, got %q", got)
+	}
+}
+
+func TestRequestAbsoluteURLUsesForwardedProtoFromTrustedProxy(t *testing.T) {
+	req := httptest.NewRequest("GET", "http://gateway.local/proxy/slack", nil)
+	req.Host = "gateway.example"
+	req.RemoteAddr = "203.0.113.10:2345"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	_, trustedCIDR, _ := net.ParseCIDR("203.0.113.0/24")
+
+	if got := requestAbsoluteURL(req, []*net.IPNet{trustedCIDR}); got != "https://gateway.example/proxy/slack" {
+		t.Fatalf("expected trusted forwarded proto to be used, got %q", got)
+	}
+}
+
+func TestClientIPIgnoresForwardedHeadersFromUntrustedProxy(t *testing.T) {
+	req := httptest.NewRequest("GET", "http://gateway.local/proxy/slack", nil)
+	req.RemoteAddr = "203.0.113.10:2345"
+	req.Header.Set("X-Forwarded-For", "10.0.0.5")
+
+	if got := clientIP(req, nil); got != "203.0.113.10" {
+		t.Fatalf("expected remote addr IP for untrusted proxy, got %q", got)
+	}
+}
+
+func TestClientIPUsesForwardedHeadersFromTrustedProxy(t *testing.T) {
+	req := httptest.NewRequest("GET", "http://gateway.local/proxy/slack", nil)
+	req.RemoteAddr = "203.0.113.10:2345"
+	req.Header.Set("X-Forwarded-For", "10.0.0.5, 10.0.0.6")
+	_, trustedCIDR, _ := net.ParseCIDR("203.0.113.0/24")
+
+	if got := clientIP(req, []*net.IPNet{trustedCIDR}); got != "10.0.0.5" {
+		t.Fatalf("expected first forwarded IP for trusted proxy, got %q", got)
+	}
+}

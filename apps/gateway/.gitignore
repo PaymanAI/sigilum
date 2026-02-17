@@ -1,0 +1,7 @@
+.env
+data/
+service/bin/
+service/.cache/
+ui/node_modules/
+ui/dist/
+ui/.next/
