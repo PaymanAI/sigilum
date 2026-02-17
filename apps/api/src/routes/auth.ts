@@ -14,24 +14,11 @@ import { createErrorResponse } from "../utils/validation.js";
 import { getConfig } from "../utils/config.js";
 import { enqueueRegisterNamespace } from "../utils/blockchain-queue.js";
 import { checkNamespaceOnChain } from "../utils/blockchain.js";
+import { resolveWebAuthnConfig } from "../utils/webauthn-config.js";
 
 export const authRouter = new Hono<{ Bindings: Env }>();
 
 const RP_NAME = "Sigilum";
-
-function getOrigin(c: { req: { header: (name: string) => string | undefined } }): string {
-  const origin = c.req.header("Origin");
-  if (origin) return origin;
-  return "http://localhost:3000";
-}
-
-function getRpID(origin: string): string {
-  try {
-    return new URL(origin).hostname;
-  } catch {
-    return "localhost";
-  }
-}
 
 const JWT_ISSUER = "sigilum-api";
 const JWT_AUDIENCE = "sigilum-dashboard";
@@ -172,12 +159,17 @@ authRouter.get("/signup/options", async (c) => {
     );
   }
 
-  const origin = getOrigin(c);
-  const rpID = getRpID(origin);
+  let webAuthnConfig;
+  try {
+    webAuthnConfig = resolveWebAuthnConfig(c.env);
+  } catch (err) {
+    console.error("Invalid WebAuthn configuration:", err);
+    return c.json(createErrorResponse("WebAuthn is not configured correctly", "SERVER_MISCONFIGURED"), 500);
+  }
 
   const options = await generateRegistrationOptions({
     rpName: RP_NAME,
-    rpID: rpID === "localhost" ? "localhost" : rpID,
+    rpID: webAuthnConfig.rpID,
     userName: email,
     userID: crypto.getRandomValues(new Uint8Array(32)),
     userDisplayName: namespace,
@@ -230,8 +222,13 @@ authRouter.post("/signup", async (c) => {
     return c.json(createErrorResponse("Invalid request body", "INVALID_JSON"), 400);
   }
 
-  const origin = getOrigin(c);
-  const rpID = getRpID(origin);
+  let webAuthnConfig;
+  try {
+    webAuthnConfig = resolveWebAuthnConfig(c.env);
+  } catch (err) {
+    console.error("Invalid WebAuthn configuration:", err);
+    return c.json(createErrorResponse("WebAuthn is not configured correctly", "SERVER_MISCONFIGURED"), 500);
+  }
 
   const clientDataJSON = JSON.parse(
     new TextDecoder().decode(
@@ -260,8 +257,8 @@ authRouter.post("/signup", async (c) => {
     verification = await verifyRegistrationResponse({
       response: body.credential as unknown as RegistrationResponseJSON,
       expectedChallenge: challengeFromClient,
-      expectedOrigin: origin,
-      expectedRPID: rpID === "localhost" ? "localhost" : rpID,
+      expectedOrigin: webAuthnConfig.expectedOrigin,
+      expectedRPID: webAuthnConfig.rpID,
     });
   } catch (err) {
     console.error("Registration verification failed:", err);
@@ -428,11 +425,16 @@ authRouter.post("/signup", async (c) => {
  * Returns authentication options (challenge) for passkey sign-in.
  */
 authRouter.get("/login/options", async (c) => {
-  const origin = getOrigin(c);
-  const rpID = getRpID(origin);
+  let webAuthnConfig;
+  try {
+    webAuthnConfig = resolveWebAuthnConfig(c.env);
+  } catch (err) {
+    console.error("Invalid WebAuthn configuration:", err);
+    return c.json(createErrorResponse("WebAuthn is not configured correctly", "SERVER_MISCONFIGURED"), 500);
+  }
 
   const options = await generateAuthenticationOptions({
-    rpID: rpID === "localhost" ? "localhost" : rpID,
+    rpID: webAuthnConfig.rpID,
     userVerification: "preferred",
   });
 
@@ -511,16 +513,21 @@ authRouter.post("/login", async (c) => {
         ? rawKey
         : new Uint8Array(rawKey as ArrayBuffer);
 
-  const origin = getOrigin(c);
-  const rpID = getRpID(origin);
+  let webAuthnConfig;
+  try {
+    webAuthnConfig = resolveWebAuthnConfig(c.env);
+  } catch (err) {
+    console.error("Invalid WebAuthn configuration:", err);
+    return c.json(createErrorResponse("WebAuthn is not configured correctly", "SERVER_MISCONFIGURED"), 500);
+  }
 
   let verification;
   try {
     verification = await verifyAuthenticationResponse({
       response: body.credential as unknown as AuthenticationResponseJSON,
       expectedChallenge: challengeFromClient,
-      expectedOrigin: origin,
-      expectedRPID: rpID === "localhost" ? "localhost" : rpID,
+      expectedOrigin: webAuthnConfig.expectedOrigin,
+      expectedRPID: webAuthnConfig.rpID,
       credential: {
         id: credentialId,
         publicKey: publicKey as Uint8Array<ArrayBuffer>,
@@ -668,8 +675,13 @@ authRouter.post("/passkeys", async (c) => {
     return c.json(createErrorResponse("Invalid credential", "INVALID_CREDENTIAL"), 400);
   }
 
-  const origin = getOrigin(c);
-  const rpID = getRpID(origin);
+  let webAuthnConfig;
+  try {
+    webAuthnConfig = resolveWebAuthnConfig(c.env);
+  } catch (err) {
+    console.error("Invalid WebAuthn configuration:", err);
+    return c.json(createErrorResponse("WebAuthn is not configured correctly", "SERVER_MISCONFIGURED"), 500);
+  }
 
   // Extract challenge from clientDataJSON
   const clientDataJSON = JSON.parse(
@@ -699,8 +711,8 @@ authRouter.post("/passkeys", async (c) => {
     verification = await verifyRegistrationResponse({
       response: credential,
       expectedChallenge: challengeFromClient,
-      expectedOrigin: origin,
-      expectedRPID: rpID === "localhost" ? "localhost" : rpID,
+      expectedOrigin: webAuthnConfig.expectedOrigin,
+      expectedRPID: webAuthnConfig.rpID,
     });
   } catch (err) {
     console.error("Passkey verification failed:", err);

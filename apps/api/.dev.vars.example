@@ -27,6 +27,16 @@ JWT_EXPIRY=7d
 # For local development, include both your frontend and API URLs
 ALLOWED_ORIGINS=http://localhost:5000,http://localhost:8787,http://127.0.0.1:5000
 
+# WebAuthn trust boundary (do NOT derive from request headers)
+# Comma-separated trusted origins used for expectedOrigin verification.
+# If omitted, ALLOWED_ORIGINS is used.
+# WEBAUTHN_ALLOWED_ORIGINS=http://localhost:5000
+#
+# Relying Party ID used for expectedRPID verification and option generation.
+# Must match or be a parent domain suffix of each trusted origin hostname.
+# If omitted, derived from the first WebAuthn origin.
+# WEBAUTHN_RP_ID=localhost
+
 # ----------------------------------------------------------------------------
 # Blockchain Configuration
 # ----------------------------------------------------------------------------

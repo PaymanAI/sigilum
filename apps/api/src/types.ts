@@ -2,6 +2,8 @@ export interface Env {
   ENVIRONMENT: "production" | "staging" | "test" | "development";
   ADAPTER_PROVIDER?: "cloudflare"; // Default: cloudflare
   ALLOWED_ORIGINS?: string;
+  WEBAUTHN_ALLOWED_ORIGINS?: string; // Optional override for WebAuthn expected origins (comma-separated)
+  WEBAUTHN_RP_ID?: string; // Optional override for WebAuthn relying-party ID
   JWT_SECRET?: string;
   WEBHOOK_SECRET_ENCRYPTION_KEY?: string;
   DB: D1Database;
