@@ -5,6 +5,7 @@ This folder contains all long-form project documentation.
 ## Sections
 
 - `architecture/` - system design, components, and trust boundaries.
+- `cli/` - local developer CLI usage, commands, and examples.
 - `protocol/` - identity and delegation protocol specs.
 - `governance/` - trust registries, issuer policy, and operational governance.
 - `compliance/` - regulatory mapping and audit requirements.
@@ -15,6 +16,7 @@ This folder contains all long-form project documentation.
 - [`apps/api/README.md`](../apps/api/README.md) - API guide and endpoint overview.
 - [`apps/api/ENV_VARS.md`](../apps/api/ENV_VARS.md) - API environment variables and Cloudflare binding configuration.
 - [`apps/gateway/README.md`](../apps/gateway/README.md) - Gateway behavior, routes, configuration, and assumptions.
+- [`docs/cli/README.md`](./cli/README.md) - Local CLI install, commands, options, and examples.
 
 ## SDK Docs
 

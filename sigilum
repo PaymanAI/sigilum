@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  cat <<'EOF'
+Sigilum Local CLI
+
+Usage:
+  sigilum [global options] <command> [args]
+
+Global options:
+  --namespace <value>            Set GATEWAY_SIGILUM_NAMESPACE
+  --sigilum-home <path>          Set GATEWAY_SIGILUM_HOME
+  --gateway-admin-url <url>      Set GATEWAY_ADMIN_URL
+  --gateway-data-dir <path>      Set GATEWAY_DATA_DIR
+  --gateway-master-key <value>   Set GATEWAY_MASTER_KEY
+  --api-port <port>              Set API_PORT
+  --gateway-port <port>          Set GATEWAY_PORT
+  --native-port <port>           Set NATIVE_PORT
+  --upstream-port <port>         Set UPSTREAM_PORT
+  -h, --help                     Show help
+
+Commands:
+  install [options]              Install sigilum command into your shell (symlink/alias)
+  service <args>                 Manage local services (delegates to scripts/sigilum-service.sh)
+  up                             Start local API + gateway (scripts/run-local-api-gateway.sh)
+  e2e-tests                      Start demo services and run end-to-end tests
+  agent-simulator                Run agent auth simulator against running services
+
+Examples:
+  sigilum install
+  sigilum up
+  sigilum service add --service-slug demo-native --mode native
+  sigilum service add --service-slug demo-proxy --mode gateway --upstream-base-url http://127.0.0.1:12000
+  sigilum e2e-tests
+EOF
+}
+
+ensure_script() {
+  local script_path="$1"
+  if [[ ! -x "$script_path" ]]; then
+    echo "Missing executable script: $script_path" >&2
+    exit 1
+  fi
+}
+
+export_if_set() {
+  local name="$1"
+  local value="$2"
+  if [[ -n "$value" ]]; then
+    export "$name=$value"
+  fi
+}
+
+NAMESPACE=""
+SIGILUM_HOME=""
+GATEWAY_ADMIN_URL_OPT=""
+GATEWAY_DATA_DIR_OPT=""
+GATEWAY_MASTER_KEY_OPT=""
+API_PORT_OPT=""
+GATEWAY_PORT_OPT=""
+NATIVE_PORT_OPT=""
+UPSTREAM_PORT_OPT=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --namespace)
+      NAMESPACE="${2:-}"
+      shift 2
+      ;;
+    --sigilum-home)
+      SIGILUM_HOME="${2:-}"
+      shift 2
+      ;;
+    --gateway-admin-url)
+      GATEWAY_ADMIN_URL_OPT="${2:-}"
+      shift 2
+      ;;
+    --gateway-data-dir)
+      GATEWAY_DATA_DIR_OPT="${2:-}"
+      shift 2
+      ;;
+    --gateway-master-key)
+      GATEWAY_MASTER_KEY_OPT="${2:-}"
+      shift 2
+      ;;
+    --api-port)
+      API_PORT_OPT="${2:-}"
+      shift 2
+      ;;
+    --gateway-port)
+      GATEWAY_PORT_OPT="${2:-}"
+      shift 2
+      ;;
+    --native-port)
+      NATIVE_PORT_OPT="${2:-}"
+      shift 2
+      ;;
+    --upstream-port)
+      UPSTREAM_PORT_OPT="${2:-}"
+      shift 2
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      usage
+      exit 1
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [[ $# -lt 1 ]]; then
+  usage
+  exit 1
+fi
+
+export_if_set "GATEWAY_SIGILUM_NAMESPACE" "$NAMESPACE"
+export_if_set "GATEWAY_SIGILUM_HOME" "$SIGILUM_HOME"
+export_if_set "GATEWAY_ADMIN_URL" "$GATEWAY_ADMIN_URL_OPT"
+export_if_set "GATEWAY_DATA_DIR" "$GATEWAY_DATA_DIR_OPT"
+export_if_set "GATEWAY_MASTER_KEY" "$GATEWAY_MASTER_KEY_OPT"
+export_if_set "API_PORT" "$API_PORT_OPT"
+export_if_set "GATEWAY_PORT" "$GATEWAY_PORT_OPT"
+export_if_set "NATIVE_PORT" "$NATIVE_PORT_OPT"
+export_if_set "UPSTREAM_PORT" "$UPSTREAM_PORT_OPT"
+
+command="$1"
+shift || true
+
+case "$command" in
+  install)
+    ensure_script "$ROOT_DIR/scripts/install-sigilum.sh"
+    exec "$ROOT_DIR/scripts/install-sigilum.sh" "$@"
+    ;;
+  up)
+    ensure_script "$ROOT_DIR/scripts/run-local-api-gateway.sh"
+    if [[ -n "${GATEWAY_PORT_OPT}" ]] && [[ -z "${GATEWAY_ADDR:-}" ]]; then
+      export GATEWAY_ADDR=":${GATEWAY_PORT_OPT}"
+    fi
+    exec "$ROOT_DIR/scripts/run-local-api-gateway.sh" "$@"
+    ;;
+  e2e-tests)
+    ensure_script "$ROOT_DIR/scripts/run-demo-e2e.sh"
+    exec "$ROOT_DIR/scripts/run-demo-e2e.sh" "$@"
+    ;;
+  agent-simulator)
+    if [[ -n "${API_PORT_OPT}" ]]; then
+      export SIM_API_URL="http://127.0.0.1:${API_PORT_OPT}"
+    fi
+    if [[ -n "${GATEWAY_PORT_OPT}" ]]; then
+      export SIM_GATEWAY_URL="http://127.0.0.1:${GATEWAY_PORT_OPT}"
+    fi
+    if [[ -n "${NATIVE_PORT_OPT}" ]]; then
+      export SIM_NATIVE_URL="http://127.0.0.1:${NATIVE_PORT_OPT}"
+    fi
+    if [[ -n "${UPSTREAM_PORT_OPT}" ]]; then
+      export SIM_GATEWAY_UPSTREAM_URL="http://127.0.0.1:${UPSTREAM_PORT_OPT}"
+    fi
+    exec node "$ROOT_DIR/scripts/test-agent-simulator.mjs" "$@"
+    ;;
+  service)
+    ensure_script "$ROOT_DIR/scripts/sigilum-service.sh"
+    exec "$ROOT_DIR/scripts/sigilum-service.sh" "$@"
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    echo "Unknown command: $command" >&2
+    usage
+    exit 1
+    ;;
+esac
