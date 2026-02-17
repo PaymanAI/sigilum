@@ -55,7 +55,7 @@ BLOCKCHAIN_RPC_URL=https://sepolia.base.org
 
 # Sigilum Registry Contract Address (deployed on Base Sepolia or Base mainnet)
 # You MUST deploy the SigilumRegistry contract first and paste the address here.
-# See packages/contracts/DEPLOYMENT.md for deployment instructions.
+# See contracts/DEPLOYMENT.md for deployment instructions.
 #
 # Example testnet address: 0x742d35Cc6634C0532925a3b844Bc454e4438f44e
 # Leave empty if not deployed yet (API will throw error on blockchain operations)
@@ -147,7 +147,7 @@ WEBHOOK_ALERT_EMAIL_FROM=alerts@example.com
 # 2. Generate JWT secret: openssl rand -base64 32
 # 3. Paste JWT secret into JWT_SECRET above
 # 4. (Optional) Deploy SigilumRegistry contract to Base Sepolia:
-#    cd ../../packages/contracts
+#    cd ../../contracts
 #    forge script script/Deploy.s.sol --rpc-url https://sepolia.base.org --broadcast
 # 5. (Optional) Paste contract address into SIGILUM_REGISTRY_ADDRESS
 # 6. (Optional) Create relayer wallet and fund with testnet ETH:
