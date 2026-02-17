@@ -31,6 +31,9 @@ export const claimsRouter = new Hono<{ Bindings: Env }>();
  * Requires a valid service API key.
  */
 claimsRouter.post("/", async (c) => {
+  const config = getConfig(c.env);
+  const adapters = getAdapters(c.env);
+
   const authHeader = c.req.header("Authorization");
   if (!authHeader?.startsWith("Bearer ")) {
     return c.json(createErrorResponse("Missing or invalid Authorization header. Use: Bearer sk_live_...", "UNAUTHORIZED"), 401);
@@ -42,8 +45,10 @@ claimsRouter.post("/", async (c) => {
   }
 
   let body: z.infer<typeof submitClaimSchema>;
+  let rawBody = "";
   try {
-    body = submitClaimSchema.parse(await c.req.json());
+    rawBody = await c.req.text();
+    body = submitClaimSchema.parse(JSON.parse(rawBody));
   } catch (err) {
     if (err instanceof z.ZodError) {
       const fields = err.issues.map((e) => ({
@@ -63,9 +68,9 @@ claimsRouter.post("/", async (c) => {
     );
   }
 
-  // Replay protection via nonce store
+  // Replay protection via nonce store.
   try {
-    const nonceResult = await getAdapters(c.env).nonceStore.check({
+    const nonceResult = await adapters.nonceStore.check({
       service: serviceInfo.slug,
       nonce: body.nonce,
     });
@@ -220,7 +225,6 @@ claimsRouter.post("/", async (c) => {
 
   const policySettings = (userSettings.policy ?? {}) as Record<string, unknown>;
   const maxPendingEnabled = policySettings.maxPendingLimit !== false;
-  const config = getConfig(c.env);
   const maxPendingCount = config.maxPendingRequests;
 
   if (maxPendingEnabled) {

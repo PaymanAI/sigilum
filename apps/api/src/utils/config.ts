@@ -28,5 +28,11 @@ export function getConfig(env: Env) {
 
     // WebAuthn challenge expiry (in hours)
     challengeExpiryHours: parseInt(env.CHALLENGE_EXPIRY_HOURS ?? "1", 10),
+
+    // Max allowed age for signed headers (seconds)
+    signatureMaxAgeSeconds: parseInt(env.SIGNATURE_MAX_AGE_SECONDS ?? "300", 10),
+
+    // Replay window TTL for signature nonce records (seconds)
+    signatureNonceTtlSeconds: parseInt(env.SIGNATURE_NONCE_TTL_SECONDS ?? "600", 10),
   };
 }

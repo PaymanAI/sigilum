@@ -32,4 +32,6 @@ export interface Env {
   JWT_EXPIRY?: string;
   PENDING_AUTHORIZATION_EXPIRY_HOURS?: string;
   CHALLENGE_EXPIRY_HOURS?: string;
+  SIGNATURE_MAX_AGE_SECONDS?: string;
+  SIGNATURE_NONCE_TTL_SECONDS?: string;
 }

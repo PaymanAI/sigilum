@@ -278,6 +278,159 @@ async function sha256Hex(value: string): Promise<string> {
 
 let fetchMock: ReturnType<typeof vi.fn>;
 let db: MockD1Database;
+let signingContexts: Map<string, {
+  namespace: string;
+  did: string;
+  keyId: string;
+  publicKey: string;
+  privateKey: CryptoKey;
+  certificateHeader: string;
+}>;
+let nonceSeen: Set<string>;
+
+function toBase64(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes));
+}
+
+function toBase64Url(bytes: Uint8Array): string {
+  return toBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function certificatePayload(input: {
+  namespace: string;
+  did: string;
+  keyId: string;
+  publicKey: string;
+  issuedAt: string;
+  expiresAt: string | null;
+}): string {
+  return [
+    "sigilum-certificate-v1",
+    `namespace:${input.namespace}`,
+    `did:${input.did}`,
+    `key-id:${input.keyId}`,
+    `public-key:${input.publicKey}`,
+    `issued-at:${input.issuedAt}`,
+    `expires-at:${input.expiresAt ?? ""}`,
+  ].join("\n");
+}
+
+async function buildSigningContext(namespace = "alice") {
+  const keyPair = (await crypto.subtle.generateKey(
+    "Ed25519",
+    true,
+    ["sign", "verify"],
+  )) as CryptoKeyPair;
+  const privateKey = keyPair.privateKey;
+  const publicRaw = new Uint8Array(
+    (await crypto.subtle.exportKey("raw", keyPair.publicKey)) as ArrayBuffer,
+  );
+  const publicKey = `ed25519:${toBase64(publicRaw)}`;
+  const did = `did:sigilum:${namespace}`;
+  const keyId = `${did}#ed25519-test`;
+  const issuedAt = new Date().toISOString();
+  const certBase = {
+    version: 1,
+    namespace,
+    did,
+    keyId,
+    publicKey,
+    issuedAt,
+    expiresAt: null as string | null,
+  };
+  const certSig = new Uint8Array(
+    await crypto.subtle.sign(
+      "Ed25519",
+      privateKey,
+      new TextEncoder().encode(certificatePayload(certBase)),
+    ),
+  );
+  const certificate = {
+    ...certBase,
+    proof: {
+      alg: "ed25519",
+      sig: toBase64Url(certSig),
+    },
+  };
+  return {
+    namespace,
+    did,
+    keyId,
+    publicKey,
+    privateKey,
+    certificateHeader: toBase64Url(new TextEncoder().encode(JSON.stringify(certificate))),
+  };
+}
+
+async function signRequest(path: string, init?: RequestInit): Promise<RequestInit> {
+  const base = new URL(path, "http://localhost");
+  const method = (init?.method ?? "GET").toUpperCase();
+  const headers = new Headers(init?.headers);
+  const bodyText =
+    typeof init?.body === "string" ? init.body : init?.body ? String(init.body) : "";
+
+  const extractNamespace = (): string => {
+    if (base.pathname === "/v1/verify") {
+      return base.searchParams.get("namespace") ?? "alice";
+    }
+    if (base.pathname.startsWith("/v1/namespaces/")) {
+      const rest = base.pathname.slice("/v1/namespaces/".length);
+      const first = rest.split("/")[0];
+      if (first && first !== "claims") return decodeURIComponent(first);
+    }
+    if (base.pathname.startsWith("/.well-known/did/")) {
+      const did = decodeURIComponent(base.pathname.slice("/.well-known/did/".length));
+      if (did.startsWith("did:sigilum:")) return did.slice("did:sigilum:".length);
+    }
+    if (base.pathname === "/v1/claims" && method === "POST" && bodyText) {
+      try {
+        const parsed = JSON.parse(bodyText) as { namespace?: string };
+        if (parsed.namespace) return parsed.namespace;
+      } catch {
+        // ignore malformed test body
+      }
+    }
+    return "alice";
+  };
+
+  const namespace = extractNamespace();
+  let signingContext = signingContexts.get(namespace);
+  if (!signingContext) {
+    signingContext = await buildSigningContext(namespace);
+    signingContexts.set(namespace, signingContext);
+  }
+
+  if (bodyText) {
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(bodyText)));
+    headers.set("content-digest", `sha-256=:${toBase64(digest)}:`);
+  }
+
+  headers.set("sigilum-namespace", signingContext.namespace);
+  headers.set("sigilum-agent-key", signingContext.publicKey);
+  headers.set("sigilum-agent-cert", signingContext.certificateHeader);
+
+  const components = bodyText
+    ? ["@method", "@target-uri", "content-digest", "sigilum-namespace", "sigilum-agent-key", "sigilum-agent-cert"]
+    : ["@method", "@target-uri", "sigilum-namespace", "sigilum-agent-key", "sigilum-agent-cert"];
+  const created = Math.floor(Date.now() / 1000);
+  const nonce = crypto.randomUUID();
+  const signatureParams =
+    `(${components.map((c) => `"${c}"`).join(" ")});created=${created};` +
+    `keyid="${signingContext.keyId}";alg="ed25519";nonce="${nonce}"`;
+
+  const lines = components.map((component) => {
+    if (component === "@method") return `"@method": ${method.toLowerCase()}`;
+    if (component === "@target-uri") return `"@target-uri": ${base.toString()}`;
+    return `"${component}": ${headers.get(component)}`;
+  });
+  lines.push(`"@signature-params": ${signatureParams}`);
+  const signingBase = new TextEncoder().encode(lines.join("\n"));
+  const signature = new Uint8Array(await crypto.subtle.sign("Ed25519", signingContext.privateKey, signingBase));
+  headers.set("signature-input", `sig1=${signatureParams}`);
+  headers.set("signature", `sig1=:${toBase64(signature)}:`);
+
+  return { ...init, method, headers };
+}
 
 beforeEach(async () => {
   fetchMock = vi.fn(async (input: string | URL | Request) => {
@@ -306,6 +459,9 @@ beforeEach(async () => {
   vi.stubGlobal("fetch", fetchMock);
 
   db = new MockD1Database();
+  signingContexts = new Map();
+  signingContexts.set("alice", await buildSigningContext("alice"));
+  nonceSeen = new Set();
   db.services.push({
     id: "svc_1",
     slug: "my-service",
@@ -346,13 +502,35 @@ beforeEach(async () => {
 });
 
 function req(path: string, init?: RequestInit) {
-  return app.request(path, init, {
+  const nonceNamespace = {
+    idFromName(name: string) {
+      return name;
+    },
+    get(name: string) {
+      return {
+        fetch: async (_url: string, reqInit?: RequestInit) => {
+          const raw = typeof reqInit?.body === "string" ? reqInit.body : "{}";
+          const parsed = JSON.parse(raw) as { nonce?: string };
+          const nonce = parsed.nonce ?? "";
+          const key = `${name}:${nonce}`;
+          const replay = nonceSeen.has(key);
+          if (!replay) nonceSeen.add(key);
+          return new Response(JSON.stringify({ replay }), { status: 200 });
+        },
+      };
+    },
+  };
+
+  const signedPromise = path === "/health" ? Promise.resolve(init ?? {}) : signRequest(path, init);
+
+  return signedPromise.then((signedInit) => app.request(path, signedInit, {
     ENVIRONMENT: "test",
     ALLOWED_ORIGINS: "https://dashboard.sigilum.id,http://localhost:3000",
     JWT_SECRET: "test-jwt-secret",
     WEBHOOK_SECRET_ENCRYPTION_KEY: "test-webhook-secret",
     DB: db as unknown as D1Database,
-  });
+    NONCE_STORE_DO: nonceNamespace as unknown as DurableObjectNamespace,
+  }));
 }
 
 describe("Health and basic routing", () => {

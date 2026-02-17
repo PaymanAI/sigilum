@@ -10,7 +10,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia, base } from "viem/chains";
 import type { Env } from "../types.js";
 
-// Keep aligned with packages/shared/src/abi.ts and contract artifacts.
+// Keep aligned with contract artifacts and shared signature vectors in sdks/test-vectors/.
 const SIGILUM_REGISTRY_ABI = [
   { type: "error", name: "InvalidNameLength", inputs: [] },
   { type: "error", name: "NamespaceTaken", inputs: [] },

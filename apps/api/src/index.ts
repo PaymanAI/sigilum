@@ -14,6 +14,7 @@ import { createErrorResponse } from "./utils/validation.js";
 import { getConfig } from "./utils/config.js";
 import { handleBlockchainQueue } from "./blockchain-queue-consumer.js";
 import { handleWebhookQueue } from "./webhook-queue-consumer.js";
+import { requireSignedHeaders } from "./middleware/signed-auth.js";
 export { NonceStoreDurableObject } from "./adapters/cloudflare/nonce-store-do.js";
 
 export const app = new Hono<{ Bindings: Env }>();
@@ -45,6 +46,10 @@ app.use("*", prettyJSON());
 app.get("/health", (c) => {
   return c.json({ status: "ok", timestamp: new Date().toISOString() });
 });
+
+// Enforce signed-header auth contract on all API routes.
+app.use("/v1/*", requireSignedHeaders);
+app.use("/.well-known/*", requireSignedHeaders);
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 

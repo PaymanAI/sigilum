@@ -35,7 +35,7 @@ The API is adapter-based; Cloudflare is the current implementation, not a hard p
 
 1. Namespace owner signs up and authenticates (`/v1/auth/*`).
 2. Owner registers service and generates API key (`/v1/services/*`).
-3. Service submits claim requests (`POST /v1/claims`) with nonce replay protection.
+3. Service submits claim requests (`POST /v1/claims`) with signed headers + nonce replay protection.
 4. Namespace owner approves/rejects/revokes claim (`/v1/claims/{claimId}/*`).
 5. Service checks authorization via:
    - `GET /v1/verify` (point lookup)
@@ -43,6 +43,8 @@ The API is adapter-based; Cloudflare is the current implementation, not a hard p
 6. Service webhooks receive durable `request.*` lifecycle events.
 
 ## API Surface
+
+All protected endpoints (`/v1/*` and `/.well-known/*`) require valid Sigilum signed headers.
 
 ### Health
 - `GET /health`
