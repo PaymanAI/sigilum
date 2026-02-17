@@ -40,3 +40,21 @@ Shared conformance vectors are stored in:
 The API now enforces signed headers on all protected endpoints (`/v1/*` and `/.well-known/*`), so unsigned requests are rejected.
 
 Signed headers are identity/authenticity proof. Some endpoints also require endpoint-specific auth (for example service API key bearer auth on `POST /v1/claims`).
+
+## Testing
+
+Run tests per SDK package:
+
+- TypeScript:
+  - `pnpm --dir sdks/sdk-ts test`
+  - `pnpm --dir sdks/sdk-ts test:conformance`
+- Python:
+  - `python -m pytest sdks/sdk-python/tests`
+- Go:
+  - `go test ./...` (from `sdks/sdk-go`)
+- Java:
+  - `mvn test` (from `sdks/sdk-java`)
+
+Shared signing conformance vectors used by SDK tests:
+
+- `sdks/test-vectors/http-signatures-rfc9421.json`
