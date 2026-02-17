@@ -2254,7 +2254,7 @@
       "BearerAuth": {
         "type": "http",
         "scheme": "bearer",
-        "description": "Service API key (sk_live_...) or dashboard JWT"
+        "description": "Service API key or dashboard JWT"
       },
       "CookieAuth": {
         "type": "apiKey",

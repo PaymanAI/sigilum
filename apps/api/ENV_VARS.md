@@ -35,15 +35,15 @@ For the Cloudflare adapter, they must be configured in `apps/api/wrangler.toml` 
 | --- | --- | --- | --- | --- |
 | `ENVIRONMENT` | Recommended | none in code | auth/blockchain logs and mode behavior | Typically `development`, `staging`, `production`, `test`. |
 | `ADAPTER_PROVIDER` | No | `cloudflare` | `adapters/index.ts` | Current adapter provider switch. Only `cloudflare` is implemented. |
-| `ALLOWED_ORIGINS` | No | `http://localhost:3000` (CORS middleware) | CORS + WebAuthn fallback | Comma-separated allowed origins for CORS. Also fallback source for WebAuthn allowed origins. |
+| `ALLOWED_ORIGINS` | No | `http://localhost:3000` (CORS middleware) | CORS middleware | Comma-separated allowed origins for CORS. |
 
 ### Auth / WebAuthn / JWT
 
 | Variable | Required | Default | Used by | Description |
 | --- | --- | --- | --- | --- |
-| `JWT_SECRET` | Yes for auth | none | auth routes, services auth, webhook secret fallback | JWT signing/verification key. Also used as fallback for webhook secret encryption if `WEBHOOK_SECRET_ENCRYPTION_KEY` is absent. |
+| `JWT_SECRET` | Yes for auth | none | auth routes, services auth | JWT signing/verification key. |
 | `JWT_EXPIRY` | No | `7d` | `utils/config.ts` | JWT expiration for dashboard session tokens. |
-| `WEBAUTHN_ALLOWED_ORIGINS` | Recommended | fallback to `ALLOWED_ORIGINS`, then `http://localhost:5000` | `utils/webauthn-config.ts` | Trusted WebAuthn origins for expected origin verification. |
+| `WEBAUTHN_ALLOWED_ORIGINS` | Yes for WebAuthn auth | none | `utils/webauthn-config.ts` | Trusted WebAuthn origins for expected origin verification. |
 | `WEBAUTHN_RP_ID` | No | derived from first trusted origin hostname | `utils/webauthn-config.ts` | WebAuthn relying-party ID. Must be compatible with trusted origins. |
 
 ### Blockchain
@@ -60,7 +60,7 @@ For the Cloudflare adapter, they must be configured in `apps/api/wrangler.toml` 
 
 | Variable | Required | Default | Used by | Description |
 | --- | --- | --- | --- | --- |
-| `WEBHOOK_SECRET_ENCRYPTION_KEY` | No (but encryption key needed) | fallback to `JWT_SECRET` | `utils/webhook-secrets.ts` | Preferred key for encrypting stored webhook secrets. |
+| `WEBHOOK_SECRET_ENCRYPTION_KEY` | Yes for webhook secret storage | none | `utils/webhook-secrets.ts` | Key used to encrypt stored webhook secrets. |
 | `WEBHOOK_RETRY_WINDOW_HOURS` | No | `24` | `utils/config.ts`, webhook queue consumer | Retry window for durable webhook delivery attempts. |
 | `WEBHOOK_FAILURE_THRESHOLD` | No | `10` | `utils/config.ts` | Currently parsed in config; not actively enforced in queue logic. |
 | `WEBHOOK_ALERT_EMAIL_FROM` | Optional for failure alerts | none | webhook queue consumer | Sender address for terminal-failure alerts. |
