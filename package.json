@@ -8,23 +8,13 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "turbo run build",
-    "dev": "turbo run dev",
-    "quickstart": "pnpm run quickstart:setup && pnpm run quickstart:up",
-    "quickstart:setup": "node scripts/quickstart-setup.mjs",
-    "quickstart:up": "node scripts/quickstart-up.mjs",
-    "quickstart:check": "node scripts/quickstart-check.mjs",
-    "openclaw:launch": "node scripts/openclaw-launch.mjs",
-    "lint": "turbo run lint",
-    "typecheck": "turbo run typecheck",
-    "test": "turbo run test",
-    "clean": "turbo run clean && rm -rf node_modules .turbo",
-    "demo:service": "cd apps/demo-service && pnpm dev",
-    "test:agent": "tsx scripts/test-agent.ts"
+    "api:build": "pnpm --filter @sigilum/api build",
+    "api:dev": "pnpm --filter @sigilum/api dev",
+    "api:typecheck": "pnpm --filter @sigilum/api typecheck",
+    "api:test": "pnpm --filter @sigilum/api test",
+    "api:clean": "pnpm --filter @sigilum/api clean && rm -rf node_modules .turbo"
   },
   "devDependencies": {
-    "tsx": "^4.21.0",
-    "turbo": "^2.8.9",
     "typescript": "^5.9.3"
   }
 }
