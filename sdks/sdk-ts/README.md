@@ -29,8 +29,7 @@ sigilum init johndee
 ```ts
 import * as sigilum from "@sigilum/sdk";
 
-const agent = createAgent(...);
-sigilum.certify(agent);
+const agent = sigilum.certify(createAgent(...));
 ```
 
 This does not wrap your agent class. It attaches identity and signed request helpers.
@@ -40,8 +39,7 @@ This does not wrap your agent class. It attaches identity and signed request hel
 ```ts
 import * as sigilum from "@sigilum/sdk";
 
-const agent = {};
-sigilum.certify(agent);
+const agent = sigilum.certify({});
 
 const response = await agent.sigilum.request("/claims?status=approved", {
   method: "GET",
@@ -54,6 +52,8 @@ console.log(data);
 ## Sending signed requests
 
 ```ts
+const agent = sigilum.certify(createAgent(...));
+
 await agent.sigilum.request("/claims?status=approved", {
   method: "GET",
 });

@@ -1,7 +1,7 @@
 package id.sigilum.sdk;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.net.URI;
@@ -32,6 +32,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -110,14 +111,16 @@ public final class Sigilum {
     }
     try {
       List<String> namespaces = new ArrayList<>();
-      Files.list(root)
-          .filter(Files::isDirectory)
-          .forEach(path -> {
-            Path identity = path.resolve("identity.json");
-            if (Files.exists(identity)) {
-              namespaces.add(path.getFileName().toString());
-            }
-          });
+      try (Stream<Path> paths = Files.list(root)) {
+        paths
+            .filter(Files::isDirectory)
+            .forEach(path -> {
+              Path identity = path.resolve("identity.json");
+              if (Files.exists(identity)) {
+                namespaces.add(path.getFileName().toString());
+              }
+            });
+      }
       namespaces.sort(Comparator.naturalOrder());
       return namespaces;
     } catch (IOException e) {
@@ -214,7 +217,7 @@ public final class Sigilum {
   public static String encodeCertificateHeader(SigilumCertificate certificate) {
     try {
       return base64UrlEncode(MAPPER.writeValueAsBytes(certificate));
-    } catch (IOException e) {
+    } catch (Exception e) {
       throw new IllegalStateException("Failed to encode certificate header", e);
     }
   }
@@ -222,7 +225,7 @@ public final class Sigilum {
   public static SigilumCertificate decodeCertificateHeader(String value) {
     try {
       return MAPPER.readValue(base64UrlDecode(value), SigilumCertificate.class);
-    } catch (IOException e) {
+    } catch (Exception e) {
       throw new IllegalArgumentException("Invalid certificate header", e);
     }
   }
