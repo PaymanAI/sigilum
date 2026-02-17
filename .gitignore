@@ -84,3 +84,4 @@ __pycache__/
 *.so
 *.dylib
 .local
+apps/demo-service-gateway/node_modules

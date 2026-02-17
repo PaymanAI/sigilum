@@ -21,9 +21,6 @@ const app = new Hono();
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 const SERVICE_NAME = "demo-service-native";
-const VERIFY_REFRESH_INTERVAL_SECONDS = Number(
-  process.env.SIGILUM_VERIFY_REFRESH_INTERVAL_SECONDS ?? 5,
-);
 
 // ─── In-memory state ─────────────────────────────────────────────────────────
 
@@ -51,32 +48,22 @@ function parsePingPayload(rawBody: string): { ok: true } | { ok: false; error: s
   return { ok: true };
 }
 
-// ─── Sigilum Service (for submitting claims) ─────────────────────────────────
-// Automatically uses API mode if SIGILUM_API_KEY is set, or chain mode if SIGILUM_SERVICE_SIGNER_KEY is set
+// ─── Sigilum Service (for submitting authorization requests) ─────────────────
+// API mode only for the native demo service.
 
 const sigilumService = new SigilumService({
   serviceName: SERVICE_NAME,
-  // API mode (recommended) - provide apiKey
   apiKey: process.env.SIGILUM_API_KEY,
   apiUrl: process.env.SIGILUM_API_URL, // Optional override
-
-  // Chain mode (advanced) - provide signerKey instead of apiKey
-  signerKey: process.env.SIGILUM_SERVICE_SIGNER_KEY as `0x${string}` | undefined,
-  rpcUrl: process.env.SIGILUM_RPC_URL,
-  contractAddress: process.env.SIGILUM_CONTRACT_ADDRESS as `0x${string}` | undefined,
 });
 
 // ─── Verifier (for verifying agent signatures) ──────────────────────────────
-// Uses cache-first architecture: fast local verification with background refresh
+// Uses cache-first architecture: fast local verification with background refresh.
 
 const verifier = new SigilumVerifier({
   serviceName: SERVICE_NAME,
-  // Production defaults are hardcoded, but you can override for testing:
   apiUrl: process.env.SIGILUM_API_URL, // Defaults to 'https://api.sigilum.id'
   apiKey: process.env.SIGILUM_API_KEY,
-  rpcUrl: process.env.SIGILUM_RPC_URL, // Defaults to 'https://mainnet.base.org'
-  contractAddress: process.env.SIGILUM_CONTRACT_ADDRESS as `0x${string}` | undefined,
-  refreshInterval: VERIFY_REFRESH_INTERVAL_SECONDS,
 });
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
@@ -336,7 +323,7 @@ console.log(`
 
 Cache-first verification enabled ✨
 - Initial claims loaded: ${verifier.getCacheStats().size}
-- Refresh interval: ${VERIFY_REFRESH_INTERVAL_SECONDS} seconds
+- Approved-auth refresh interval: SDK default
 `);
 
 serve({ fetch: app.fetch, port });
