@@ -634,6 +634,17 @@ describe("Namespaces upstream behavior", () => {
     expect(data.claims.some((claim) => claim.claim_id === "cl_1")).toBe(true);
   });
 
+  it("allows namespace-owner claims listing with bearer token", async () => {
+    const cookie = await createSessionCookie({ JWT_SECRET: "test-jwt-secret" });
+    const token = cookie.replace(/^sigilum_token=/, "");
+    const res = await req("/v1/namespaces/alice/claims", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { claims: Array<{ claim_id: string }> };
+    expect(data.claims.some((claim) => claim.claim_id === "cl_1")).toBe(true);
+  });
+
   it("resolves namespace from D1", async () => {
     const res = await req("/v1/namespaces/alice");
     expect(res.status).toBe(200);

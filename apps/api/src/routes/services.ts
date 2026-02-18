@@ -1,48 +1,12 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { jwtVerify } from "jose";
 import type { Env } from "../types.js";
 import { isValidWebhookUrl, createErrorResponse } from "../utils/validation.js";
 import { getConfig } from "../utils/config.js";
 import { enqueueRegisterService } from "../utils/blockchain-queue.js";
 import { encryptWebhookSecret } from "../utils/webhook-secrets.js";
 import { isServiceNamespaceTakenError } from "../utils/blockchain.js";
-
-const JWT_ISSUER = "sigilum-api";
-const JWT_AUDIENCE = "sigilum-dashboard";
-
-async function verifyJWT(env: Env, token: string) {
-  try {
-    const secret = env.JWT_SECRET;
-    if (!secret) {
-      throw new Error("JWT_SECRET environment variable is required");
-    }
-    const key = new TextEncoder().encode(secret);
-    const { payload } = await jwtVerify(token, key, {
-      issuer: JWT_ISSUER,
-      audience: JWT_AUDIENCE,
-    });
-    const userId = payload.sub;
-    const email = payload.email as string;
-    const namespace = payload.namespace as string;
-    if (!userId || !email || !namespace) return null;
-    return { userId, email, namespace };
-  } catch {
-    return null;
-  }
-}
-
-function getBearerToken(c: { req: { header: (name: string) => string | undefined } }): string | null {
-  const JWT_COOKIE_NAME = "sigilum_token";
-  const cookies = c.req.header("Cookie");
-  if (cookies) {
-    const match = cookies.match(new RegExp(`(?:^|;)\\s*${JWT_COOKIE_NAME}=([^;]+)`));
-    if (match?.[1]) {
-      return match[1].trim();
-    }
-  }
-  return null;
-}
+import { verifyJWT, getBearerToken } from "./auth.js";
 
 async function requireAuth(c: { req: { header: (name: string) => string | undefined }; env: Env; json: (data: unknown, status?: number) => Response }) {
   const token = getBearerToken(c);

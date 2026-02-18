@@ -98,9 +98,18 @@ export async function verifyJWT(env: Env, token: string): Promise<{ userId: stri
 }
 
 /**
- * Extract JWT token from the httpOnly session cookie.
+ * Extract JWT token from Authorization bearer header or httpOnly session cookie.
+ * Bearer takes precedence for non-browser automation flows.
  */
 export function getBearerToken(c: { req: { header: (name: string) => string | undefined } }): string | null {
+  const authHeader = c.req.header("Authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.slice(7).trim();
+    if (token.length > 0) {
+      return token;
+    }
+  }
+
   const cookies = c.req.header("Cookie");
   if (cookies) {
     const match = cookies.match(new RegExp(`(?:^|;)\\s*${JWT_COOKIE_NAME}=([^;]+)`));
