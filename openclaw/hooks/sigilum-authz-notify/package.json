@@ -1,0 +1,8 @@
+{
+  "name": "@sigilum/openclaw-hook-sigilum-authz-notify",
+  "version": "0.1.0",
+  "description": "OpenClaw hook that notifies pending Sigilum authorization requests",
+  "type": "module",
+  "files": ["HOOK.md", "handler.ts"],
+  "license": "Apache-2.0"
+}
