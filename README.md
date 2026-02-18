@@ -98,12 +98,80 @@ source ~/.zshrc
 
 If you do not install globally, use `./sigilum ...` directly.
 
+OpenClaw integration install:
+
+```bash
+./sigilum openclaw install --namespace johndee --mode managed
+# local stack mode:
+# ./sigilum openclaw install --namespace johndee --mode oss-local
+```
+
+Managed onboarding:
+- Open `https://sigilum.id`
+- sign in and reserve your namespace (for example `johndee`)
+- then run:
+
+```bash
+./sigilum auth login --mode managed --namespace johndee --owner-token-stdin
+```
+
+`sigilum-authz-notify` is disabled by default so OpenClaw does not load namespace-owner JWT unless you explicitly enable it.
+
+Owner token helpers:
+
+```bash
+# local mode: issue/refresh owner JWT for hooks
+./sigilum auth refresh --mode oss-local --namespace johndee
+
+# managed mode: paste owner JWT from dashboard login flow
+./sigilum login --mode managed --namespace johndee --owner-token-stdin
+```
+
+## Deploy Modes
+
+Sigilum separates control plane from data plane:
+
+- Control plane: Sigilum API + dashboard (identity/authz state, approvals/revokes, notifications)
+- Data plane: Sigilum gateway (request enforcement/proxy + upstream provider secrets)
+
+Supported deployment modes:
+
+1. `managed`
+- Hosted API + hosted dashboard
+- Gateway runs customer-side (local/VM/VPC)
+- Provider API keys/tokens stay in customer gateway, not in Sigilum-hosted control plane
+
+2. `enterprise`
+- Enterprise-hosted API + enterprise-hosted dashboard + enterprise-hosted gateway
+- Full on-prem/private network deployment supported
+
+3. `oss-local`
+- Open-source API + open-source gateway only (no dashboard source required)
+- Intended for local development, tests, and self-hosted CLI-driven workflows
+
+Managed-mode command boundary:
+
+- `sigilum login --mode managed` stores namespace-owner JWT for local hooks after managed dashboard login (`api.sigilum.id`)
+- `sigilum up`, `sigilum down`, and `sigilum service ...` are local operations
+
 ## Run Locally
 
 Start API + gateway:
 
 ```bash
 ./sigilum up
+```
+
+Stop local stack listeners:
+
+```bash
+./sigilum down
+```
+
+Run diagnostics:
+
+```bash
+./sigilum doctor
 ```
 
 Run full local e2e flow (recommended smoke test):
@@ -151,6 +219,23 @@ export LINEAR_TOKEN="lin_api_..."
   --upstream-secret-env LINEAR_TOKEN
 ```
 
+List services in a namespace:
+
+```bash
+./sigilum service list --namespace johndee
+```
+
+Rotate/update gateway upstream secret for a service:
+
+```bash
+export LINEAR_TOKEN="lin_api_..."
+./sigilum service secret set --service-slug linear --upstream-secret-env LINEAR_TOKEN
+```
+
+Security default:
+- `sigilum service add` and `sigilum service secret set` mask raw secret values in output by default.
+- use `--reveal-secrets` only when you intentionally need plaintext output in terminal history/logs.
+
 ## Run SDK Tests
 
 TypeScript SDK:
@@ -197,6 +282,7 @@ find apps/api/.wrangler/state -name '*.sqlite' -print
 - `MANIFESTO.md` - project vision, problem framing, and sequence of goals.
 - `LICENSE` - open source license for this repository.
 - `docs/` - project documentation.
+- `openclaw/` - OpenClaw integration assets (hooks, skills, installer, migration notes).
 - `apps/` - runnable applications.
 - `config/` - shared TypeScript config package (`@sigilum/config`).
 - `contracts/` - smart contracts and Foundry project.
@@ -211,3 +297,4 @@ find apps/api/.wrangler/state -name '*.sqlite' -print
 - [SDKs Index](./sdks/README.md)
 - [API Guide](./apps/api/README.md)
 - [Gateway Guide](./apps/gateway/README.md)
+- [OpenClaw Integration](./openclaw/README.md)
