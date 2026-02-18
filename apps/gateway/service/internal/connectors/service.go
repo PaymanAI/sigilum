@@ -134,6 +134,7 @@ func (s *Service) ListConnections() ([]Connection, error) {
 				if err := json.Unmarshal(val, &conn); err != nil {
 					return err
 				}
+				normalizeStoredConnection(&conn)
 				connections = append(connections, conn)
 				return nil
 			})
@@ -170,6 +171,7 @@ func (s *Service) GetConnection(id string) (Connection, error) {
 	if err != nil {
 		return Connection{}, err
 	}
+	normalizeStoredConnection(&conn)
 	return conn, nil
 }
 
@@ -187,12 +189,13 @@ func (s *Service) ResolveProxyConfig(id string) (ProxyConfig, error) {
 		return ProxyConfig{}, err
 	}
 	authSecretKey := strings.TrimSpace(conn.AuthSecretKey)
-	if authSecretKey == "" {
-		return ProxyConfig{}, fmt.Errorf("connection %q missing auth_secret_key", id)
-	}
-	secret, ok := secrets[authSecretKey]
-	if !ok || strings.TrimSpace(secret) == "" {
-		return ProxyConfig{}, fmt.Errorf("connection %q missing configured secret key %q", id, authSecretKey)
+	secret := ""
+	if authSecretKey != "" {
+		value, ok := secrets[authSecretKey]
+		if !ok || strings.TrimSpace(value) == "" {
+			return ProxyConfig{}, fmt.Errorf("connection %q missing configured secret key %q", id, authSecretKey)
+		}
+		secret = value
 	}
 
 	return ProxyConfig{
@@ -220,6 +223,7 @@ func (s *Service) UpdateConnection(id string, input UpdateConnectionInput) (Conn
 		}); err != nil {
 			return err
 		}
+		normalizeStoredConnection(&conn)
 
 		if strings.TrimSpace(input.Name) != "" {
 			conn.Name = strings.TrimSpace(input.Name)
@@ -250,6 +254,51 @@ func (s *Service) UpdateConnection(id string, input UpdateConnectionInput) (Conn
 				return fmt.Errorf("invalid status: %s", input.Status)
 			}
 		}
+		if input.MCPEndpoint != "" {
+			if !isMCPConnection(conn) {
+				return errors.New("mcp fields can only be updated when protocol is mcp")
+			}
+			conn.MCPEndpoint = normalizeMCPEndpoint(input.MCPEndpoint)
+		}
+		if strings.TrimSpace(input.MCPTransport) != "" {
+			if !isMCPConnection(conn) {
+				return errors.New("mcp fields can only be updated when protocol is mcp")
+			}
+			transport, err := parseMCPTransport(input.MCPTransport)
+			if err != nil {
+				return err
+			}
+			conn.MCPTransport = transport
+		}
+		if input.MCPToolAllowlist != nil || input.MCPToolDenylist != nil || input.MCPMaxToolsExposed != nil {
+			if !isMCPConnection(conn) {
+				return errors.New("mcp fields can only be updated when protocol is mcp")
+			}
+			policy := conn.MCPToolPolicy
+			if input.MCPToolAllowlist != nil {
+				policy.Allowlist = normalizeToolNameList(input.MCPToolAllowlist)
+			}
+			if input.MCPToolDenylist != nil {
+				policy.Denylist = normalizeToolNameList(input.MCPToolDenylist)
+			}
+			if input.MCPMaxToolsExposed != nil {
+				if *input.MCPMaxToolsExposed < 0 {
+					return errors.New("mcp_max_tools_exposed must be >= 0")
+				}
+				policy.MaxToolsExposed = *input.MCPMaxToolsExposed
+			}
+			conn.MCPToolPolicy = policy
+		}
+		if input.MCPSubjectToolPolicies != nil {
+			if !isMCPConnection(conn) {
+				return errors.New("mcp fields can only be updated when protocol is mcp")
+			}
+			normalized, err := normalizeSubjectToolPolicies(input.MCPSubjectToolPolicies)
+			if err != nil {
+				return err
+			}
+			conn.MCPSubjectToolPolicies = normalized
+		}
 		conn.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 
 		payload, err := json.Marshal(conn)
@@ -260,6 +309,55 @@ func (s *Service) UpdateConnection(id string, input UpdateConnectionInput) (Conn
 			return err
 		}
 
+		updated = conn
+		return nil
+	})
+	if err != nil {
+		return Connection{}, err
+	}
+
+	return updated, nil
+}
+
+func (s *Service) SaveMCPDiscovery(id string, discovery MCPDiscovery) (Connection, error) {
+	var updated Connection
+
+	err := s.db.Update(func(txn *badger.Txn) error {
+		item, err := txn.Get(metaKey(id))
+		if errors.Is(err, badger.ErrKeyNotFound) {
+			return ErrConnectionNotFound
+		}
+		if err != nil {
+			return err
+		}
+
+		var conn Connection
+		if err := item.Value(func(val []byte) error {
+			return json.Unmarshal(val, &conn)
+		}); err != nil {
+			return err
+		}
+		normalizeStoredConnection(&conn)
+		if !isMCPConnection(conn) {
+			return fmt.Errorf("connection %q is not an mcp connection", id)
+		}
+
+		discovery.LastDiscoveredAt = strings.TrimSpace(discovery.LastDiscoveredAt)
+		if discovery.LastDiscoveredAt == "" {
+			discovery.LastDiscoveredAt = time.Now().UTC().Format(time.RFC3339Nano)
+		}
+		discovery.LastDiscoveryError = sanitizeError(discovery.LastDiscoveryError)
+		discovery.Tools = normalizeMCPTools(discovery.Tools)
+		conn.MCPDiscovery = discovery
+		conn.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+
+		payload, err := json.Marshal(conn)
+		if err != nil {
+			return err
+		}
+		if err := txn.Set(metaKey(id), payload); err != nil {
+			return err
+		}
 		updated = conn
 		return nil
 	})
@@ -316,6 +414,7 @@ func (s *Service) RotateSecret(id string, input RotateSecretInput) (Connection, 
 		}); err != nil {
 			return err
 		}
+		normalizeStoredConnection(&conn)
 
 		currentSecrets, err := s.getSecretVersionMapTxn(txn, conn.ID, conn.SecretVersion)
 		if err != nil {
@@ -328,11 +427,10 @@ func (s *Service) RotateSecret(id string, input RotateSecretInput) (Connection, 
 		if !changed {
 			return errors.New("secrets are required")
 		}
-		if strings.TrimSpace(conn.AuthSecretKey) == "" {
-			return errors.New("auth_secret_key is required")
-		}
-		if _, ok := nextSecrets[conn.AuthSecretKey]; !ok {
-			return fmt.Errorf("auth_secret_key %q is missing from provided secrets", conn.AuthSecretKey)
+		if authSecretKey := strings.TrimSpace(conn.AuthSecretKey); authSecretKey != "" {
+			if _, ok := nextSecrets[authSecretKey]; !ok {
+				return fmt.Errorf("auth_secret_key %q is missing from provided secrets", authSecretKey)
+			}
 		}
 
 		nextVersion := conn.SecretVersion + 1
@@ -507,13 +605,13 @@ func normalizeCreateInput(input CreateConnectionInput) (Connection, map[string]s
 		return Connection{}, nil, fmt.Errorf("invalid base_url: %w", err)
 	}
 
-	mode := AuthMode(strings.TrimSpace(input.AuthMode))
-	switch mode {
-	case "":
-		mode = AuthModeBearer
-	case AuthModeBearer, AuthModeHeaderKey:
-	default:
-		return Connection{}, nil, fmt.Errorf("invalid auth_mode: %s", input.AuthMode)
+	protocol, err := parseConnectionProtocol(input.Protocol)
+	if err != nil {
+		return Connection{}, nil, err
+	}
+	mode, err := parseAuthMode(input.AuthMode)
+	if err != nil {
+		return Connection{}, nil, err
 	}
 
 	authHeaderName := strings.TrimSpace(input.AuthHeaderName)
@@ -535,29 +633,70 @@ func normalizeCreateInput(input CreateConnectionInput) (Connection, map[string]s
 	}
 
 	authSecretKey := strings.TrimSpace(input.AuthSecretKey)
-	if authSecretKey == "" {
-		return Connection{}, nil, errors.New("auth_secret_key is required")
+	if authSecretKey != "" {
+		if _, ok := secrets[authSecretKey]; !ok {
+			return Connection{}, nil, fmt.Errorf("auth_secret_key %q is not present in secrets", authSecretKey)
+		}
 	}
-	if _, ok := secrets[authSecretKey]; !ok {
-		return Connection{}, nil, fmt.Errorf("auth_secret_key %q is not present in secrets", authSecretKey)
+	if protocol == ConnectionProtocolHTTP {
+		if authSecretKey == "" {
+			return Connection{}, nil, errors.New("auth_secret_key is required")
+		}
+		if len(secrets) == 0 {
+			return Connection{}, nil, errors.New("secrets are required")
+		}
+	}
+
+	if protocol != ConnectionProtocolMCP && hasMCPCreateFields(input) {
+		return Connection{}, nil, errors.New("mcp fields require protocol=\"mcp\"")
+	}
+
+	toolPolicy := MCPToolPolicy{}
+	mcpTransport := MCPTransport("")
+	mcpEndpoint := ""
+	subjectPolicies := map[string]MCPToolPolicy(nil)
+	if protocol == ConnectionProtocolMCP {
+		transport, err := parseMCPTransport(input.MCPTransport)
+		if err != nil {
+			return Connection{}, nil, err
+		}
+		subjectPolicies, err = normalizeSubjectToolPolicies(input.MCPSubjectToolPolicies)
+		if err != nil {
+			return Connection{}, nil, err
+		}
+		if input.MCPMaxToolsExposed < 0 {
+			return Connection{}, nil, errors.New("mcp_max_tools_exposed must be >= 0")
+		}
+		mcpTransport = transport
+		mcpEndpoint = normalizeMCPEndpoint(input.MCPEndpoint)
+		toolPolicy = MCPToolPolicy{
+			Allowlist:       normalizeToolNameList(input.MCPToolAllowlist),
+			Denylist:        normalizeToolNameList(input.MCPToolDenylist),
+			MaxToolsExposed: input.MCPMaxToolsExposed,
+		}
 	}
 
 	conn := Connection{
-		ID:                  id,
-		Name:                name,
-		BaseURL:             strings.TrimRight(baseURL, "/"),
-		PathPrefix:          normalizePathPrefix(input.PathPrefix),
-		AuthMode:            mode,
-		AuthHeaderName:      authHeaderName,
-		AuthPrefix:          authPrefix,
-		AuthSecretKey:       authSecretKey,
-		CredentialKeys:      sortedSecretKeys(secrets),
-		Status:              ConnectionStatusActive,
-		CreatedAt:           now,
-		UpdatedAt:           now,
-		LastRotatedAt:       now,
-		SecretVersion:       1,
-		RotationIntervalDays: input.RotationIntervalDays,
+		ID:                     id,
+		Name:                   name,
+		Protocol:               protocol,
+		BaseURL:                strings.TrimRight(baseURL, "/"),
+		PathPrefix:             normalizePathPrefix(input.PathPrefix),
+		AuthMode:               mode,
+		AuthHeaderName:         authHeaderName,
+		AuthPrefix:             authPrefix,
+		AuthSecretKey:          authSecretKey,
+		CredentialKeys:         sortedSecretKeys(secrets),
+		MCPTransport:           mcpTransport,
+		MCPEndpoint:            mcpEndpoint,
+		MCPToolPolicy:          toolPolicy,
+		MCPSubjectToolPolicies: subjectPolicies,
+		Status:                 ConnectionStatusActive,
+		CreatedAt:              now,
+		UpdatedAt:              now,
+		LastRotatedAt:          now,
+		SecretVersion:          1,
+		RotationIntervalDays:   input.RotationIntervalDays,
 	}
 	if conn.RotationIntervalDays > 0 {
 		conn.NextRotationDueAt = time.Now().UTC().Add(time.Duration(conn.RotationIntervalDays) * 24 * time.Hour).Format(time.RFC3339Nano)
@@ -585,6 +724,21 @@ func normalizePathPrefix(value string) string {
 	return strings.TrimRight(trimmed, "/")
 }
 
+func normalizeMCPEndpoint(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" || trimmed == "/" {
+		return "/"
+	}
+	if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
+		return strings.TrimRight(trimmed, "/")
+	}
+	trimmed = "/" + strings.Trim(trimmed, "/")
+	if trimmed == "" {
+		return "/"
+	}
+	return trimmed
+}
+
 func normalizeSecretsMap(secrets map[string]string) (map[string]string, error) {
 	normalized := make(map[string]string, len(secrets))
 	for key, value := range secrets {
@@ -597,9 +751,6 @@ func normalizeSecretsMap(secrets map[string]string) (map[string]string, error) {
 			continue
 		}
 		normalized[trimmedKey] = trimmedValue
-	}
-	if len(normalized) == 0 {
-		return nil, errors.New("secrets are required")
 	}
 	return normalized, nil
 }
@@ -682,6 +833,161 @@ func sanitizeError(message string) string {
 		return trimmed[:240]
 	}
 	return trimmed
+}
+
+func hasMCPCreateFields(input CreateConnectionInput) bool {
+	return strings.TrimSpace(input.MCPTransport) != "" ||
+		strings.TrimSpace(input.MCPEndpoint) != "" ||
+		len(input.MCPToolAllowlist) > 0 ||
+		len(input.MCPToolDenylist) > 0 ||
+		input.MCPMaxToolsExposed > 0 ||
+		len(input.MCPSubjectToolPolicies) > 0
+}
+
+func parseConnectionProtocol(raw string) (ConnectionProtocol, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	switch ConnectionProtocol(value) {
+	case "":
+		return ConnectionProtocolHTTP, nil
+	case ConnectionProtocolHTTP, ConnectionProtocolMCP:
+		return ConnectionProtocol(value), nil
+	default:
+		return "", fmt.Errorf("invalid protocol: %s", raw)
+	}
+}
+
+func parseAuthMode(raw string) (AuthMode, error) {
+	mode := AuthMode(strings.TrimSpace(raw))
+	switch mode {
+	case "":
+		return AuthModeBearer, nil
+	case AuthModeBearer, AuthModeHeaderKey:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("invalid auth_mode: %s", raw)
+	}
+}
+
+func parseMCPTransport(raw string) (MCPTransport, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	switch MCPTransport(value) {
+	case "":
+		return MCPTransportStreamableHTTP, nil
+	case MCPTransportStreamableHTTP:
+		return MCPTransport(value), nil
+	default:
+		return "", fmt.Errorf("invalid mcp_transport: %s", raw)
+	}
+}
+
+func normalizeMCPToolPolicy(policy MCPToolPolicy) (MCPToolPolicy, error) {
+	if policy.MaxToolsExposed < 0 {
+		return MCPToolPolicy{}, errors.New("mcp_max_tools_exposed must be >= 0")
+	}
+	return MCPToolPolicy{
+		Allowlist:       normalizeToolNameList(policy.Allowlist),
+		Denylist:        normalizeToolNameList(policy.Denylist),
+		MaxToolsExposed: policy.MaxToolsExposed,
+	}, nil
+}
+
+func normalizeSubjectToolPolicies(policies map[string]MCPToolPolicy) (map[string]MCPToolPolicy, error) {
+	if len(policies) == 0 {
+		return nil, nil
+	}
+	normalized := make(map[string]MCPToolPolicy, len(policies))
+	for subject, policy := range policies {
+		trimmedSubject := strings.TrimSpace(subject)
+		if trimmedSubject == "" {
+			return nil, errors.New("mcp_subject_tool_policies contains an empty subject key")
+		}
+		nextPolicy, err := normalizeMCPToolPolicy(policy)
+		if err != nil {
+			return nil, err
+		}
+		normalized[trimmedSubject] = nextPolicy
+	}
+	return normalized, nil
+}
+
+func normalizeToolNameList(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		normalized = append(normalized, trimmed)
+	}
+	sort.Strings(normalized)
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
+func normalizeMCPTools(tools []MCPTool) []MCPTool {
+	if len(tools) == 0 {
+		return nil
+	}
+	normalized := make([]MCPTool, 0, len(tools))
+	seen := map[string]struct{}{}
+	for _, tool := range tools {
+		name := strings.TrimSpace(tool.Name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		normalized = append(normalized, MCPTool{
+			Name:        name,
+			Description: strings.TrimSpace(tool.Description),
+			InputSchema: strings.TrimSpace(tool.InputSchema),
+		})
+	}
+	sort.Slice(normalized, func(i, j int) bool { return normalized[i].Name < normalized[j].Name })
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
+func normalizeStoredConnection(conn *Connection) {
+	if conn == nil {
+		return
+	}
+	if conn.Protocol == "" {
+		conn.Protocol = ConnectionProtocolHTTP
+	}
+	if conn.AuthMode == "" {
+		conn.AuthMode = AuthModeBearer
+	}
+	if conn.Status == "" {
+		conn.Status = ConnectionStatusActive
+	}
+	if isMCPConnection(*conn) {
+		if conn.MCPTransport == "" {
+			conn.MCPTransport = MCPTransportStreamableHTTP
+		}
+		conn.MCPEndpoint = normalizeMCPEndpoint(conn.MCPEndpoint)
+		conn.MCPToolPolicy.Allowlist = normalizeToolNameList(conn.MCPToolPolicy.Allowlist)
+		conn.MCPToolPolicy.Denylist = normalizeToolNameList(conn.MCPToolPolicy.Denylist)
+		conn.MCPDiscovery.Tools = normalizeMCPTools(conn.MCPDiscovery.Tools)
+	}
+}
+
+func isMCPConnection(conn Connection) bool {
+	return conn.Protocol == ConnectionProtocolMCP
 }
 
 func slugify(input string) string {

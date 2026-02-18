@@ -16,6 +16,7 @@ Gateway service code is organized under `apps/gateway/service`:
 - `cmd/sigilum-gateway-cli` - local CLI for connection management
 - `config` - environment loading and validation
 - `internal/connectors` - connector models, auth-header injection, reverse proxy
+- `internal/mcp` - MCP JSON-RPC client, discovery, and tool policy filtering
 - `internal/claims` - approved-claims authorization lookup client
 - `internal/catalog` - local service catalog schema + persistence
 
@@ -25,13 +26,26 @@ Gateway service code is organized under `apps/gateway/service`:
   - `signature-input`
   - `signature`
   - `sigilum-namespace`
+  - `sigilum-subject`
   - `sigilum-agent-key`
   - `sigilum-agent-cert`
 - Enforces nonce replay checks in gateway process memory.
 - Confirms authorization by querying Sigilum API approved claims feed (`/v1/namespaces/claims`) with service API key auth.
 - Routes requests to configured upstream connectors (`/proxy/{connection_id}/...` and `/slack/...` alias).
 - Injects connector auth headers (Bearer or custom header-key mode) and strips Sigilum signing headers before upstream forwarding.
+- Supports MCP connections (`protocol: "mcp"`) with streamable HTTP transport.
+- Discovers MCP tools (`/api/admin/connections/{id}/discover`) and stores discovery metadata locally.
+- Exposes filtered MCP tools at runtime:
+  - `GET /mcp/{connection_id}/tools`
+  - `POST /mcp/{connection_id}/tools/{tool}/call`
+- Applies tool filtering policies by `sigilum-subject` via connection-level and subject-level allow/deny rules.
 - Provides admin APIs for local connector configuration and credential rotation metadata.
+
+Service catalog templates now support both HTTP and MCP provider definitions:
+
+- `protocol`: `http` (default) or `mcp`
+- MCP template fields: `mcp_transport`, `mcp_endpoint`, `mcp_tool_allowlist`, `mcp_tool_denylist`, `mcp_max_tools_exposed`, `mcp_subject_tool_policies`
+- Credential fields can include `env_var` hints for dashboard UX (display-only hint; secrets still stored in gateway)
 
 ## Request Flow (Proxy)
 
@@ -52,6 +66,9 @@ If any auth step fails, gateway returns a structured error without forwarding up
   - `/{proxy routes}`
     - `/<proxy>/proxy/{connection_id}/...`
     - `/<proxy>/slack/...`
+- MCP Runtime:
+  - `GET /mcp/{connection_id}/tools`
+  - `POST /mcp/{connection_id}/tools/{tool}/call`
 - Admin:
   - `GET /api/admin/connections`
   - `POST /api/admin/connections`
@@ -60,6 +77,7 @@ If any auth step fails, gateway returns a structured error without forwarding up
   - `DELETE /api/admin/connections/{id}`
   - `POST /api/admin/connections/{id}/rotate`
   - `POST /api/admin/connections/{id}/test`
+  - `POST /api/admin/connections/{id}/discover`
   - `GET /api/admin/service-catalog`
   - `PUT /api/admin/service-catalog`
 
@@ -79,6 +97,7 @@ The gateway also provides a local CLI for managing stored service connections di
 - `go run ./apps/gateway/service/cmd/sigilum-gateway-cli list`
 - `go run ./apps/gateway/service/cmd/sigilum-gateway-cli get --id slack-proxy`
 - `go run ./apps/gateway/service/cmd/sigilum-gateway-cli add --name Slack --base-url https://slack.com/api --auth-mode bearer --auth-prefix "Bearer " --auth-secret-key bot_token --secret bot_token=<token>`
+- `go run ./apps/gateway/service/cmd/sigilum-gateway-cli add --name LinearMCP --protocol mcp --base-url https://mcp.linear.app --mcp-endpoint /mcp --auth-secret-key api_key --secret api_key=<token> --mcp-allow linear.searchIssues --mcp-deny linear.createIssue`
 - `go run ./apps/gateway/service/cmd/sigilum-gateway-cli update --id slack-proxy --status active`
 - `go run ./apps/gateway/service/cmd/sigilum-gateway-cli rotate --id slack-proxy --secret bot_token=<new_token>`
 - `go run ./apps/gateway/service/cmd/sigilum-gateway-cli test --id slack-proxy --method GET --path /auth.test`

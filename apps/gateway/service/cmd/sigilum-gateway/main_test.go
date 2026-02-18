@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -10,14 +13,14 @@ import (
 )
 
 func TestValidateSignatureComponentsNoBody(t *testing.T) {
-	input := `sig1=("@method" "@target-uri" "sigilum-namespace" "sigilum-agent-key" "sigilum-agent-cert");created=1;keyid="did:sigilum:alice#ed25519-test";alg="ed25519";nonce="abc"`
+	input := `sig1=("@method" "@target-uri" "sigilum-namespace" "sigilum-subject" "sigilum-agent-key" "sigilum-agent-cert");created=1;keyid="did:sigilum:alice#ed25519-test";alg="ed25519";nonce="abc"`
 	if err := validateSignatureComponents(input, false); err != nil {
 		t.Fatalf("expected valid component set, got error: %v", err)
 	}
 }
 
 func TestValidateSignatureComponentsWithBody(t *testing.T) {
-	input := `sig1=("@method" "@target-uri" "content-digest" "sigilum-namespace" "sigilum-agent-key" "sigilum-agent-cert");created=1;keyid="did:sigilum:alice#ed25519-test";alg="ed25519";nonce="abc"`
+	input := `sig1=("@method" "@target-uri" "content-digest" "sigilum-namespace" "sigilum-subject" "sigilum-agent-key" "sigilum-agent-cert");created=1;keyid="did:sigilum:alice#ed25519-test";alg="ed25519";nonce="abc"`
 	if err := validateSignatureComponents(input, true); err != nil {
 		t.Fatalf("expected valid component set, got error: %v", err)
 	}
@@ -113,5 +116,58 @@ func TestResolveServiceAPIKeyRejectsUnsafeIDForFileLookup(t *testing.T) {
 	tmp := t.TempDir()
 	if got := resolveServiceAPIKey("../escape", "", tmp); got != "" {
 		t.Fatalf("expected empty key for unsafe id, got %q", got)
+	}
+}
+
+func TestExtractSigilumIdentityRequiresSubject(t *testing.T) {
+	headers := http.Header{}
+	headers.Set(headerNamespace, "alice")
+	headers.Set(headerAgentKey, "ed25519:test")
+
+	_, _, _, err := extractSigilumIdentity(headers)
+	if err == nil {
+		t.Fatal("expected missing sigilum-subject error")
+	}
+}
+
+func TestResolveMCPRouteList(t *testing.T) {
+	connectionID, action, tool, ok := resolveMCPRoute("/mcp/linear/tools")
+	if !ok {
+		t.Fatal("expected valid mcp list route")
+	}
+	if connectionID != "linear" || action != "list" || tool != "" {
+		t.Fatalf("unexpected route parse: connection=%s action=%s tool=%s", connectionID, action, tool)
+	}
+}
+
+func TestResolveMCPRouteCall(t *testing.T) {
+	connectionID, action, tool, ok := resolveMCPRoute("/mcp/linear/tools/linear.searchIssues/call")
+	if !ok {
+		t.Fatal("expected valid mcp call route")
+	}
+	if connectionID != "linear" || action != "call" || tool != "linear.searchIssues" {
+		t.Fatalf("unexpected route parse: connection=%s action=%s tool=%s", connectionID, action, tool)
+	}
+}
+
+func TestResolveToolArgumentsWrappedAndDirect(t *testing.T) {
+	wrapped, err := resolveToolArguments([]byte(`{"arguments":{"query":"auth"}}`))
+	if err != nil {
+		t.Fatalf("resolve wrapped arguments failed: %v", err)
+	}
+	if !bytes.Equal(bytes.TrimSpace(wrapped), []byte(`{"query":"auth"}`)) {
+		t.Fatalf("unexpected wrapped args: %s", string(wrapped))
+	}
+
+	direct, err := resolveToolArguments([]byte(`{"query":"auth"}`))
+	if err != nil {
+		t.Fatalf("resolve direct arguments failed: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(direct, &parsed); err != nil {
+		t.Fatalf("expected JSON arguments, got %v", err)
+	}
+	if parsed["query"] != "auth" {
+		t.Fatalf("unexpected direct args payload: %#v", parsed)
 	}
 }

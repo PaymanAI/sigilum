@@ -113,6 +113,13 @@ func normalizeCatalog(catalog ServiceCatalog) (ServiceCatalog, error) {
 		}
 		service.Description = strings.TrimSpace(service.Description)
 		service.ConnectionID = connectionID
+		service.Protocol = strings.ToLower(strings.TrimSpace(service.Protocol))
+		if service.Protocol == "" {
+			service.Protocol = "http"
+		}
+		if service.Protocol != "http" && service.Protocol != "mcp" {
+			return ServiceCatalog{}, fmt.Errorf("services[%d].protocol must be http or mcp", index)
+		}
 		service.BaseURL = strings.TrimSpace(service.BaseURL)
 		if service.BaseURL == "" {
 			return ServiceCatalog{}, fmt.Errorf("services[%d].base_url is required", index)
@@ -156,18 +163,61 @@ func normalizeCatalog(catalog ServiceCatalog) (ServiceCatalog, error) {
 				field.Label = fieldKey
 			}
 			field.Placeholder = strings.TrimSpace(field.Placeholder)
+			field.EnvVar = strings.TrimSpace(field.EnvVar)
 			field.Help = strings.TrimSpace(field.Help)
 			normalizedFields = append(normalizedFields, field)
 		}
-		if len(normalizedFields) == 0 {
+		if len(normalizedFields) == 0 && service.Protocol == "http" {
 			return ServiceCatalog{}, fmt.Errorf("services[%d].credential_fields must contain at least one field", index)
 		}
 
 		service.AuthSecretKey = strings.TrimSpace(service.AuthSecretKey)
-		if service.AuthSecretKey == "" {
+		if service.AuthSecretKey == "" && len(normalizedFields) > 0 {
 			service.AuthSecretKey = normalizedFields[0].Key
 		}
-		if _, exists := fieldKeySet[service.AuthSecretKey]; !exists {
+		if service.AuthSecretKey != "" {
+			if _, exists := fieldKeySet[service.AuthSecretKey]; !exists {
+				return ServiceCatalog{}, fmt.Errorf("services[%d].auth_secret_key %q not found in credential_fields", index, service.AuthSecretKey)
+			}
+		}
+		if service.Protocol == "http" && service.AuthSecretKey == "" {
+			return ServiceCatalog{}, fmt.Errorf("services[%d].auth_secret_key is required for http services", index)
+		}
+
+		service.MCPTransport = strings.TrimSpace(service.MCPTransport)
+		service.MCPEndpoint = strings.TrimSpace(service.MCPEndpoint)
+		service.MCPToolAllowlist = normalizeStringList(service.MCPToolAllowlist)
+		service.MCPToolDenylist = normalizeStringList(service.MCPToolDenylist)
+		if service.MCPMaxToolsExposed < 0 {
+			return ServiceCatalog{}, fmt.Errorf("services[%d].mcp_max_tools_exposed must be >= 0", index)
+		}
+		if service.Protocol == "mcp" {
+			if service.MCPTransport == "" {
+				service.MCPTransport = "streamable_http"
+			}
+			if service.MCPTransport != "streamable_http" {
+				return ServiceCatalog{}, fmt.Errorf("services[%d].mcp_transport must be streamable_http", index)
+			}
+			if service.MCPEndpoint == "" {
+				service.MCPEndpoint = "/"
+			}
+			if !strings.HasPrefix(service.MCPEndpoint, "http://") && !strings.HasPrefix(service.MCPEndpoint, "https://") && !strings.HasPrefix(service.MCPEndpoint, "/") {
+				service.MCPEndpoint = "/" + service.MCPEndpoint
+			}
+		} else {
+			service.MCPTransport = ""
+			service.MCPEndpoint = ""
+			service.MCPToolAllowlist = nil
+			service.MCPToolDenylist = nil
+			service.MCPMaxToolsExposed = 0
+			service.MCPSubjectToolPolicies = nil
+		}
+
+		if err := normalizeMCPSubjectPolicies(service.MCPSubjectToolPolicies, index); err != nil {
+			return ServiceCatalog{}, err
+		}
+
+		if len(normalizedFields) == 0 && service.AuthSecretKey != "" {
 			return ServiceCatalog{}, fmt.Errorf("services[%d].auth_secret_key %q not found in credential_fields", index, service.AuthSecretKey)
 		}
 
@@ -205,4 +255,42 @@ func normalizeCatalog(catalog ServiceCatalog) (ServiceCatalog, error) {
 
 	catalog.Services = normalizedServices
 	return catalog, nil
+}
+
+func normalizeStringList(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	normalized := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		normalized = append(normalized, trimmed)
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
+func normalizeMCPSubjectPolicies(policies map[string]MCPToolPolicy, serviceIndex int) error {
+	for subject, policy := range policies {
+		if strings.TrimSpace(subject) == "" {
+			return fmt.Errorf("services[%d].mcp_subject_tool_policies contains an empty subject key", serviceIndex)
+		}
+		if policy.MaxToolsExposed < 0 {
+			return fmt.Errorf("services[%d].mcp_subject_tool_policies[%q].max_tools_exposed must be >= 0", serviceIndex, subject)
+		}
+		policy.Allowlist = normalizeStringList(policy.Allowlist)
+		policy.Denylist = normalizeStringList(policy.Denylist)
+		policies[subject] = policy
+	}
+	return nil
 }

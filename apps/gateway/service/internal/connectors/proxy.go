@@ -50,6 +50,7 @@ func stripSigilumHeaders(headers http.Header) {
 	headers.Del("Signature")
 	headers.Del("Content-Digest")
 	headers.Del("Sigilum-Namespace")
+	headers.Del("Sigilum-Subject")
 	headers.Del("Sigilum-Agent-Key")
 	headers.Del("Sigilum-Agent-Cert")
 }

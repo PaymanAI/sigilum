@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"sigilum.local/gateway/internal/catalog"
 	claimcache "sigilum.local/gateway/internal/claims"
 	"sigilum.local/gateway/internal/connectors"
+	mcpruntime "sigilum.local/gateway/internal/mcp"
 	"sigilum.local/sdk-go/sigilum"
 )
 
@@ -28,6 +30,7 @@ const (
 	headerSignatureInput   = "signature-input"
 	headerSignature        = "signature"
 	headerNamespace        = "sigilum-namespace"
+	headerSubject          = "sigilum-subject"
 	headerAgentKey         = "sigilum-agent-key"
 	headerAgentCert        = "sigilum-agent-cert"
 	slackAliasConnectionID = "slack-proxy"
@@ -51,6 +54,16 @@ type testResponse struct {
 	Status     string `json:"status"`
 	HTTPStatus int    `json:"http_status"`
 	Error      string `json:"error,omitempty"`
+}
+
+type authorizedIdentity struct {
+	Namespace string
+	Subject   string
+	PublicKey string
+}
+
+type mcpToolCallRequest struct {
+	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
 type nonceReplayCache struct {
@@ -141,6 +154,7 @@ func main() {
 	}
 	claimsCache.Start()
 	defer claimsCache.Close()
+	mcpClient := mcpruntime.NewClient(20 * time.Second)
 
 	mux := http.NewServeMux()
 
@@ -268,7 +282,7 @@ func main() {
 				writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
 				return
 			}
-			status, statusCode, testErr := runConnectionTest(connectorService, connectionID, input)
+			status, statusCode, testErr := runConnectionTest(r.Context(), connectorService, mcpClient, connectionID, input)
 			if recordErr := connectorService.RecordTestResult(connectionID, status, statusCode, testErr); recordErr != nil {
 				log.Printf("warning: failed to record test result for %s: %v", connectionID, recordErr)
 			}
@@ -282,6 +296,44 @@ func main() {
 				HTTPStatus: statusCode,
 				Error:      testErr,
 			})
+		case "discover":
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			conn, err := connectorService.GetConnection(connectionID)
+			if err != nil {
+				writeConnectionError(w, err)
+				return
+			}
+			if !isMCPConnection(conn) {
+				writeJSON(w, http.StatusBadRequest, errorResponse{Error: "connection protocol is not mcp"})
+				return
+			}
+			proxyCfg, err := connectorService.ResolveProxyConfig(connectionID)
+			if err != nil {
+				writeConnectionError(w, err)
+				return
+			}
+			discovery, err := mcpClient.Discover(r.Context(), proxyCfg)
+			if err != nil {
+				conn.MCPDiscovery.LastDiscoveredAt = time.Now().UTC().Format(time.RFC3339Nano)
+				conn.MCPDiscovery.LastDiscoveryError = err.Error()
+				if _, saveErr := connectorService.SaveMCPDiscovery(connectionID, conn.MCPDiscovery); saveErr != nil {
+					log.Printf("warning: failed to persist mcp discovery error for %s: %v", connectionID, saveErr)
+				}
+				writeJSON(w, http.StatusBadGateway, errorResponse{
+					Error: fmt.Sprintf("mcp discovery failed: %v", err),
+					Code:  "MCP_DISCOVERY_FAILED",
+				})
+				return
+			}
+			updated, err := connectorService.SaveMCPDiscovery(connectionID, discovery)
+			if err != nil {
+				writeConnectionError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, updated.MCPDiscovery)
 		default:
 			http.NotFound(w, r)
 		}
@@ -324,6 +376,9 @@ func main() {
 
 	mux.HandleFunc("/proxy/", func(w http.ResponseWriter, r *http.Request) {
 		handleProxyRequest(w, r, nonceCache, claimsCache, connectorService, cfg)
+	})
+	mux.HandleFunc("/mcp/", func(w http.ResponseWriter, r *http.Request) {
+		handleMCPRequest(w, r, nonceCache, claimsCache, connectorService, mcpClient, cfg)
 	})
 	mux.HandleFunc("/slack", func(w http.ResponseWriter, r *http.Request) {
 		handleProxyRequest(w, r, nonceCache, claimsCache, connectorService, cfg)
@@ -414,76 +469,19 @@ func handleProxyRequest(
 	}
 	_ = r.Body.Close()
 
-	allowUnsigned := cfg.AllowUnsignedProxy && isAllowedUnsignedConnection(cfg.AllowUnsignedFor, connectionID)
-	if !allowUnsigned {
-		headers := r.Header.Clone()
-		signatureResult := sigilum.VerifyHTTPSignature(sigilum.VerifySignatureInput{
-			URL:           requestAbsoluteURL(r, cfg.TrustedProxyCIDRs),
-			Method:        r.Method,
-			Headers:       headersToMap(headers),
-			Body:          body,
-			MaxAgeSeconds: int64(cfg.TimestampTolerance / time.Second),
-		})
-		if !signatureResult.Valid {
-			writeVerificationFailure(w, signatureResult, cfg.LogProxyRequests, connectionID, remoteIP)
-			return
-		}
-		if componentErr := validateSignatureComponents(headers.Get(headerSignatureInput), len(body) > 0); componentErr != nil {
-			if cfg.LogProxyRequests {
-				log.Printf("proxy request component validation failed connection=%s remote_ip=%s err=%v", connectionID, remoteIP, componentErr)
-			}
-			writeProxyAuthFailure(w)
-			return
-		}
-
-		namespace, publicKey, identityErr := extractSigilumIdentity(headers)
-		if identityErr != nil {
-			if cfg.LogProxyRequests {
-				log.Printf("proxy request identity extraction failed connection=%s remote_ip=%s err=%v", connectionID, remoteIP, identityErr)
-			}
-			writeProxyAuthFailure(w)
-			return
-		}
-		nonce, nonceErr := extractSignatureNonce(headers.Get(headerSignatureInput))
-		if nonceErr != nil {
-			if cfg.LogProxyRequests {
-				log.Printf("proxy request nonce extraction failed connection=%s remote_ip=%s err=%v", connectionID, remoteIP, nonceErr)
-			}
-			writeProxyAuthFailure(w)
-			return
-		}
-		if nonceCache != nil && nonceCache.Seen(namespace, nonce, time.Now().UTC()) {
-			if cfg.LogProxyRequests {
-				log.Printf("proxy request replay detected connection=%s remote_ip=%s namespace=%s", connectionID, remoteIP, namespace)
-			}
-			writeProxyAuthFailure(w)
-			return
-		}
-		approved, claimErr := claimsCache.IsApproved(r.Context(), connectionID, namespace, publicKey)
-		if claimErr != nil {
-			if cfg.LogProxyRequests {
-				log.Printf("proxy request claim cache failed connection=%s remote_ip=%s err=%v", connectionID, remoteIP, claimErr)
-			}
-			writeProxyAuthFailure(w)
-			return
-		}
-		if cfg.LogProxyRequests {
-			log.Printf("proxy claim cache precheck connection=%s namespace=%s approved=%t", connectionID, namespace, approved)
-		}
-		if !approved {
-			if cfg.LogProxyRequests {
-				log.Printf("proxy request denied by claim cache connection=%s remote_ip=%s namespace=%s", connectionID, remoteIP, namespace)
-			}
-			writeProxyAuthFailure(w)
-			return
-		}
-	} else if cfg.LogProxyRequests {
-		log.Printf("proxy request auth bypass enabled connection=%s remote_ip=%s", connectionID, remoteIP)
+	if _, ok := authorizeConnectionRequest(w, r, body, connectionID, remoteIP, nonceCache, claimsCache, cfg); !ok {
+		return
 	}
 
 	proxyCfg, err := connectorService.ResolveProxyConfig(connectionID)
 	if err != nil {
 		writeConnectionError(w, err)
+		return
+	}
+	if isMCPConnection(proxyCfg.Connection) {
+		writeJSON(w, http.StatusBadRequest, errorResponse{
+			Error: "connection protocol is mcp; use /mcp/{connection_id}/...",
+		})
 		return
 	}
 	if block, warning := evaluateRotationPolicy(proxyCfg.Connection, cfg.RotationEnforcement, cfg.RotationGracePeriod, time.Now().UTC()); block {
@@ -528,10 +526,290 @@ func handleProxyRequest(
 	}
 }
 
-func runConnectionTest(service *connectors.Service, connectionID string, input connectors.TestConnectionInput) (status string, httpStatus int, testErr string) {
+func handleMCPRequest(
+	w http.ResponseWriter,
+	r *http.Request,
+	nonceCache *nonceReplayCache,
+	claimsCache *claimcache.Cache,
+	connectorService *connectors.Service,
+	mcpClient *mcpruntime.Client,
+	cfg config.Config,
+) {
+	if r.Method == http.MethodConnect || r.Method == http.MethodTrace {
+		writeJSON(w, http.StatusMethodNotAllowed, errorResponse{Error: "method not allowed"})
+		return
+	}
+
+	connectionID, action, toolName, ok := resolveMCPRoute(r.URL.Path)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, errorResponse{
+			Error: "invalid mcp path, expected /mcp/{connection_id}/tools or /mcp/{connection_id}/tools/{tool}/call",
+		})
+		return
+	}
+
+	start := time.Now()
+	remoteIP := clientIP(r, cfg.TrustedProxyCIDRs)
+	if cfg.LogProxyRequests {
+		log.Printf(
+			"mcp request start method=%s connection=%s action=%s tool=%s query=%q remote_ip=%s signed_headers=%t",
+			r.Method,
+			connectionID,
+			action,
+			toolName,
+			r.URL.RawQuery,
+			remoteIP,
+			hasSigilumHeaders(r.Header),
+		)
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "failed to read request body"})
+		return
+	}
+	_ = r.Body.Close()
+
+	identity, ok := authorizeConnectionRequest(w, r, body, connectionID, remoteIP, nonceCache, claimsCache, cfg)
+	if !ok {
+		return
+	}
+
+	proxyCfg, err := connectorService.ResolveProxyConfig(connectionID)
+	if err != nil {
+		writeConnectionError(w, err)
+		return
+	}
+	if !isMCPConnection(proxyCfg.Connection) {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "connection protocol is not mcp"})
+		return
+	}
+	if block, warning := evaluateRotationPolicy(proxyCfg.Connection, cfg.RotationEnforcement, cfg.RotationGracePeriod, time.Now().UTC()); block {
+		writeJSON(w, http.StatusForbidden, errorResponse{
+			Error: warning,
+			Code:  "ROTATION_REQUIRED",
+		})
+		return
+	} else if warning != "" {
+		w.Header().Set("X-Sigilum-Rotation-Warning", warning)
+		log.Printf("rotation warning: connection=%s detail=%s", connectionID, warning)
+	}
+
+	tools := proxyCfg.Connection.MCPDiscovery.Tools
+	if len(tools) == 0 {
+		discovery, err := mcpClient.Discover(r.Context(), proxyCfg)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, errorResponse{
+				Error: fmt.Sprintf("mcp discovery failed: %v", err),
+				Code:  "MCP_DISCOVERY_FAILED",
+			})
+			return
+		}
+		updated, err := connectorService.SaveMCPDiscovery(connectionID, discovery)
+		if err != nil {
+			writeConnectionError(w, err)
+			return
+		}
+		tools = updated.MCPDiscovery.Tools
+		proxyCfg.Connection = updated
+	}
+
+	effectivePolicy := mcpruntime.EffectiveToolPolicy(
+		proxyCfg.Connection.MCPToolPolicy,
+		identity.Subject,
+		proxyCfg.Connection.MCPSubjectToolPolicies,
+	)
+
+	switch action {
+	case "list":
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		filteredTools := mcpruntime.FilterTools(tools, effectivePolicy)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"connection_id": connectionID,
+			"subject":       identity.Subject,
+			"tools":         filteredTools,
+		})
+	case "call":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !mcpruntime.ToolAllowed(toolName, tools, effectivePolicy) {
+			writeJSON(w, http.StatusForbidden, errorResponse{
+				Error: fmt.Sprintf("tool %q is not allowed for subject", toolName),
+				Code:  "MCP_TOOL_FORBIDDEN",
+			})
+			return
+		}
+
+		arguments, parseErr := resolveToolArguments(body)
+		if parseErr != nil {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: parseErr.Error()})
+			return
+		}
+
+		result, callErr := mcpClient.CallTool(r.Context(), proxyCfg, toolName, arguments)
+		if callErr != nil {
+			writeJSON(w, http.StatusBadGateway, errorResponse{
+				Error: fmt.Sprintf("mcp tool call failed: %v", callErr),
+				Code:  "MCP_TOOL_CALL_FAILED",
+			})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"connection_id": connectionID,
+			"tool":          toolName,
+			"result":        json.RawMessage(result),
+		})
+	default:
+		http.NotFound(w, r)
+		return
+	}
+
+	if cfg.LogProxyRequests {
+		log.Printf(
+			"mcp request end method=%s connection=%s action=%s duration=%s",
+			r.Method,
+			connectionID,
+			action,
+			time.Since(start).Round(time.Millisecond),
+		)
+	}
+}
+
+func authorizeConnectionRequest(
+	w http.ResponseWriter,
+	r *http.Request,
+	body []byte,
+	connectionID string,
+	remoteIP string,
+	nonceCache *nonceReplayCache,
+	claimsCache *claimcache.Cache,
+	cfg config.Config,
+) (authorizedIdentity, bool) {
+	allowUnsigned := cfg.AllowUnsignedProxy && isAllowedUnsignedConnection(cfg.AllowUnsignedFor, connectionID)
+	if allowUnsigned {
+		if cfg.LogProxyRequests {
+			log.Printf("proxy request auth bypass enabled connection=%s remote_ip=%s", connectionID, remoteIP)
+		}
+		return authorizedIdentity{}, true
+	}
+
+	headers := r.Header.Clone()
+	signatureResult := sigilum.VerifyHTTPSignature(sigilum.VerifySignatureInput{
+		URL:           requestAbsoluteURL(r, cfg.TrustedProxyCIDRs),
+		Method:        r.Method,
+		Headers:       headersToMap(headers),
+		Body:          body,
+		MaxAgeSeconds: int64(cfg.TimestampTolerance / time.Second),
+	})
+	if !signatureResult.Valid {
+		writeVerificationFailure(w, signatureResult, cfg.LogProxyRequests, connectionID, remoteIP)
+		return authorizedIdentity{}, false
+	}
+	if componentErr := validateSignatureComponents(headers.Get(headerSignatureInput), len(body) > 0); componentErr != nil {
+		if cfg.LogProxyRequests {
+			log.Printf("proxy request component validation failed connection=%s remote_ip=%s err=%v", connectionID, remoteIP, componentErr)
+		}
+		writeProxyAuthFailure(w)
+		return authorizedIdentity{}, false
+	}
+
+	namespace, publicKey, subject, identityErr := extractSigilumIdentity(headers)
+	if identityErr != nil {
+		if cfg.LogProxyRequests {
+			log.Printf("proxy request identity extraction failed connection=%s remote_ip=%s err=%v", connectionID, remoteIP, identityErr)
+		}
+		writeProxyAuthFailure(w)
+		return authorizedIdentity{}, false
+	}
+	if cfg.LogProxyRequests {
+		log.Printf("proxy request subject resolved connection=%s namespace=%s subject=%s", connectionID, namespace, subject)
+	}
+	nonce, nonceErr := extractSignatureNonce(headers.Get(headerSignatureInput))
+	if nonceErr != nil {
+		if cfg.LogProxyRequests {
+			log.Printf("proxy request nonce extraction failed connection=%s remote_ip=%s err=%v", connectionID, remoteIP, nonceErr)
+		}
+		writeProxyAuthFailure(w)
+		return authorizedIdentity{}, false
+	}
+	if nonceCache != nil && nonceCache.Seen(namespace, nonce, time.Now().UTC()) {
+		if cfg.LogProxyRequests {
+			log.Printf("proxy request replay detected connection=%s remote_ip=%s namespace=%s", connectionID, remoteIP, namespace)
+		}
+		writeProxyAuthFailure(w)
+		return authorizedIdentity{}, false
+	}
+	if claimsCache == nil {
+		writeProxyAuthFailure(w)
+		return authorizedIdentity{}, false
+	}
+	approved, claimErr := claimsCache.IsApproved(r.Context(), connectionID, namespace, publicKey)
+	if claimErr != nil {
+		if cfg.LogProxyRequests {
+			log.Printf("proxy request claim cache failed connection=%s remote_ip=%s err=%v", connectionID, remoteIP, claimErr)
+		}
+		writeProxyAuthFailure(w)
+		return authorizedIdentity{}, false
+	}
+	if cfg.LogProxyRequests {
+		log.Printf("proxy claim cache precheck connection=%s namespace=%s approved=%t", connectionID, namespace, approved)
+	}
+	if !approved {
+		if cfg.LogProxyRequests {
+			log.Printf("proxy request denied by claim cache connection=%s remote_ip=%s namespace=%s", connectionID, remoteIP, namespace)
+		}
+		writeProxyAuthFailure(w)
+		return authorizedIdentity{}, false
+	}
+	return authorizedIdentity{
+		Namespace: namespace,
+		Subject:   subject,
+		PublicKey: publicKey,
+	}, true
+}
+
+func resolveToolArguments(body []byte) (json.RawMessage, error) {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return json.RawMessage(`{}`), nil
+	}
+
+	var wrapped mcpToolCallRequest
+	if err := json.Unmarshal(body, &wrapped); err == nil && len(bytes.TrimSpace(wrapped.Arguments)) > 0 {
+		return wrapped.Arguments, nil
+	}
+
+	var direct map[string]any
+	if err := json.Unmarshal(body, &direct); err != nil {
+		return nil, errors.New("request body must be JSON; use {\"arguments\": {...}} or provide the arguments object directly")
+	}
+	return json.RawMessage(body), nil
+}
+
+func runConnectionTest(
+	ctx context.Context,
+	service *connectors.Service,
+	mcpClient *mcpruntime.Client,
+	connectionID string,
+	input connectors.TestConnectionInput,
+) (status string, httpStatus int, testErr string) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	proxyCfg, err := service.ResolveProxyConfig(connectionID)
 	if err != nil {
 		return "fail", 0, err.Error()
+	}
+	if isMCPConnection(proxyCfg.Connection) {
+		if _, err := mcpClient.Discover(ctx, proxyCfg); err != nil {
+			return "fail", 0, err.Error()
+		}
+		return "pass", http.StatusOK, ""
 	}
 
 	method := strings.ToUpper(strings.TrimSpace(input.Method))
@@ -666,6 +944,36 @@ func resolveProxyRoute(requestPath string) (connectionID string, upstreamPath st
 	return "", "", false
 }
 
+func resolveMCPRoute(requestPath string) (connectionID string, action string, toolName string, ok bool) {
+	if !strings.HasPrefix(requestPath, "/mcp/") {
+		return "", "", "", false
+	}
+	rest := strings.Trim(strings.TrimPrefix(requestPath, "/mcp/"), "/")
+	if rest == "" {
+		return "", "", "", false
+	}
+	parts := strings.Split(rest, "/")
+	if len(parts) < 2 || strings.TrimSpace(parts[0]) == "" || parts[1] != "tools" {
+		return "", "", "", false
+	}
+	connectionID = strings.TrimSpace(parts[0])
+	if len(parts) == 2 {
+		return connectionID, "list", "", true
+	}
+	if len(parts) == 4 && parts[3] == "call" {
+		decoded, err := url.PathUnescape(parts[2])
+		if err != nil {
+			return "", "", "", false
+		}
+		toolName = strings.TrimSpace(decoded)
+		if toolName == "" {
+			return "", "", "", false
+		}
+		return connectionID, "call", toolName, true
+	}
+	return "", "", "", false
+}
+
 func resolveServiceAPIKey(connectionID string, defaultValue string, sigilumHomeDir string) string {
 	if scoped := strings.TrimSpace(os.Getenv("SIGILUM_SERVICE_API_KEY_" + serviceAPIKeyEnvSuffix(connectionID))); scoped != "" {
 		return scoped
@@ -756,16 +1064,24 @@ func writeVerificationFailure(
 	writeProxyAuthFailure(w)
 }
 
-func extractSigilumIdentity(headers http.Header) (namespace string, publicKey string, err error) {
+func isMCPConnection(conn connectors.Connection) bool {
+	return conn.Protocol == connectors.ConnectionProtocolMCP
+}
+
+func extractSigilumIdentity(headers http.Header) (namespace string, publicKey string, subject string, err error) {
 	namespace = strings.TrimSpace(headers.Get(headerNamespace))
 	if namespace == "" {
-		return "", "", fmt.Errorf("missing %s header", headerNamespace)
+		return "", "", "", fmt.Errorf("missing %s header", headerNamespace)
+	}
+	subject = strings.TrimSpace(headers.Get(headerSubject))
+	if subject == "" {
+		return "", "", "", fmt.Errorf("missing %s header", headerSubject)
 	}
 	publicKey = strings.TrimSpace(headers.Get(headerAgentKey))
 	if publicKey == "" {
-		return "", "", fmt.Errorf("missing %s header", headerAgentKey)
+		return "", "", "", fmt.Errorf("missing %s header", headerAgentKey)
 	}
-	return namespace, publicKey, nil
+	return namespace, publicKey, subject, nil
 }
 
 type statusRecorder struct {
@@ -792,6 +1108,7 @@ func hasSigilumHeaders(headers http.Header) bool {
 	return strings.TrimSpace(headers.Get(headerSignatureInput)) != "" ||
 		strings.TrimSpace(headers.Get(headerSignature)) != "" ||
 		strings.TrimSpace(headers.Get(headerNamespace)) != "" ||
+		strings.TrimSpace(headers.Get(headerSubject)) != "" ||
 		strings.TrimSpace(headers.Get(headerAgentKey)) != "" ||
 		strings.TrimSpace(headers.Get(headerAgentCert)) != ""
 }
@@ -851,9 +1168,9 @@ func validateSignatureComponents(signatureInput string, hasBody bool) error {
 		return err
 	}
 
-	expected := []string{"@method", "@target-uri", "sigilum-namespace", "sigilum-agent-key", "sigilum-agent-cert"}
+	expected := []string{"@method", "@target-uri", "sigilum-namespace", "sigilum-subject", "sigilum-agent-key", "sigilum-agent-cert"}
 	if hasBody {
-		expected = []string{"@method", "@target-uri", "content-digest", "sigilum-namespace", "sigilum-agent-key", "sigilum-agent-cert"}
+		expected = []string{"@method", "@target-uri", "content-digest", "sigilum-namespace", "sigilum-subject", "sigilum-agent-key", "sigilum-agent-cert"}
 	}
 	if len(components) != len(expected) {
 		return errInvalidSignedComponentSet

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,8 @@ import (
 )
 
 type kvPairs map[string]string
+
+type stringList []string
 
 func (p *kvPairs) String() string {
 	if p == nil || len(*p) == 0 {
@@ -45,6 +48,25 @@ func (p *kvPairs) Set(value string) error {
 		*p = map[string]string{}
 	}
 	(*p)[key] = val
+	return nil
+}
+
+func (l *stringList) String() string {
+	if l == nil || len(*l) == 0 {
+		return ""
+	}
+	return strings.Join(*l, ",")
+}
+
+func (l *stringList) Set(value string) error {
+	parts := strings.Split(value, ",")
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		*l = append(*l, trimmed)
+	}
 	return nil
 }
 
@@ -181,6 +203,7 @@ func runAdd(args []string) error {
 	dataDir, masterKey := parseCommonFlags(fs)
 	id := fs.String("id", "", "Connection ID (optional; derived from name if empty)")
 	name := fs.String("name", "", "Connection name")
+	protocol := fs.String("protocol", "http", "Connection protocol: http|mcp")
 	baseURL := fs.String("base-url", "", "Upstream base URL")
 	pathPrefix := fs.String("path-prefix", "", "Upstream path prefix")
 	authMode := fs.String("auth-mode", "bearer", "Auth mode: bearer|header_key")
@@ -188,19 +211,31 @@ func runAdd(args []string) error {
 	authPrefix := fs.String("auth-prefix", "", "Auth value prefix")
 	authSecretKey := fs.String("auth-secret-key", "", "Primary secret key name in secrets map")
 	rotationDays := fs.Int("rotation-interval-days", 0, "Secret rotation interval in days")
+	mcpTransport := fs.String("mcp-transport", "streamable_http", "MCP transport: streamable_http")
+	mcpEndpoint := fs.String("mcp-endpoint", "/", "MCP endpoint path or absolute URL")
+	mcpMaxTools := fs.Int("mcp-max-tools", 0, "Max MCP tools exposed (0 = unlimited)")
+	var mcpAllowlist stringList
+	var mcpDenylist stringList
 	var secrets kvPairs
 	fs.Var(&secrets, "secret", "Connection secret in key=value format (repeatable)")
+	fs.Var(&mcpAllowlist, "mcp-allow", "Allowed MCP tool name (repeatable or comma-separated)")
+	fs.Var(&mcpDenylist, "mcp-deny", "Denied MCP tool name (repeatable or comma-separated)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if strings.TrimSpace(*baseURL) == "" {
 		return errors.New("--base-url is required")
 	}
-	if strings.TrimSpace(*authSecretKey) == "" {
-		return errors.New("--auth-secret-key is required")
-	}
-	if len(secrets) == 0 {
-		return errors.New("at least one --secret key=value is required")
+	isMCP := strings.EqualFold(strings.TrimSpace(*protocol), "mcp")
+	if !isMCP {
+		if strings.TrimSpace(*authSecretKey) == "" {
+			return errors.New("--auth-secret-key is required for http connections")
+		}
+		if len(secrets) == 0 {
+			return errors.New("at least one --secret key=value is required for http connections")
+		}
+	} else if strings.TrimSpace(*authSecretKey) != "" && len(secrets) == 0 {
+		return errors.New("--secret is required when --auth-secret-key is set")
 	}
 
 	service, err := openService(*dataDir, *masterKey)
@@ -212,6 +247,7 @@ func runAdd(args []string) error {
 	conn, err := service.CreateConnection(connectors.CreateConnectionInput{
 		ID:                   strings.TrimSpace(*id),
 		Name:                 strings.TrimSpace(*name),
+		Protocol:             strings.TrimSpace(*protocol),
 		BaseURL:              strings.TrimSpace(*baseURL),
 		PathPrefix:           strings.TrimSpace(*pathPrefix),
 		AuthMode:             strings.TrimSpace(*authMode),
@@ -220,6 +256,11 @@ func runAdd(args []string) error {
 		AuthSecretKey:        strings.TrimSpace(*authSecretKey),
 		Secrets:              secrets,
 		RotationIntervalDays: *rotationDays,
+		MCPTransport:         strings.TrimSpace(*mcpTransport),
+		MCPEndpoint:          strings.TrimSpace(*mcpEndpoint),
+		MCPToolAllowlist:     mcpAllowlist,
+		MCPToolDenylist:      mcpDenylist,
+		MCPMaxToolsExposed:   *mcpMaxTools,
 	})
 	if err != nil {
 		return err
@@ -236,6 +277,13 @@ func runUpdate(args []string) error {
 	authSecretKey := fs.String("auth-secret-key", "", "Primary secret key name")
 	rotationDays := fs.Int("rotation-interval-days", 0, "Secret rotation interval in days")
 	status := fs.String("status", "", "Connection status: active|disabled")
+	mcpTransport := fs.String("mcp-transport", "", "MCP transport: streamable_http")
+	mcpEndpoint := fs.String("mcp-endpoint", "", "MCP endpoint path or absolute URL")
+	mcpMaxTools := fs.String("mcp-max-tools", "", "Max MCP tools exposed (0 = unlimited)")
+	var mcpAllowlist stringList
+	var mcpDenylist stringList
+	fs.Var(&mcpAllowlist, "mcp-allow", "Allowed MCP tool name (repeatable or comma-separated)")
+	fs.Var(&mcpDenylist, "mcp-deny", "Denied MCP tool name (repeatable or comma-separated)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -248,17 +296,43 @@ func runUpdate(args []string) error {
 	}
 	defer service.Close()
 
+	var parsedMaxTools *int
+	if strings.TrimSpace(*mcpMaxTools) != "" {
+		value, err := parseOptionalInt(*mcpMaxTools)
+		if err != nil {
+			return err
+		}
+		parsedMaxTools = &value
+	}
+
 	conn, err := service.UpdateConnection(strings.TrimSpace(*id), connectors.UpdateConnectionInput{
 		Name:                 strings.TrimSpace(*name),
 		PathPrefix:           strings.TrimSpace(*pathPrefix),
 		AuthSecretKey:        strings.TrimSpace(*authSecretKey),
 		RotationIntervalDays: *rotationDays,
 		Status:               strings.TrimSpace(*status),
+		MCPTransport:         strings.TrimSpace(*mcpTransport),
+		MCPEndpoint:          strings.TrimSpace(*mcpEndpoint),
+		MCPToolAllowlist:     mcpAllowlist,
+		MCPToolDenylist:      mcpDenylist,
+		MCPMaxToolsExposed:   parsedMaxTools,
 	})
 	if err != nil {
 		return err
 	}
 	return printJSON(conn)
+}
+
+func parseOptionalInt(raw string) (int, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return 0, errors.New("value is required")
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("invalid integer %q", raw)
+	}
+	return parsed, nil
 }
 
 func runDelete(args []string) error {
