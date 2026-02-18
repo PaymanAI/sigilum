@@ -1,8 +1,0 @@
-{
-  "name": "@sigilum/openclaw-skill-sigilum-linear",
-  "version": "0.1.0",
-  "description": "OpenClaw skill for registering Linear behind Sigilum gateway",
-  "type": "module",
-  "files": ["SKILL.md"],
-  "license": "Apache-2.0"
-}
