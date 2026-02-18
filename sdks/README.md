@@ -27,6 +27,7 @@ All SDKs implement the same signed-header profile for API requests:
 - Ed25519 signatures
 - Required Sigilum headers:
   - `sigilum-namespace`
+  - `sigilum-subject`
   - `sigilum-agent-key`
   - `sigilum-agent-cert`
 - Optional body integrity via `content-digest`

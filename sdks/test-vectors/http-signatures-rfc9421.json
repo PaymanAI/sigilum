@@ -16,6 +16,7 @@
         "@method",
         "@target-uri",
         "sigilum-namespace",
+        "sigilum-subject",
         "sigilum-agent-key",
         "sigilum-agent-cert"
       ]
@@ -33,6 +34,7 @@
         "@target-uri",
         "content-digest",
         "sigilum-namespace",
+        "sigilum-subject",
         "sigilum-agent-key",
         "sigilum-agent-cert"
       ]
