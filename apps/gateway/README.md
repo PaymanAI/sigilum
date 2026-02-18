@@ -111,6 +111,35 @@ This gateway is currently designed for local, single-instance operation.
 - No HA/multi-node consistency guarantees are provided.
 - Configuration and admin routes are intended for trusted local environments.
 
+## Managed/Enterprise Dashboard Integration Pattern
+
+For managed and enterprise deployments, treat gateway as the local/private data plane and API/dashboard as control plane.
+
+Do not rely on direct browser calls from hosted dashboard UI to `http://localhost:<gateway-port>`.
+That pattern is fragile (mixed-content, CORS, local network boundaries, and device mismatch).
+
+Recommended pattern:
+
+1. Pair local gateway with control plane; local CLI/agent establishes gateway identity and registration metadata.
+2. Keep an outbound gateway session to control plane; gateway initiates and maintains a persistent outbound channel (for example WebSocket).
+3. Dashboard sends admin intents to control plane for list/add/update/remove/test connection actions.
+4. Control plane relays commands to connected gateway; no inbound exposure of local gateway admin API is required.
+5. Keep secrets local-only; dashboard encrypts secret payloads to gateway public key, control plane relays ciphertext only, gateway decrypts and stores locally.
+6. Keep secret reads one-way; value retrieval from dashboard should be disallowed (rotate/set only).
+
+This model supports:
+
+- `managed`: hosted API/dashboard + customer-run local gateway
+- `enterprise`: private/on-prem API/dashboard + private gateway
+- `oss-local`: local API + local gateway (dashboard optional/not required)
+
+Planned CLI-facing control commands:
+
+- `sigilum gateway pair`
+- `sigilum gateway connect`
+- `sigilum gateway status`
+- `sigilum gateway disconnect`
+
 ## Non-Goals (Current)
 
 - Multi-instance production replay guarantees.
@@ -139,8 +168,7 @@ Key variables:
 The `/slack/...` alias is fixed to connector id `slack-proxy` (no environment override).
 
 If a hosted dashboard at `https://sigilum.id` is used to guide setup for a local gateway, keep proxy trust narrow: include only local ingress/tunnel CIDRs you control in `GATEWAY_TRUSTED_PROXY_CIDRS`.
-
-For browser calls from hosted UI to local gateway, include `https://sigilum.id` in `GATEWAY_ALLOWED_ORIGINS`.
+`GATEWAY_ALLOWED_ORIGINS` is primarily for trusted same-origin/local admin surfaces, not as a primary managed-dashboard integration mechanism.
 
 ## Running Locally
 
