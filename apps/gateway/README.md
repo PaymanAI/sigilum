@@ -133,9 +133,15 @@ This model supports:
 - `enterprise`: private/on-prem API/dashboard + private gateway
 - `oss-local`: local API + local gateway (dashboard optional/not required)
 
-Planned CLI-facing control commands:
+Current v1 command:
 
-- `sigilum gateway pair`
+- `sigilum gateway pair --session-id <id> --pair-code <code> --namespace <namespace>`
+
+This runs a local websocket bridge process that relays dashboard gateway-admin intents
+through Sigilum API pairing endpoints to your local gateway admin API (`:38100` by default).
+
+Future commands (planned):
+
 - `sigilum gateway connect`
 - `sigilum gateway status`
 - `sigilum gateway disconnect`

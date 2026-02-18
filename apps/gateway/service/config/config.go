@@ -45,7 +45,7 @@ func Load() (Config, error) {
 		ServiceAPIKey:      getEnv("SIGILUM_SERVICE_API_KEY", ""),
 		AllowedOrigins: parseCSVSet(getEnv(
 			"GATEWAY_ALLOWED_ORIGINS",
-			"http://localhost:38000,http://127.0.0.1:38000,https://sigilum.id",
+			"http://localhost:5000,http://127.0.0.1:5000,http://localhost:3000,http://127.0.0.1:3000,http://localhost:38000,http://127.0.0.1:38000,https://sigilum.id",
 		)),
 		ClaimsCacheTTL:             30 * time.Second,
 		ClaimsCacheRefreshInterval: 10 * time.Second,
