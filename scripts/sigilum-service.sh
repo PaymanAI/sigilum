@@ -10,6 +10,8 @@ Sigilum Local Service CLI
 
 Usage:
   sigilum service add [options]
+  sigilum service list [options]
+  sigilum service secret set [options]
   sigilum service help
 
 Options for add:
@@ -31,6 +33,25 @@ Gateway mode options:
   --upstream-secret-env <name>   Optional. Read token/secret from env var.
   --upstream-secret-file <path>  Optional. Read token/secret from file.
                                  If no secret source is set, a random secret is generated.
+  --reveal-secrets               Optional. Print raw generated/resolved secret values.
+  --gateway-admin-url <url>      Optional. Defaults to http://127.0.0.1:38100.
+  --gateway-data-dir <path>      Optional. Defaults to .local/gateway-data.
+  --gateway-master-key <value>   Optional. Defaults to sigilum-local-dev-master-key.
+
+Options for list:
+  --namespace <namespace>        Optional. Defaults to GATEWAY_SIGILUM_NAMESPACE or johndee.
+  --gateway-admin-url <url>      Optional. Defaults to http://127.0.0.1:38100.
+  --gateway-data-dir <path>      Optional. Defaults to .local/gateway-data.
+  --gateway-master-key <value>   Optional. Defaults to sigilum-local-dev-master-key.
+  --json                         Optional. Print machine-readable JSON output.
+
+Options for secret set:
+  --service-slug <slug>          Required. Service/connection id.
+  --upstream-secret-key <key>    Optional. Defaults to connection auth_secret_key.
+  --upstream-secret <value>      Optional. Set secret value directly.
+  --upstream-secret-env <name>   Optional. Read secret value from env var.
+  --upstream-secret-file <path>  Optional. Read secret value from file.
+  --reveal-secrets               Optional. Print raw secret value.
   --gateway-admin-url <url>      Optional. Defaults to http://127.0.0.1:38100.
   --gateway-data-dir <path>      Optional. Defaults to .local/gateway-data.
   --gateway-master-key <value>   Optional. Defaults to sigilum-local-dev-master-key.
@@ -47,6 +68,12 @@ Examples:
     --mode gateway \
     --upstream-base-url http://127.0.0.1:12000 \
     --auth-mode bearer \
+    --upstream-secret-env LINEAR_TOKEN
+
+  sigilum service list --namespace johndee
+
+  sigilum service secret set \
+    --service-slug linear \
     --upstream-secret-env LINEAR_TOKEN
 EOF
 }
@@ -88,6 +115,15 @@ run_local_d1() {
   )
 }
 
+run_local_d1_json() {
+  local query="$1"
+  ensure_api_wrangler_config
+  (
+    cd "$ROOT_DIR/apps/api"
+    pnpm exec wrangler d1 execute sigilum-api --local --command "$query" --json
+  )
+}
+
 is_valid_slug() {
   [[ "$1" =~ ^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$ ]]
 }
@@ -108,6 +144,20 @@ generate_service_api_key() {
 
 generate_upstream_secret() {
   node -e "const crypto=require('node:crypto'); process.stdout.write('gw_'+crypto.randomBytes(24).toString('hex'));"
+}
+
+mask_secret() {
+  local value="$1"
+  if [[ -z "$value" ]]; then
+    printf "(empty)"
+    return 0
+  fi
+  local len="${#value}"
+  if (( len <= 8 )); then
+    printf "****"
+    return 0
+  fi
+  printf "%s...%s" "${value:0:4}" "${value: -4}"
 }
 
 sha256_hex() {
@@ -186,6 +236,345 @@ gateway_cli() {
     GATEWAY_MASTER_KEY="$GATEWAY_MASTER_KEY" \
     go run ./cmd/sigilum-gateway-cli "$@"
   )
+}
+
+gateway_list_connections_json() {
+  if curl -sf "${GATEWAY_ADMIN_URL}/health" >/dev/null 2>&1; then
+    curl -sS "${GATEWAY_ADMIN_URL}/api/admin/connections"
+    return 0
+  fi
+  if ! command -v go >/dev/null 2>&1; then
+    return 1
+  fi
+  gateway_cli list
+}
+
+gateway_get_connection_json() {
+  local connection_id="$1"
+  if curl -sf "${GATEWAY_ADMIN_URL}/health" >/dev/null 2>&1; then
+    local response_file
+    response_file="$(mktemp "${TMPDIR:-/tmp}/sigilum-gw-get-XXXXXX.json")"
+    local status
+    status="$(curl -sS -o "$response_file" -w "%{http_code}" "${GATEWAY_ADMIN_URL}/api/admin/connections/${connection_id}" || true)"
+    if [[ "$status" != "200" ]]; then
+      rm -f "$response_file"
+      return 1
+    fi
+    cat "$response_file"
+    rm -f "$response_file"
+    return 0
+  fi
+  if ! command -v go >/dev/null 2>&1; then
+    return 1
+  fi
+  gateway_cli get --id "$connection_id"
+}
+
+gateway_rotate_connection_secret() {
+  local connection_id="$1"
+  local secret_key="$2"
+  local secret_value="$3"
+
+  if curl -sf "${GATEWAY_ADMIN_URL}/health" >/dev/null 2>&1; then
+    local payload
+    payload="$(SECRET_KEY="$secret_key" SECRET_VALUE="$secret_value" node -e '
+const payload = {
+  secrets: {
+    [process.env.SECRET_KEY]: process.env.SECRET_VALUE,
+  },
+  rotated_by: "sigilum-service-cli",
+  rotation_reason: "manual-secret-set",
+};
+process.stdout.write(JSON.stringify(payload));
+')"
+
+    local response_file
+    response_file="$(mktemp "${TMPDIR:-/tmp}/sigilum-gw-rotate-XXXXXX.json")"
+    local status
+    status="$(curl -sS -o "$response_file" -w "%{http_code}" \
+      -H "Content-Type: application/json" \
+      -X POST "${GATEWAY_ADMIN_URL}/api/admin/connections/${connection_id}/rotate" \
+      --data "$payload" || true)"
+    if [[ "$status" != "200" ]]; then
+      echo "Failed to rotate gateway secret via admin API (HTTP ${status})" >&2
+      cat "$response_file" >&2 || true
+      rm -f "$response_file"
+      return 1
+    fi
+    rm -f "$response_file"
+    return 0
+  fi
+
+  require_cmd go
+  gateway_cli rotate --id "$connection_id" --secret "${secret_key}=${secret_value}" >/dev/null
+}
+
+list_services() {
+  require_cmd pnpm
+  require_cmd node
+  ensure_api_wrangler_config
+
+  local namespace="${GATEWAY_SIGILUM_NAMESPACE:-johndee}"
+  local output_json="false"
+  GATEWAY_ADMIN_URL="${GATEWAY_ADMIN_URL:-http://127.0.0.1:38100}"
+  GATEWAY_DATA_DIR="${GATEWAY_DATA_DIR:-${ROOT_DIR}/.local/gateway-data}"
+  GATEWAY_MASTER_KEY="${GATEWAY_MASTER_KEY:-sigilum-local-dev-master-key}"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --namespace)
+        namespace="${2:-}"
+        shift 2
+        ;;
+      --gateway-admin-url)
+        GATEWAY_ADMIN_URL="${2:-}"
+        shift 2
+        ;;
+      --gateway-data-dir)
+        GATEWAY_DATA_DIR="${2:-}"
+        shift 2
+        ;;
+      --gateway-master-key)
+        GATEWAY_MASTER_KEY="${2:-}"
+        shift 2
+        ;;
+      --json)
+        output_json="true"
+        shift
+        ;;
+      --help|-h)
+        usage
+        exit 0
+        ;;
+      *)
+        echo "Unknown option: $1" >&2
+        usage
+        exit 1
+        ;;
+    esac
+  done
+
+  if ! is_valid_slug "$namespace"; then
+    echo "Invalid --namespace: ${namespace}" >&2
+    exit 1
+  fi
+
+  local ns_sql query services_raw connections_raw
+  ns_sql="$(sql_escape "$namespace")"
+  query="SELECT s.slug AS service_slug, s.name AS service_name, s.domain AS domain, s.description AS description, (SELECT COUNT(*) FROM service_api_keys k WHERE k.service_id = s.id AND k.revoked_at IS NULL) AS active_api_keys FROM services s JOIN users u ON u.id = s.owner_user_id WHERE u.namespace = '${ns_sql}' ORDER BY s.slug;"
+  services_raw="$(run_local_d1_json "$query")"
+  connections_raw="$(gateway_list_connections_json 2>/dev/null || printf '{"connections":[]}')"
+
+  SERVICES_RAW="$services_raw" CONNECTIONS_RAW="$connections_raw" OUTPUT_JSON="$output_json" NAMESPACE="$namespace" node <<'NODE'
+const servicesRaw = process.env.SERVICES_RAW || "[]";
+const connectionsRaw = process.env.CONNECTIONS_RAW || '{"connections":[]}';
+const namespace = process.env.NAMESPACE || "";
+const outputJson = process.env.OUTPUT_JSON === "true";
+
+const parseJson = (value, fallback) => {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+};
+
+const servicePayload = parseJson(servicesRaw, []);
+const serviceRows = Array.isArray(servicePayload) && servicePayload[0] && Array.isArray(servicePayload[0].results)
+  ? servicePayload[0].results
+  : [];
+
+const connectionPayload = parseJson(connectionsRaw, { connections: [] });
+const connections = Array.isArray(connectionPayload.connections) ? connectionPayload.connections : [];
+const connectionIds = new Set(connections.map((entry) => String(entry.id || "").trim()).filter(Boolean));
+
+const rows = serviceRows.map((row) => {
+  const slug = String(row.service_slug || "").trim();
+  return {
+    service_slug: slug,
+    service_name: String(row.service_name || ""),
+    domain: String(row.domain || ""),
+    description: String(row.description || ""),
+    active_api_keys: Number(row.active_api_keys || 0),
+    mode: connectionIds.has(slug) ? "gateway" : "native",
+  };
+});
+
+if (outputJson) {
+  process.stdout.write(`${JSON.stringify({ namespace, services: rows }, null, 2)}\n`);
+  process.exit(0);
+}
+
+if (rows.length === 0) {
+  process.stdout.write(`No services registered for namespace "${namespace}".\n`);
+  process.exit(0);
+}
+
+const slugWidth = Math.max("SERVICE".length, ...rows.map((row) => row.service_slug.length));
+const modeWidth = Math.max("MODE".length, ...rows.map((row) => row.mode.length));
+const keysWidth = Math.max("API_KEYS".length, ...rows.map((row) => String(row.active_api_keys).length));
+
+const pad = (value, width) => value.padEnd(width, " ");
+process.stdout.write(`Services for namespace "${namespace}":\n`);
+process.stdout.write(`${pad("SERVICE", slugWidth)}  ${pad("MODE", modeWidth)}  ${pad("API_KEYS", keysWidth)}  NAME\n`);
+for (const row of rows) {
+  process.stdout.write(`${pad(row.service_slug, slugWidth)}  ${pad(row.mode, modeWidth)}  ${pad(String(row.active_api_keys), keysWidth)}  ${row.service_name}\n`);
+}
+NODE
+}
+
+set_service_secret() {
+  require_cmd node
+
+  local service_slug=""
+  local upstream_secret_key=""
+  local upstream_secret=""
+  local upstream_secret_env=""
+  local upstream_secret_input_file=""
+  local reveal_secrets="false"
+  GATEWAY_ADMIN_URL="${GATEWAY_ADMIN_URL:-http://127.0.0.1:38100}"
+  GATEWAY_DATA_DIR="${GATEWAY_DATA_DIR:-${ROOT_DIR}/.local/gateway-data}"
+  GATEWAY_MASTER_KEY="${GATEWAY_MASTER_KEY:-sigilum-local-dev-master-key}"
+  SIGILUM_HOME_DIR="${GATEWAY_SIGILUM_HOME:-${ROOT_DIR}/.sigilum-workspace}"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --service-slug)
+        service_slug="${2:-}"
+        shift 2
+        ;;
+      --upstream-secret-key)
+        upstream_secret_key="${2:-}"
+        shift 2
+        ;;
+      --upstream-secret)
+        upstream_secret="${2:-}"
+        shift 2
+        ;;
+      --upstream-secret-env)
+        upstream_secret_env="${2:-}"
+        shift 2
+        ;;
+      --upstream-secret-file)
+        upstream_secret_input_file="${2:-}"
+        shift 2
+        ;;
+      --reveal-secrets|--reveal)
+        reveal_secrets="true"
+        shift
+        ;;
+      --gateway-admin-url)
+        GATEWAY_ADMIN_URL="${2:-}"
+        shift 2
+        ;;
+      --gateway-data-dir)
+        GATEWAY_DATA_DIR="${2:-}"
+        shift 2
+        ;;
+      --gateway-master-key)
+        GATEWAY_MASTER_KEY="${2:-}"
+        shift 2
+        ;;
+      --help|-h)
+        usage
+        exit 0
+        ;;
+      *)
+        echo "Unknown option: $1" >&2
+        usage
+        exit 1
+        ;;
+    esac
+  done
+
+  if [[ -z "$service_slug" ]]; then
+    echo "--service-slug is required" >&2
+    exit 1
+  fi
+  if ! is_valid_slug "$service_slug"; then
+    echo "Invalid --service-slug: ${service_slug}" >&2
+    exit 1
+  fi
+
+  local secret_sources=0
+  if [[ -n "$upstream_secret" ]]; then
+    secret_sources=$((secret_sources + 1))
+  fi
+  if [[ -n "$upstream_secret_env" ]]; then
+    secret_sources=$((secret_sources + 1))
+  fi
+  if [[ -n "$upstream_secret_input_file" ]]; then
+    secret_sources=$((secret_sources + 1))
+  fi
+  if [[ "$secret_sources" -ne 1 ]]; then
+    echo "Provide exactly one secret source: --upstream-secret, --upstream-secret-env, or --upstream-secret-file" >&2
+    exit 1
+  fi
+
+  local resolved_secret
+  if [[ -n "$upstream_secret" ]]; then
+    resolved_secret="$upstream_secret"
+  elif [[ -n "$upstream_secret_env" ]]; then
+    if [[ -z "${!upstream_secret_env:-}" ]]; then
+      echo "Environment variable ${upstream_secret_env} is not set" >&2
+      exit 1
+    fi
+    resolved_secret="${!upstream_secret_env}"
+  else
+    if [[ ! -f "$upstream_secret_input_file" ]]; then
+      echo "Upstream secret file not found: ${upstream_secret_input_file}" >&2
+      exit 1
+    fi
+    resolved_secret="$(tr -d '\r\n' <"$upstream_secret_input_file")"
+  fi
+
+  if [[ -z "$resolved_secret" ]]; then
+    echo "Resolved secret is empty." >&2
+    exit 1
+  fi
+
+  local connection_json
+  if ! connection_json="$(gateway_get_connection_json "$service_slug" 2>/dev/null)"; then
+    echo "Gateway connection not found: ${service_slug}" >&2
+    echo "Create it first with: sigilum service add --service-slug ${service_slug} --mode gateway ..." >&2
+    exit 1
+  fi
+
+  if [[ -z "$upstream_secret_key" ]]; then
+    upstream_secret_key="$(printf "%s" "$connection_json" | node -e '
+const fs = require("fs");
+const raw = fs.readFileSync(0, "utf8");
+let parsed = {};
+try {
+  parsed = JSON.parse(raw);
+} catch {}
+const key = typeof parsed.auth_secret_key === "string" ? parsed.auth_secret_key.trim() : "";
+process.stdout.write(key);
+')"
+  fi
+  if [[ -z "$upstream_secret_key" ]]; then
+    upstream_secret_key="access_token"
+  fi
+
+  if ! gateway_rotate_connection_secret "$service_slug" "$upstream_secret_key" "$resolved_secret"; then
+    exit 1
+  fi
+
+  mkdir -p "$SIGILUM_HOME_DIR"
+  local persisted_upstream_secret_file
+  persisted_upstream_secret_file="${SIGILUM_HOME_DIR}/gateway-connection-secret-${service_slug}"
+  umask 077
+  printf "%s\n" "$resolved_secret" >"$persisted_upstream_secret_file"
+
+  echo "Gateway connection secret updated."
+  echo "  connection id: ${service_slug}"
+  echo "  secret key:    ${upstream_secret_key}"
+  echo "  secret file:   ${persisted_upstream_secret_file}"
+  if [[ "$reveal_secrets" == "true" ]]; then
+    echo "  secret value:  ${resolved_secret}"
+  else
+    echo "  secret value:  $(mask_secret "$resolved_secret") (hidden; use --reveal-secrets to print)"
+  fi
 }
 
 gateway_admin_upsert_connection() {
@@ -313,6 +702,7 @@ add_service() {
   local upstream_secret=""
   local upstream_secret_env=""
   local upstream_secret_input_file=""
+  local reveal_secrets="false"
 
   GATEWAY_ADMIN_URL="${GATEWAY_ADMIN_URL:-http://127.0.0.1:38100}"
   GATEWAY_DATA_DIR="${GATEWAY_DATA_DIR:-${ROOT_DIR}/.local/gateway-data}"
@@ -380,6 +770,10 @@ add_service() {
       --upstream-secret-file)
         upstream_secret_input_file="${2:-}"
         shift 2
+        ;;
+      --reveal-secrets|--reveal)
+        reveal_secrets="true"
+        shift
         ;;
       --gateway-admin-url)
         GATEWAY_ADMIN_URL="${2:-}"
@@ -562,7 +956,11 @@ add_service() {
   echo "  service name:         ${service_name}"
   echo "  API key file:         ${api_key_file}"
   echo "  gateway scoped env:   ${scoped_env}"
-  echo "  API key value:        ${SERVICE_API_KEY}"
+  if [[ "$reveal_secrets" == "true" ]]; then
+    echo "  API key value:        ${SERVICE_API_KEY}"
+  else
+    echo "  API key value:        $(mask_secret "$SERVICE_API_KEY") (hidden; use --reveal-secrets to print)"
+  fi
   echo ""
   echo "Usage hints:"
   if [[ "$mode" == "native" ]]; then
@@ -583,6 +981,26 @@ main() {
   case "$command" in
     add)
       add_service "$@"
+      ;;
+    list)
+      list_services "$@"
+      ;;
+    secret)
+      local secret_command="${1:-}"
+      shift || true
+      case "$secret_command" in
+        set)
+          set_service_secret "$@"
+          ;;
+        help|-h|--help|"")
+          usage
+          ;;
+        *)
+          echo "Unknown service secret command: ${secret_command}" >&2
+          usage
+          exit 1
+          ;;
+      esac
       ;;
     help|-h|--help)
       usage

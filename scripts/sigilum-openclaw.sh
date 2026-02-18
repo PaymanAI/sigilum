@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
+
+usage() {
+  cat <<'USAGE'
+Sigilum OpenClaw helpers
+
+Usage:
+  sigilum openclaw <command> [options]
+
+Commands:
+  install [installer options]   Install Sigilum hooks/skills into OpenClaw
+  status                        Show current OpenClaw Sigilum install status
+
+Examples:
+  sigilum openclaw install --namespace johndee --mode managed --restart
+  sigilum openclaw install --namespace johndee --mode oss-local
+  sigilum openclaw status
+USAGE
+}
+
+if [[ $# -lt 1 ]]; then
+  usage
+  exit 1
+fi
+
+command="$1"
+shift || true
+
+case "$command" in
+  install)
+    exec "${ROOT_DIR}/openclaw/install-openclaw-sigilum.sh" "$@"
+    ;;
+  status)
+    config_path="${OPENCLAW_HOME}/openclaw.json"
+    echo "OpenClaw home: ${OPENCLAW_HOME}"
+    echo "Config: ${config_path}"
+    for path in \
+      "${OPENCLAW_HOME}/hooks/sigilum-plugin" \
+      "${OPENCLAW_HOME}/hooks/sigilum-authz-notify" \
+      "${OPENCLAW_HOME}/skills/sigilum" \
+      "${OPENCLAW_HOME}/skills/sigilum-linear"; do
+      if [[ -d "$path" ]]; then
+        echo "[ok]  ${path}"
+      else
+        echo "[miss] ${path}"
+      fi
+    done
+    if [[ -f "$config_path" ]]; then
+      node - "$config_path" <<'NODE'
+const fs = require("fs");
+const configPath = process.argv[2];
+let cfg = {};
+try {
+  cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
+} catch {
+  // ignore parse issues in status command
+}
+const plugin = cfg?.hooks?.internal?.entries?.["sigilum-plugin"];
+const notify = cfg?.hooks?.internal?.entries?.["sigilum-authz-notify"];
+const skill = cfg?.skills?.entries?.sigilum;
+const mode = plugin?.env?.SIGILUM_MODE ?? skill?.env?.SIGILUM_MODE ?? "unknown";
+console.log("Config summary:");
+console.log(`  mode: ${mode}`);
+console.log(`  hook sigilum-plugin enabled: ${plugin?.enabled === true}`);
+console.log(`  hook sigilum-authz-notify enabled: ${notify?.enabled === true}`);
+console.log(`  skill sigilum enabled: ${skill?.enabled === true}`);
+NODE
+    fi
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    echo "Unknown openclaw command: ${command}" >&2
+    usage
+    exit 1
+    ;;
+esac
