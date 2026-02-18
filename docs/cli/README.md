@@ -48,6 +48,24 @@ Install help:
 sigilum install --help
 ```
 
+OpenClaw integration help:
+
+```bash
+sigilum openclaw help
+```
+
+Auth helper help:
+
+```bash
+sigilum auth --help
+```
+
+Doctor help:
+
+```bash
+sigilum doctor --help
+```
+
 ## Global Options
 
 Global options are accepted before the command:
@@ -87,6 +105,113 @@ Example:
 sigilum up
 ```
 
+### `sigilum down`
+
+Stops local listeners on known Sigilum dev ports:
+
+- API (`8787`)
+- Gateway (`38100`)
+- Demo native (`11000`)
+- Demo upstream (`11100`)
+- Envoy ingress/admin (`38000` / `38200`)
+
+Example:
+
+```bash
+sigilum down
+```
+
+### `sigilum doctor`
+
+Runs local diagnostics:
+
+- required tools (`node`, `pnpm`, `go`, `curl`)
+- optional Java/Maven presence for SDK tests
+- wrangler config/template checks
+- local identity/key-file checks
+- API/gateway health checks
+- OpenClaw config permissions and authz-notify token posture checks
+
+Example:
+
+```bash
+sigilum doctor
+```
+
+### `sigilum openclaw install ...`
+
+Installs Sigilum OpenClaw hooks + skills into `~/.openclaw` and patches `openclaw.json`.
+
+Basic usage:
+
+```bash
+sigilum openclaw install --namespace <namespace> --mode <managed|oss-local>
+```
+
+Common options:
+
+- `--openclaw-home <path>`
+- `--config <path>`
+- `--mode <managed|oss-local>` (default `managed`)
+- `--namespace <value>`
+- `--gateway-url <url>`
+- `--api-url <url>`
+- `--key-root <path>`
+- `--enable-authz-notify <true|false>` (default `false`)
+- `--owner-token <token>` (required if authz notify enabled)
+- `--auto-owner-token <true|false>` (default: `true` in `oss-local` if `--owner-token` not provided)
+- `--owner-email <email>` (default: `<namespace>@local.sigilum`)
+- `--install-linear-skill <true|false>`
+- `--restart`
+
+`oss-local` note:
+
+- installer auto-registers local namespace owner (if missing), issues local JWT, writes it to `<openclaw-home>/.sigilum/owner-token-<namespace>.jwt`, and prints it.
+
+`managed` note:
+
+- post-install output points to `https://sigilum.id` to sign in and reserve your namespace.
+- after namespace registration, run `sigilum auth login --mode managed --namespace <namespace> --owner-token-stdin`.
+- `sigilum-authz-notify` remains disabled by default to avoid loading namespace-owner token into OpenClaw runtime unless explicitly enabled.
+
+Status:
+
+```bash
+sigilum openclaw status
+```
+
+### `sigilum auth ...`
+
+Bootstrap and manage namespace-owner JWT tokens used by `sigilum-authz-notify`.
+
+Local login/issue:
+
+```bash
+sigilum auth login --mode oss-local --namespace johndee
+```
+
+Refresh local token:
+
+```bash
+sigilum auth refresh --mode oss-local --namespace johndee
+```
+
+Managed mode (token from browser/passkey flow):
+
+```bash
+sigilum auth login --mode managed --namespace johndee --owner-token-stdin
+```
+
+Show stored token:
+
+```bash
+sigilum auth show --namespace johndee
+```
+
+Alias:
+
+- `sigilum login` is equivalent to `sigilum auth login`.
+
 ### `sigilum service add ...`
 
 Registers a service in local API DB, creates/stores service API key, and (for gateway mode) creates/updates gateway connection + upstream secret.
@@ -117,6 +242,7 @@ Gateway mode options:
 - `--upstream-secret <value>`: provide token/secret directly
 - `--upstream-secret-env <name>`: read token/secret from env var
 - `--upstream-secret-file <path>`: read token/secret from file
+- `--reveal-secrets`: print raw key/secret values (default output masks secrets)
 - `--gateway-admin-url <url>`: gateway admin endpoint (default `http://127.0.0.1:38100`)
 - `--gateway-data-dir <path>`: fallback local gateway data dir if admin API is not reachable
 - `--gateway-master-key <value>`: fallback gateway master key for CLI mode
@@ -127,6 +253,7 @@ Notes:
 - If none is provided, a random secret is generated and saved.
 - Service API keys are persisted in `.sigilum-workspace/service-api-key-<service-slug>`.
 - Gateway upstream secrets are persisted in `.sigilum-workspace/gateway-connection-secret-<service-slug>`.
+- Raw secret values are hidden by default in CLI output.
 
 Examples:
 
@@ -151,6 +278,35 @@ sigilum service add \
   --upstream-base-url https://api.linear.app \
   --auth-mode bearer \
   --upstream-secret-env LINEAR_TOKEN
+```
+
+### `sigilum service list`
+
+Lists services registered in local API DB for a namespace, and marks each as `native` or `gateway` when gateway connection metadata is available.
+
+Examples:
+
+```bash
+sigilum service list --namespace johndee
+sigilum service list --namespace johndee --json
+```
+
+### `sigilum service secret set`
+
+Rotates/sets an upstream secret for an existing gateway connection and persists it in local workspace.
+
+Examples:
+
+```bash
+export LINEAR_TOKEN="lin_api_..."
+sigilum service secret set --service-slug linear --upstream-secret-env LINEAR_TOKEN
+
+# explicit secret key + reveal
+sigilum service secret set \
+  --service-slug linear \
+  --upstream-secret-key access_token \
+  --upstream-secret-env LINEAR_TOKEN \
+  --reveal-secrets
 ```
 
 ### `sigilum e2e-tests`
