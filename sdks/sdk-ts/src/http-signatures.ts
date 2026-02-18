@@ -103,6 +103,10 @@ function parsePublicKey(publicKey: string): Uint8Array {
   return new Uint8Array(Buffer.from(publicKey.slice("ed25519:".length), "base64"));
 }
 
+function hasComponent(components: string[], expected: string): boolean {
+  return components.some((component) => component.trim() === expected);
+}
+
 export function encodeCertificateHeader(certificate: SigilumCertificate): string {
   return Buffer.from(JSON.stringify(certificate), "utf8").toString("base64url");
 }
@@ -181,6 +185,11 @@ export function signHttpRequest(
   }
 
   headers.set("sigilum-namespace", identity.namespace);
+  const resolvedSubject =
+    request.subject?.trim() ||
+    headers.get("sigilum-subject")?.trim() ||
+    identity.namespace;
+  headers.set("sigilum-subject", resolvedSubject);
   headers.set("sigilum-agent-key", identity.publicKey);
   headers.set("sigilum-agent-cert", encodeCertificateHeader(identity.certificate));
 
@@ -190,10 +199,11 @@ export function signHttpRequest(
       "@target-uri",
       "content-digest",
       "sigilum-namespace",
+      "sigilum-subject",
       "sigilum-agent-key",
       "sigilum-agent-cert",
     ]
-    : ["@method", "@target-uri", "sigilum-namespace", "sigilum-agent-key", "sigilum-agent-cert"];
+    : ["@method", "@target-uri", "sigilum-namespace", "sigilum-subject", "sigilum-agent-key", "sigilum-agent-cert"];
 
   const created = request.created ?? Math.floor(Date.now() / 1000);
   const nonce = request.nonce ?? randomUUID();
@@ -304,11 +314,24 @@ export function verifyHttpSignature(
     if (!namespaceHeader || namespaceHeader !== certificate.namespace) {
       return { valid: false, reason: "Namespace header mismatch" };
     }
+    const subjectHeader = headers.get("sigilum-subject")?.trim();
+    if (!subjectHeader) {
+      return { valid: false, reason: "Missing sigilum-subject header" };
+    }
+    if (!hasComponent(parsedInput.components, "sigilum-subject")) {
+      return { valid: false, reason: "Missing sigilum-subject in signed components" };
+    }
 
     if (request.expectedNamespace && request.expectedNamespace !== namespaceHeader) {
       return {
         valid: false,
         reason: `Namespace mismatch: expected ${request.expectedNamespace}, got ${namespaceHeader}`,
+      };
+    }
+    if (request.expectedSubject && request.expectedSubject !== subjectHeader) {
+      return {
+        valid: false,
+        reason: `Subject mismatch: expected ${request.expectedSubject}, got ${subjectHeader}`,
       };
     }
 
@@ -337,6 +360,7 @@ export function verifyHttpSignature(
     return {
       valid: true,
       namespace: certificate.namespace,
+      subject: subjectHeader,
       keyId: certificate.keyId,
     };
   } catch (error) {

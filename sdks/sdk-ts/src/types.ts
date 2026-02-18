@@ -72,6 +72,7 @@ export interface SignRequestInput {
   body?: string | Uint8Array | ArrayBuffer | null;
   created?: number;
   nonce?: string;
+  subject?: string;
 }
 
 export interface SignedRequest {
@@ -103,6 +104,7 @@ export interface VerifySignatureInput {
   headers: HeaderInput;
   body?: string | Uint8Array | ArrayBuffer | null;
   expectedNamespace?: string;
+  expectedSubject?: string;
   strict?: {
     now?: number;
     maxAgeSeconds?: number;
@@ -113,6 +115,7 @@ export interface VerifySignatureInput {
 export interface VerifySignatureResult {
   valid: boolean;
   namespace?: string;
+  subject?: string;
   keyId?: string;
   reason?: string;
 }

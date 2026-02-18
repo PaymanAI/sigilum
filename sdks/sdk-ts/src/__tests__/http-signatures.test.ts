@@ -45,6 +45,7 @@ describe("RFC 9421 signing", () => {
 
     expect(verified.valid).toBe(true);
     expect(verified.namespace).toBe("alice");
+    expect(verified.subject).toBe("alice");
   });
 
   it("fails verification when body is tampered", () => {
@@ -89,5 +90,28 @@ describe("RFC 9421 signing", () => {
 
     expect(verified.valid).toBe(false);
     expect(verified.reason).toMatch(/namespace mismatch/i);
+  });
+
+  it("fails verification when subject does not match", () => {
+    const homeDir = makeHomeDir();
+    initIdentity({ namespace: "alice", homeDir });
+    const identity = loadIdentity({ namespace: "alice", homeDir });
+
+    const signed = signHttpRequest(identity, {
+      url: "https://api.sigilum.local/v1/namespaces/alice/claims",
+      method: "GET",
+      subject: "user:123",
+    });
+
+    const verified = verifyHttpSignature({
+      url: signed.url,
+      method: signed.method,
+      headers: signed.headers,
+      expectedNamespace: "alice",
+      expectedSubject: "user:999",
+    });
+
+    expect(verified.valid).toBe(false);
+    expect(verified.reason).toMatch(/subject mismatch/i);
   });
 });
