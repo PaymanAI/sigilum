@@ -1,5 +1,5 @@
 export interface Env {
-  ENVIRONMENT: "production" | "staging" | "test" | "development";
+  ENVIRONMENT: "production" | "staging" | "test" | "development" | "local";
   ADAPTER_PROVIDER?: "cloudflare"; // Default: cloudflare
   ALLOWED_ORIGINS?: string;
   WEBAUTHN_ALLOWED_ORIGINS?: string; // Optional override for WebAuthn expected origins (comma-separated)
@@ -34,4 +34,6 @@ export interface Env {
   CHALLENGE_EXPIRY_HOURS?: string;
   SIGNATURE_MAX_AGE_SECONDS?: string;
   SIGNATURE_NONCE_TTL_SECONDS?: string;
+  ENABLE_TEST_SEED_ENDPOINT?: string; // Optional: enable local-only /v1/test/seed endpoint when "true"
+  SIGILUM_TEST_SEED_TOKEN?: string; // Optional: local-only test seed endpoint token
 }

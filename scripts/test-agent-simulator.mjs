@@ -1,8 +1,5 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
-import crypto from "node:crypto";
-import { copyFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -15,6 +12,8 @@ const nativeUrl = process.env.SIM_NATIVE_URL ?? "http://127.0.0.1:11000";
 const gatewayUrl = process.env.SIM_GATEWAY_URL ?? "http://127.0.0.1:38100";
 const gatewayConnectionID = process.env.SIM_GATEWAY_CONNECTION_ID ?? "demo-service-gateway";
 const gatewayUpstreamUrl = process.env.SIM_GATEWAY_UPSTREAM_URL ?? "http://127.0.0.1:11100";
+const seedEndpoint = process.env.SIM_SEED_ENDPOINT ?? `${apiUrl.replace(/\/+$/, "")}/v1/test/seed`;
+const seedToken = process.env.SIM_SEED_TOKEN ?? "sigilum-local-seed-token";
 
 const nativeServiceSlug = process.env.SIM_NATIVE_SERVICE_SLUG ?? "demo-service-native";
 const gatewayServiceSlug = process.env.SIM_GATEWAY_SERVICE_SLUG ?? "demo-service-gateway";
@@ -25,74 +24,53 @@ const identitiesHome = process.env.SIM_IDENTITIES_HOME ?? path.join(rootDir, ".s
 
 const bodyPayload = JSON.stringify("ping");
 
-function ensureApiWranglerConfig() {
-  const apiDir = path.join(rootDir, "apps", "api");
-  const configPath = path.join(apiDir, "wrangler.toml");
-  const templatePath = path.join(apiDir, "wrangler.toml.example");
+async function seedAuthorizations({
+  approvedNamespaceValue,
+  approvedPublicKey,
+  unapprovedNamespaceValue,
+  unapprovedPublicKey,
+}) {
+  const payload = {
+    upserts: [
+      {
+        namespace: approvedNamespaceValue,
+        service: nativeServiceSlug,
+        public_key: approvedPublicKey,
+      },
+      {
+        namespace: approvedNamespaceValue,
+        service: gatewayServiceSlug,
+        public_key: approvedPublicKey,
+      },
+    ],
+    deletes: [
+      {
+        namespace: unapprovedNamespaceValue,
+        service: nativeServiceSlug,
+        public_key: unapprovedPublicKey,
+      },
+      {
+        namespace: unapprovedNamespaceValue,
+        service: gatewayServiceSlug,
+        public_key: unapprovedPublicKey,
+      },
+    ],
+  };
 
-  if (existsSync(configPath)) {
-    return;
-  }
-  if (!existsSync(templatePath)) {
-    throw new Error(`Missing Wrangler config template: ${templatePath}`);
-  }
-
-  copyFileSync(templatePath, configPath);
-  console.log(`Created ${configPath} from template.`);
-}
-
-function sqlEscape(value) {
-  return String(value).replace(/'/g, "''");
-}
-
-function runLocalD1(sql) {
-  ensureApiWranglerConfig();
-  const result = spawnSync(
-    "pnpm",
-    ["exec", "wrangler", "d1", "execute", "sigilum-api", "--local", "--command", sql],
-    {
-      cwd: path.join(rootDir, "apps", "api"),
-      encoding: "utf8",
-      env: process.env,
+  const response = await fetch(seedEndpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-sigilum-test-seed-token": seedToken,
     },
-  );
-  if (result.status !== 0) {
-    const stderr = result.stderr?.trim();
-    const stdout = result.stdout?.trim();
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
     throw new Error(
-      [
-        "Failed to execute local D1 SQL.",
-        stderr ? `stderr: ${stderr}` : "",
-        stdout ? `stdout: ${stdout}` : "",
-      ].filter(Boolean).join("\n"),
+      `Failed to seed simulator authorization state (status=${response.status} body=${text.slice(0, 400)})`,
     );
   }
-}
-
-function upsertApprovedAuthorization(namespace, service, publicKey) {
-  const claimID = `cl_sim_${crypto.randomBytes(10).toString("hex")}`;
-  const nowExpr = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
-  const query = [
-    "INSERT INTO authorizations (namespace, service, public_key, claim_id, agent_ip, status, approved_at, revoked_at)",
-    `VALUES ('${sqlEscape(namespace)}', '${sqlEscape(service)}', '${sqlEscape(publicKey)}', '${sqlEscape(claimID)}', '127.0.0.1', 'approved', ${nowExpr}, NULL)`,
-    "ON CONFLICT(namespace, service, public_key) DO UPDATE SET",
-    "  claim_id = excluded.claim_id,",
-    "  agent_ip = excluded.agent_ip,",
-    "  status = 'approved',",
-    "  approved_at = excluded.approved_at,",
-    "  revoked_at = NULL",
-  ].join(" ");
-  runLocalD1(query);
-}
-
-function clearAuthorization(namespace, service, publicKey) {
-  const query = [
-    "DELETE FROM authorizations",
-    `WHERE namespace = '${sqlEscape(namespace)}'`,
-    `AND service = '${sqlEscape(service)}'`,
-    `AND public_key = '${sqlEscape(publicKey)}'`,
-  ].join(" ");
-  runLocalD1(query);
 }
 
 async function ensureReachable(name, url, expectedStatus = 200) {
@@ -177,10 +155,15 @@ async function main() {
   });
 
   console.log("Seeding authorization state for pass/fail scenarios...");
-  upsertApprovedAuthorization(approvedNamespace, nativeServiceSlug, approvedAgent.sigilum.publicKey);
-  upsertApprovedAuthorization(approvedNamespace, gatewayServiceSlug, approvedAgent.sigilum.publicKey);
-  clearAuthorization(unapprovedNamespace, nativeServiceSlug, unapprovedAgent.sigilum.publicKey);
-  clearAuthorization(unapprovedNamespace, gatewayServiceSlug, unapprovedAgent.sigilum.publicKey);
+  await seedAuthorizations({
+    approvedNamespaceValue: approvedNamespace,
+    approvedPublicKey: approvedAgent.sigilum.publicKey,
+    unapprovedNamespaceValue: unapprovedNamespace,
+    unapprovedPublicKey: unapprovedAgent.sigilum.publicKey,
+  });
+
+  // Give local worker adapters a short settle window before first request.
+  await new Promise((resolve) => setTimeout(resolve, 500));
 
   const nativePingURL = `${nativeUrl.replace(/\/+$/, "")}/v1/ping`;
   const gatewayPingURL = `${gatewayUrl.replace(/\/+$/, "")}/proxy/${gatewayConnectionID}/v1/ping`;

@@ -114,6 +114,8 @@ Run full local e2e flow (recommended smoke test):
 
 By default, `e2e-tests` performs a clean start by stopping listeners on ports `8787`, `38100`, `11000`, `11100` before bootstrapping.
 Set `SIGILUM_E2E_CLEAN_START=false` to reuse already running processes.
+Simulator seeding uses local API endpoint `POST /v1/test/seed` (disabled by default, enabled only for e2e with a per-run token) instead of direct `wrangler d1 execute` writes.
+CI enforces that prod/staging config templates do not enable this endpoint (`pnpm config:guards`).
 
 This starts:
 - API on `http://127.0.0.1:8787`

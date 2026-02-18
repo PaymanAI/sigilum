@@ -35,7 +35,11 @@ ensure_api_wrangler_config() {
 ensure_api_wrangler_config
 
 : "${API_PORT:=8787}"
+: "${API_HOST:=127.0.0.1}"
 : "${BLOCKCHAIN_MODE:=disabled}"
+: "${ENVIRONMENT:=local}"
+: "${ENABLE_TEST_SEED_ENDPOINT:=false}"
+: "${SIGILUM_TEST_SEED_TOKEN:=}"
 : "${SIGILUM_REGISTRY_URL:=http://127.0.0.1:${API_PORT}}"
 : "${SIGILUM_API_URL:=${SIGILUM_REGISTRY_URL}}"
 
@@ -98,6 +102,10 @@ generate_service_api_key() {
 
 generate_proxy_demo_secret() {
   node -e "const crypto=require('node:crypto'); process.stdout.write('gw_demo_'+crypto.randomBytes(24).toString('hex'));"
+}
+
+generate_seed_token() {
+  node -e "const crypto=require('node:crypto'); process.stdout.write('seed_'+crypto.randomBytes(24).toString('hex'));"
 }
 
 gateway_binary_needs_rebuild() {
@@ -390,10 +398,25 @@ if [[ -z "${SIGILUM_SERVICE_API_KEY:-}" ]]; then
   fi
 fi
 
-echo "Starting API on http://127.0.0.1:${API_PORT} (BLOCKCHAIN_MODE=${BLOCKCHAIN_MODE})"
+if [[ "${ENABLE_TEST_SEED_ENDPOINT}" == "true" ]] && [[ -z "${SIGILUM_TEST_SEED_TOKEN}" ]]; then
+  SIGILUM_TEST_SEED_TOKEN="$(generate_seed_token)"
+fi
+
+api_dev_args=(
+  --ip "${API_HOST}"
+  --port "${API_PORT}"
+  --var "ENVIRONMENT:${ENVIRONMENT}"
+  --var "ENABLE_TEST_SEED_ENDPOINT:${ENABLE_TEST_SEED_ENDPOINT}"
+  --var "BLOCKCHAIN_MODE:${BLOCKCHAIN_MODE}"
+)
+if [[ "${ENABLE_TEST_SEED_ENDPOINT}" == "true" ]]; then
+  api_dev_args+=(--var "SIGILUM_TEST_SEED_TOKEN:${SIGILUM_TEST_SEED_TOKEN}")
+fi
+
+echo "Starting API on http://${API_HOST}:${API_PORT} (ENVIRONMENT=${ENVIRONMENT}, BLOCKCHAIN_MODE=${BLOCKCHAIN_MODE}, test_seed=${ENABLE_TEST_SEED_ENDPOINT})"
 (
   cd "$ROOT_DIR/apps/api"
-  BLOCKCHAIN_MODE="$BLOCKCHAIN_MODE" pnpm dev -- --port "$API_PORT"
+  pnpm exec wrangler dev "${api_dev_args[@]}"
 ) &
 API_PID=$!
 

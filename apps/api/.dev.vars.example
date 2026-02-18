@@ -6,7 +6,7 @@
 # For production, set these in Cloudflare Workers dashboard or use `wrangler secret put`
 # ============================================================================
 
-ENVIRONMENT=development|production|staging
+ENVIRONMENT=local|development|production|staging|test
 
 # ----------------------------------------------------------------------------
 # JWT Authentication
@@ -98,6 +98,10 @@ CHALLENGE_EXPIRY_HOURS=1
 # ----------------------------------------------------------------------------
 # Adapter provider (currently only cloudflare)
 ADAPTER_PROVIDER=cloudflare
+
+# Local-only test seed endpoint (disabled by default; enable only for local e2e)
+ENABLE_TEST_SEED_ENDPOINT=false
+# SIGILUM_TEST_SEED_TOKEN=set-a-strong-random-token-when-enabled
 
 # Enable verbose logging for debugging (true/false)
 DEBUG_LOGGING=true

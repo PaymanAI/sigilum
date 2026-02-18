@@ -14,7 +14,10 @@ require_cmd() {
 require_cmd pnpm
 require_cmd node
 require_cmd curl
-require_cmd lsof
+if ! command -v fuser >/dev/null 2>&1 && ! command -v lsof >/dev/null 2>&1; then
+  echo "Missing required command: install either fuser or lsof" >&2
+  exit 1
+fi
 
 : "${API_PORT:=8787}"
 : "${GATEWAY_PORT:=38100}"
@@ -23,6 +26,7 @@ require_cmd lsof
 : "${BLOCKCHAIN_MODE:=disabled}"
 : "${SIGILUM_WORKSPACE_DIR:=${ROOT_DIR}/.sigilum-workspace}"
 : "${SIGILUM_E2E_CLEAN_START:=true}"
+: "${SIM_SEED_TOKEN:=}"
 
 API_URL="http://127.0.0.1:${API_PORT}"
 GATEWAY_URL="http://127.0.0.1:${GATEWAY_PORT}"
@@ -54,6 +58,14 @@ cleanup() {
   wait "${GW_DEMO_PID}" "${NATIVE_PID}" "${STACK_PID}" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
+
+generate_seed_token() {
+  node -e "const crypto=require('node:crypto'); process.stdout.write('seed_'+crypto.randomBytes(24).toString('hex'));"
+}
+
+if [[ -z "${SIM_SEED_TOKEN}" ]]; then
+  SIM_SEED_TOKEN="$(generate_seed_token)"
+fi
 
 wait_for_url() {
   local name="$1"
@@ -101,7 +113,11 @@ probe_status() {
 
 listener_pids_for_port() {
   local port="$1"
-  lsof -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' | sed -E 's/[[:space:]]+$//' || true
+  if command -v fuser >/dev/null 2>&1; then
+    fuser -n tcp "${port}" 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+$/) printf "%s ", $i}' | sed -E 's/[[:space:]]+$//' || true
+    return 0
+  fi
+  lsof -tiTCP:"${port}" 2>/dev/null | tr '\n' ' ' | sed -E 's/[[:space:]]+$//' || true
 }
 
 kill_listeners_on_port() {
@@ -114,7 +130,11 @@ kill_listeners_on_port() {
   fi
 
   echo "Stopping existing ${label} listener(s) on :${port}: ${pids}"
-  kill ${pids} 2>/dev/null || true
+  if command -v fuser >/dev/null 2>&1; then
+    fuser -k -TERM -n tcp "${port}" >/dev/null 2>&1 || true
+  else
+    kill ${pids} 2>/dev/null || true
+  fi
 
   for _ in $(seq 1 8); do
     sleep 1
@@ -125,7 +145,11 @@ kill_listeners_on_port() {
   done
 
   echo "Force-stopping lingering ${label} listener(s) on :${port}: ${pids}"
-  kill -9 ${pids} 2>/dev/null || true
+  if command -v fuser >/dev/null 2>&1; then
+    fuser -k -KILL -n tcp "${port}" >/dev/null 2>&1 || true
+  else
+    kill -9 ${pids} 2>/dev/null || true
+  fi
 
   sleep 1
   pids="$(listener_pids_for_port "$port")"
@@ -258,7 +282,11 @@ elif [[ "$api_ready" == "false" && "$gateway_ready" == "false" ]]; then
   echo "Starting local API + gateway stack..."
   (
     cd "${ROOT_DIR}"
-    BLOCKCHAIN_MODE="${BLOCKCHAIN_MODE}" "${ROOT_DIR}/scripts/run-local-api-gateway.sh"
+    BLOCKCHAIN_MODE="${BLOCKCHAIN_MODE}" \
+      ENVIRONMENT="local" \
+      ENABLE_TEST_SEED_ENDPOINT="true" \
+      SIGILUM_TEST_SEED_TOKEN="${SIM_SEED_TOKEN}" \
+      "${ROOT_DIR}/scripts/run-local-api-gateway.sh"
   ) >"${LOG_DIR}/stack.log" 2>&1 &
   STACK_PID=$!
   STACK_STARTED="true"
@@ -337,6 +365,7 @@ if SIM_API_URL="${API_URL}" \
   SIM_GATEWAY_URL="${GATEWAY_URL}" \
   SIM_NATIVE_URL="${NATIVE_URL}" \
   SIM_GATEWAY_UPSTREAM_URL="${UPSTREAM_URL}" \
+  SIM_SEED_TOKEN="${SIM_SEED_TOKEN}" \
   node "${ROOT_DIR}/scripts/test-agent-simulator.mjs" | tee "${LOG_DIR}/simulator.log"; then
   echo "E2E simulator passed."
 else

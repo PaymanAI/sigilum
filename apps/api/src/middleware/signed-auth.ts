@@ -71,6 +71,10 @@ async function parseJsonBody(rawBody: string): Promise<Record<string, unknown> |
 export async function requireSignedHeaders(c: Context<{ Bindings: Env }>, next: Next) {
   const request = c.req.raw;
   const url = new URL(request.url);
+  if (url.pathname === "/v1/test/seed") {
+    await next();
+    return;
+  }
   const method = request.method.toUpperCase();
 
   const rawBody =

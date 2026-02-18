@@ -45,6 +45,7 @@ The API is adapter-based; Cloudflare is the current implementation, not a hard p
 ## API Surface
 
 All protected endpoints (`/v1/*` and `/.well-known/*`) require valid Sigilum signed headers.
+Local-only exception: `POST /v1/test/seed` is available only when `ENABLE_TEST_SEED_ENDPOINT=true` and `ENVIRONMENT` is `local` or `test`, is token-gated, and only accepts loopback hosts (`localhost`, `127.0.0.1`, `::1`).
 
 ### Health
 - `GET /health`
@@ -126,6 +127,15 @@ Apply local D1 migrations:
 ```bash
 pnpm exec wrangler d1 migrations apply sigilum-api --local
 ```
+
+Local simulator seeding endpoint (disabled by default):
+
+- `POST /v1/test/seed`
+- Requires `ENABLE_TEST_SEED_ENDPOINT=true`
+- Requires `ENVIRONMENT=local` (or `test`)
+- Requires header: `X-Sigilum-Test-Seed-Token: <SIGILUM_TEST_SEED_TOKEN>`
+- No default token is accepted; endpoint is unavailable when token is unset
+- Used by `scripts/test-agent-simulator.mjs` for local authorization upsert/delete seeding
 
 Run:
 

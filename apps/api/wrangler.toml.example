@@ -7,6 +7,8 @@ ENVIRONMENT = "development"
 ADAPTER_PROVIDER = "cloudflare"
 WEBAUTHN_ALLOWED_ORIGINS = "https://sigilum.id"
 WEBAUTHN_RP_ID = "sigilum.id"
+ENABLE_TEST_SEED_ENDPOINT = "false"
+# SIGILUM_TEST_SEED_TOKEN = "set-a-strong-random-token-when-enabled"
 # JWT_SECRET: set via wrangler secret put JWT_SECRET (or use default in dev)
 
 # Blockchain configuration

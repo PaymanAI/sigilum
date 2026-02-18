@@ -509,8 +509,7 @@ function req(path: string, init?: RequestInit) {
   };
 
   const signedPromise = path === "/health" ? Promise.resolve(init ?? {}) : signRequest(path, init);
-
-  return signedPromise.then((signedInit) => app.request(path, signedInit, {
+  const env = {
     ENVIRONMENT: "test",
     ALLOWED_ORIGINS: "https://dashboard.sigilum.id,http://localhost:3000",
     JWT_SECRET: "test-jwt-secret",
@@ -519,7 +518,42 @@ function req(path: string, init?: RequestInit) {
     WEBHOOK_SECRET_ENCRYPTION_KEY: "test-webhook-secret",
     DB: db as unknown as D1Database,
     NONCE_STORE_DO: nonceNamespace as unknown as DurableObjectNamespace,
-  }));
+  };
+
+  return signedPromise.then((signedInit) => app.request(path, signedInit, env));
+}
+
+function testEnv(overrides: Record<string, unknown> = {}) {
+  const nonceNamespace = {
+    idFromName(name: string) {
+      return name;
+    },
+    get(name: string) {
+      return {
+        fetch: async (_url: string, reqInit?: RequestInit) => {
+          const raw = typeof reqInit?.body === "string" ? reqInit.body : "{}";
+          const parsed = JSON.parse(raw) as { nonce?: string };
+          const nonce = parsed.nonce ?? "";
+          const key = `${name}:${nonce}`;
+          const replay = nonceSeen.has(key);
+          if (!replay) nonceSeen.add(key);
+          return new Response(JSON.stringify({ replay }), { status: 200 });
+        },
+      };
+    },
+  };
+
+  return {
+    ENVIRONMENT: "test",
+    ALLOWED_ORIGINS: "https://dashboard.sigilum.id,http://localhost:3000",
+    JWT_SECRET: "test-jwt-secret",
+    WEBAUTHN_ALLOWED_ORIGINS: "http://localhost:3000",
+    WEBAUTHN_RP_ID: "localhost",
+    WEBHOOK_SECRET_ENCRYPTION_KEY: "test-webhook-secret",
+    DB: db as unknown as D1Database,
+    NONCE_STORE_DO: nonceNamespace as unknown as DurableObjectNamespace,
+    ...overrides,
+  };
 }
 
 describe("Health and basic routing", () => {
@@ -716,5 +750,89 @@ describe("Auth payload hardening", () => {
     expect(res.status).toBe(400);
     const data = (await res.json()) as { code?: string };
     expect(data.code).toBe("INVALID_CREDENTIAL");
+  });
+});
+
+describe("Test seed endpoint hardening", () => {
+  const endpoint = "/v1/test/seed";
+  const payload = JSON.stringify({ upserts: [], deletes: [] });
+
+  it("returns 404 when endpoint is disabled", async () => {
+    const res = await app.request(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-sigilum-test-seed-token": "seed_token",
+      },
+      body: payload,
+    }, testEnv());
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 outside local/test environments even if enabled", async () => {
+    const res = await app.request(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-sigilum-test-seed-token": "seed_token",
+      },
+      body: payload,
+    }, testEnv({
+      ENVIRONMENT: "development",
+      ENABLE_TEST_SEED_ENDPOINT: "true",
+      SIGILUM_TEST_SEED_TOKEN: "seed_token",
+    }));
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 401 when enabled but token is invalid", async () => {
+    const res = await app.request(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-sigilum-test-seed-token": "wrong",
+      },
+      body: payload,
+    }, testEnv({
+      ENABLE_TEST_SEED_ENDPOINT: "true",
+      SIGILUM_TEST_SEED_TOKEN: "seed_token",
+    }));
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 on non-loopback host even when enabled and token is valid", async () => {
+    const res = await app.request("https://example.com/v1/test/seed", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-sigilum-test-seed-token": "seed_token",
+      },
+      body: payload,
+    }, testEnv({
+      ENVIRONMENT: "local",
+      ENABLE_TEST_SEED_ENDPOINT: "true",
+      SIGILUM_TEST_SEED_TOKEN: "seed_token",
+    }));
+    expect(res.status).toBe(404);
+  });
+
+  it("allows seeded writes only with endpoint enabled and valid token", async () => {
+    const res = await app.request(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-sigilum-test-seed-token": "seed_token",
+      },
+      body: payload,
+    }, testEnv({
+      ENVIRONMENT: "local",
+      ENABLE_TEST_SEED_ENDPOINT: "true",
+      SIGILUM_TEST_SEED_TOKEN: "seed_token",
+    }));
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { ok: boolean; upserts: number; deletes: number };
+    expect(data.ok).toBe(true);
+    expect(data.upserts).toBe(0);
+    expect(data.deletes).toBe(0);
   });
 });

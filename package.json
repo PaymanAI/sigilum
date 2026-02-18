@@ -8,6 +8,7 @@
     "node": ">=20.0.0"
   },
   "scripts": {
+    "config:guards": "./scripts/check-config-guards.sh",
     "api:build": "pnpm --filter @sigilum/api build",
     "api:dev": "pnpm --filter @sigilum/api dev",
     "api:typecheck": "pnpm --filter @sigilum/api typecheck",

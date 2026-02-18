@@ -33,7 +33,7 @@ For the Cloudflare adapter, they must be configured in `apps/api/wrangler.toml` 
 
 | Variable | Required | Default | Used by | Description |
 | --- | --- | --- | --- | --- |
-| `ENVIRONMENT` | Recommended | none in code | auth/blockchain logs and mode behavior | Typically `development`, `staging`, `production`, `test`. |
+| `ENVIRONMENT` | Recommended | none in code | auth/blockchain logs and mode behavior | Typically `local`, `development`, `staging`, `production`, `test`. |
 | `ADAPTER_PROVIDER` | No | `cloudflare` | `adapters/index.ts` | Current adapter provider switch. Only `cloudflare` is implemented. |
 | `ALLOWED_ORIGINS` | No | `http://localhost:3000` (CORS middleware) | CORS middleware | Comma-separated allowed origins for CORS. |
 
@@ -45,6 +45,8 @@ For the Cloudflare adapter, they must be configured in `apps/api/wrangler.toml` 
 | `JWT_EXPIRY` | No | `7d` | `utils/config.ts` | JWT expiration for dashboard session tokens. |
 | `WEBAUTHN_ALLOWED_ORIGINS` | Yes for WebAuthn auth | none | `utils/webauthn-config.ts` | Trusted WebAuthn origins for expected origin verification. |
 | `WEBAUTHN_RP_ID` | No | derived from first trusted origin hostname | `utils/webauthn-config.ts` | WebAuthn relying-party ID. Must be compatible with trusted origins. |
+| `ENABLE_TEST_SEED_ENDPOINT` | Local e2e only | `false` | `routes/test-seed.ts` | Enables `POST /v1/test/seed` only when set to `true` and `ENVIRONMENT` is `local` or `test` (loopback host only). |
+| `SIGILUM_TEST_SEED_TOKEN` | Local e2e only | none | `routes/test-seed.ts` | Required token for `POST /v1/test/seed` when enabled. Do not set a static/shared value. |
 
 ### Blockchain
 
