@@ -160,7 +160,7 @@ Runs end-to-end tests using bundled demo services:
 - by default, performs clean-start by stopping listeners on ports `8787`, `38100`, `11000`, `11100`
 - starts local stack
 - starts demo native + gateway upstream services
-- runs `scripts/test-agent-simulator.mjs`
+- runs `scripts/test-agent-simulator.mjs` (seeds auth state via API `POST /v1/test/seed`, enabled only for local e2e with a per-run token)
 - prints pass/fail matrix
 
 Example:
