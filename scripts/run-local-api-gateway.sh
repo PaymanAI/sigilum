@@ -42,6 +42,11 @@ ensure_api_wrangler_config
 : "${SIGILUM_TEST_SEED_TOKEN:=}"
 : "${SIGILUM_REGISTRY_URL:=http://127.0.0.1:${API_PORT}}"
 : "${SIGILUM_API_URL:=${SIGILUM_REGISTRY_URL}}"
+# Local dashboard/API defaults. Override these env vars if you need different origins.
+: "${ALLOWED_ORIGINS:=http://localhost:5000,http://127.0.0.1:5000,http://localhost:3000,http://127.0.0.1:3000}"
+: "${WEBAUTHN_ALLOWED_ORIGINS:=http://localhost:5000}"
+: "${WEBAUTHN_RP_ID:=localhost}"
+: "${GATEWAY_ALLOWED_ORIGINS:=http://localhost:5000,http://127.0.0.1:5000,http://localhost:3000,http://127.0.0.1:3000,http://localhost:38000,http://127.0.0.1:38000,https://sigilum.id}"
 
 : "${GATEWAY_ADDR:=:38100}"
 : "${GATEWAY_DATA_DIR:=${ROOT_DIR}/.local/gateway-data}"
@@ -406,6 +411,9 @@ api_dev_args=(
   --ip "${API_HOST}"
   --port "${API_PORT}"
   --var "ENVIRONMENT:${ENVIRONMENT}"
+  --var "ALLOWED_ORIGINS:${ALLOWED_ORIGINS}"
+  --var "WEBAUTHN_ALLOWED_ORIGINS:${WEBAUTHN_ALLOWED_ORIGINS}"
+  --var "WEBAUTHN_RP_ID:${WEBAUTHN_RP_ID}"
   --var "ENABLE_TEST_SEED_ENDPOINT:${ENABLE_TEST_SEED_ENDPOINT}"
   --var "BLOCKCHAIN_MODE:${BLOCKCHAIN_MODE}"
 )
@@ -437,6 +445,7 @@ echo "Starting Gateway on ${GATEWAY_ADDR} (registry=${SIGILUM_REGISTRY_URL}, cmd
   export GATEWAY_MASTER_KEY="$GATEWAY_MASTER_KEY"
   export GATEWAY_SIGILUM_NAMESPACE="$GATEWAY_SIGILUM_NAMESPACE"
   export GATEWAY_SIGILUM_HOME="$GATEWAY_SIGILUM_HOME"
+  export GATEWAY_ALLOWED_ORIGINS="$GATEWAY_ALLOWED_ORIGINS"
   export GATEWAY_ALLOW_UNSIGNED_PROXY="$GATEWAY_ALLOW_UNSIGNED_PROXY"
   export GATEWAY_ALLOW_UNSIGNED_CONNECTIONS="$GATEWAY_ALLOW_UNSIGNED_CONNECTIONS"
   export SIGILUM_SERVICE_API_KEY="${SIGILUM_SERVICE_API_KEY:-}"

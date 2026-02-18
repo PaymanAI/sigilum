@@ -26,6 +26,7 @@ Commands:
   install [options]              Install sigilum command into your shell (symlink/alias)
   auth <args>                    Manage namespace-owner auth token bootstrap (login/refresh)
   login [options]                Alias for: sigilum auth login
+  gateway <args>                 Gateway pairing helpers (local bridge for managed dashboard)
   openclaw <args>                Manage OpenClaw integration (hooks/skills installer)
   service <args>                 Manage local services (delegates to scripts/sigilum-service.sh)
   doctor                         Validate local setup, security posture, and runtime readiness
@@ -38,6 +39,7 @@ Examples:
   sigilum install
   sigilum auth login --mode oss-local --namespace johndee
   sigilum auth refresh --mode oss-local --namespace johndee
+  sigilum gateway pair --session-id <id> --pair-code <code> --namespace johndee
   sigilum openclaw install --namespace johndee
   sigilum doctor
   sigilum up
@@ -159,6 +161,10 @@ case "$command" in
   openclaw)
     ensure_script "$ROOT_DIR/scripts/sigilum-openclaw.sh"
     exec "$ROOT_DIR/scripts/sigilum-openclaw.sh" "$@"
+    ;;
+  gateway)
+    ensure_script "$ROOT_DIR/scripts/sigilum-gateway.sh"
+    exec "$ROOT_DIR/scripts/sigilum-gateway.sh" "$@"
     ;;
   auth)
     ensure_script "$ROOT_DIR/scripts/sigilum-auth.sh"
