@@ -393,12 +393,13 @@ async function signRequest(path: string, init?: RequestInit): Promise<RequestIni
   }
 
   headers.set("sigilum-namespace", signingContext.namespace);
+  headers.set("sigilum-subject", `user:${signingContext.namespace}`);
   headers.set("sigilum-agent-key", signingContext.publicKey);
   headers.set("sigilum-agent-cert", signingContext.certificateHeader);
 
   const components = bodyText
-    ? ["@method", "@target-uri", "content-digest", "sigilum-namespace", "sigilum-agent-key", "sigilum-agent-cert"]
-    : ["@method", "@target-uri", "sigilum-namespace", "sigilum-agent-key", "sigilum-agent-cert"];
+    ? ["@method", "@target-uri", "content-digest", "sigilum-namespace", "sigilum-subject", "sigilum-agent-key", "sigilum-agent-cert"]
+    : ["@method", "@target-uri", "sigilum-namespace", "sigilum-subject", "sigilum-agent-key", "sigilum-agent-cert"];
   const created = Math.floor(Date.now() / 1000);
   const nonce = crypto.randomUUID();
   const signatureParams =

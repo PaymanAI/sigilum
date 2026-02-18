@@ -97,7 +97,7 @@
           "Namespaces"
         ],
         "summary": "List approved service authorizations",
-        "description": "Get approved authorization records for a service across namespaces (used by SDK/gateway cache). Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
+        "description": "Get approved authorization records for a service across namespaces (used by SDK/gateway cache). Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-subject, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
         "security": [
           {
             "BearerAuth": []
@@ -178,6 +178,9 @@
           "$ref": "#/components/parameters/SigilumNamespaceHeader"
         },
         {
+          "$ref": "#/components/parameters/SigilumSubjectHeader"
+        },
+        {
           "$ref": "#/components/parameters/SigilumAgentKeyHeader"
         },
         {
@@ -195,7 +198,7 @@
           "Namespaces"
         ],
         "summary": "Resolve namespace",
-        "description": "Resolve a namespace to its current metadata and active approved claim count. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
+        "description": "Resolve a namespace to its current metadata and active approved claim count. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-subject, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
         "parameters": [
           {
             "name": "namespace",
@@ -261,6 +264,9 @@
         },
         {
           "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumSubjectHeader"
         },
         {
           "$ref": "#/components/parameters/SigilumAgentKeyHeader"
@@ -378,7 +384,7 @@
           "Authorizations"
         ],
         "summary": "Submit authorization request",
-        "description": "Submit an authorization request on behalf of an agent to a service. Requires a service API key. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
+        "description": "Submit an authorization request on behalf of an agent to a service. Requires a service API key. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-subject, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
         "security": [
           {
             "BearerAuth": []
@@ -486,6 +492,9 @@
         },
         {
           "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumSubjectHeader"
         },
         {
           "$ref": "#/components/parameters/SigilumAgentKeyHeader"
@@ -784,7 +793,7 @@
           "Verify"
         ],
         "summary": "Verify agent authorization",
-        "description": "Check whether a public key is currently approved for a service/namespace pair. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
+        "description": "Check whether a public key is currently approved for a service/namespace pair. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-subject, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
         "parameters": [
           {
             "name": "namespace",
@@ -855,6 +864,9 @@
           "$ref": "#/components/parameters/SigilumNamespaceHeader"
         },
         {
+          "$ref": "#/components/parameters/SigilumSubjectHeader"
+        },
+        {
           "$ref": "#/components/parameters/SigilumAgentKeyHeader"
         },
         {
@@ -872,7 +884,7 @@
           "DID"
         ],
         "summary": "Resolve DID document",
-        "description": "Resolve a `did:sigilum:<namespace>` DID to a DID document. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
+        "description": "Resolve a `did:sigilum:<namespace>` DID to a DID document. Requires Sigilum signed headers: signature-input, signature, sigilum-namespace, sigilum-subject, sigilum-agent-key, sigilum-agent-cert (and content-digest when body is present).",
         "parameters": [
           {
             "name": "did",
@@ -932,6 +944,9 @@
         },
         {
           "$ref": "#/components/parameters/SigilumNamespaceHeader"
+        },
+        {
+          "$ref": "#/components/parameters/SigilumSubjectHeader"
         },
         {
           "$ref": "#/components/parameters/SigilumAgentKeyHeader"
@@ -4002,6 +4017,15 @@
           "type": "string"
         },
         "description": "Sigilum namespace bound to the signing certificate."
+      },
+      "SigilumSubjectHeader": {
+        "name": "sigilum-subject",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Subject identifier for user-scoped policy checks. Must be included in signed components."
       },
       "SigilumAgentKeyHeader": {
         "name": "sigilum-agent-key",

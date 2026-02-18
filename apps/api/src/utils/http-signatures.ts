@@ -34,6 +34,7 @@ export type VerifySignedHttpRequestOptions = {
 export type VerifySignedHttpRequestSuccess = {
   valid: true;
   namespace: string;
+  subject: string;
   publicKey: string;
   keyId: string;
   nonce: string;
@@ -205,6 +206,7 @@ function expectedComponents(hasBody: boolean): string[] {
       "@target-uri",
       "content-digest",
       "sigilum-namespace",
+      "sigilum-subject",
       "sigilum-agent-key",
       "sigilum-agent-cert",
     ];
@@ -213,6 +215,7 @@ function expectedComponents(hasBody: boolean): string[] {
     "@method",
     "@target-uri",
     "sigilum-namespace",
+    "sigilum-subject",
     "sigilum-agent-key",
     "sigilum-agent-cert",
   ];
@@ -236,8 +239,9 @@ export async function verifySignedHttpRequest(
   const certHeader = headers.get("sigilum-agent-cert");
   const keyHeader = headers.get("sigilum-agent-key");
   const namespaceHeader = headers.get("sigilum-namespace");
+  const subjectHeader = headers.get("sigilum-subject");
 
-  if (!signatureInputHeader || !signatureHeader || !certHeader || !keyHeader || !namespaceHeader) {
+  if (!signatureInputHeader || !signatureHeader || !certHeader || !keyHeader || !namespaceHeader || !subjectHeader) {
     return toFailure("Missing required signed-auth headers", "SIGNATURE_MISSING", 401);
   }
 
@@ -325,6 +329,7 @@ export async function verifySignedHttpRequest(
   return {
     valid: true,
     namespace: certificate.namespace,
+    subject: subjectHeader.trim(),
     publicKey: certificate.publicKey,
     keyId: certificate.keyId,
     nonce: signatureInput.nonce,
