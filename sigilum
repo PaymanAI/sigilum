@@ -24,15 +24,27 @@ Global options:
 
 Commands:
   install [options]              Install sigilum command into your shell (symlink/alias)
+  auth <args>                    Manage namespace-owner auth token bootstrap (login/refresh)
+  login [options]                Alias for: sigilum auth login
+  openclaw <args>                Manage OpenClaw integration (hooks/skills installer)
   service <args>                 Manage local services (delegates to scripts/sigilum-service.sh)
+  doctor                         Validate local setup, security posture, and runtime readiness
   up                             Start local API + gateway (scripts/run-local-api-gateway.sh)
+  down                           Stop local API/gateway/demo listeners on known ports
   e2e-tests                      Start demo services and run end-to-end tests
   agent-simulator                Run agent auth simulator against running services
 
 Examples:
   sigilum install
+  sigilum auth login --mode oss-local --namespace johndee
+  sigilum auth refresh --mode oss-local --namespace johndee
+  sigilum openclaw install --namespace johndee
+  sigilum doctor
   sigilum up
+  sigilum down
   sigilum service add --service-slug demo-native --mode native
+  sigilum service list --namespace johndee
+  sigilum service secret set --service-slug linear --upstream-secret-env LINEAR_TOKEN
   sigilum service add --service-slug demo-proxy --mode gateway --upstream-base-url http://127.0.0.1:12000
   sigilum e2e-tests
 EOF
@@ -144,12 +156,32 @@ case "$command" in
     ensure_script "$ROOT_DIR/scripts/install-sigilum.sh"
     exec "$ROOT_DIR/scripts/install-sigilum.sh" "$@"
     ;;
+  openclaw)
+    ensure_script "$ROOT_DIR/scripts/sigilum-openclaw.sh"
+    exec "$ROOT_DIR/scripts/sigilum-openclaw.sh" "$@"
+    ;;
+  auth)
+    ensure_script "$ROOT_DIR/scripts/sigilum-auth.sh"
+    exec "$ROOT_DIR/scripts/sigilum-auth.sh" "$@"
+    ;;
+  login)
+    ensure_script "$ROOT_DIR/scripts/sigilum-auth.sh"
+    exec "$ROOT_DIR/scripts/sigilum-auth.sh" login "$@"
+    ;;
+  doctor)
+    ensure_script "$ROOT_DIR/scripts/sigilum-doctor.sh"
+    exec "$ROOT_DIR/scripts/sigilum-doctor.sh" "$@"
+    ;;
   up)
     ensure_script "$ROOT_DIR/scripts/run-local-api-gateway.sh"
     if [[ -n "${GATEWAY_PORT_OPT}" ]] && [[ -z "${GATEWAY_ADDR:-}" ]]; then
       export GATEWAY_ADDR=":${GATEWAY_PORT_OPT}"
     fi
     exec "$ROOT_DIR/scripts/run-local-api-gateway.sh" "$@"
+    ;;
+  down)
+    ensure_script "$ROOT_DIR/scripts/sigilum-down.sh"
+    exec "$ROOT_DIR/scripts/sigilum-down.sh" "$@"
     ;;
   e2e-tests)
     ensure_script "$ROOT_DIR/scripts/run-demo-e2e.sh"
