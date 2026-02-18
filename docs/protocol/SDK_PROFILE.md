@@ -25,6 +25,7 @@ A single local-first model for both sides:
   - `signature-input`
   - `signature`
   - `sigilum-namespace`
+  - `sigilum-subject`
   - `sigilum-agent-key`
   - `sigilum-agent-cert`
   - `content-digest` (when body is present)
