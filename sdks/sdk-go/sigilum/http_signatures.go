@@ -174,12 +174,21 @@ func SignHTTPRequest(identity SigilumIdentity, input SignRequestInput) (SignedRe
 	}
 
 	headers["sigilum-namespace"] = identity.Namespace
+	subject := strings.TrimSpace(input.Subject)
+	if subject == "" {
+		if existing := strings.TrimSpace(headers["sigilum-subject"]); existing != "" {
+			subject = existing
+		} else {
+			subject = identity.Namespace
+		}
+	}
+	headers["sigilum-subject"] = subject
 	headers["sigilum-agent-key"] = identity.PublicKey
 	headers["sigilum-agent-cert"] = certHeader
 
-	components := []string{"@method", "@target-uri", "sigilum-namespace", "sigilum-agent-key", "sigilum-agent-cert"}
+	components := []string{"@method", "@target-uri", "sigilum-namespace", "sigilum-subject", "sigilum-agent-key", "sigilum-agent-cert"}
 	if len(body) > 0 {
-		components = []string{"@method", "@target-uri", "content-digest", "sigilum-namespace", "sigilum-agent-key", "sigilum-agent-cert"}
+		components = []string{"@method", "@target-uri", "content-digest", "sigilum-namespace", "sigilum-subject", "sigilum-agent-key", "sigilum-agent-cert"}
 	}
 
 	created := input.Created
@@ -273,6 +282,16 @@ func VerifyHTTPSignature(input VerifySignatureInput) VerifySignatureResult {
 	if strings.TrimSpace(input.ExpectedNamespace) != "" && input.ExpectedNamespace != namespaceHeader {
 		return VerifySignatureResult{Valid: false, Reason: fmt.Sprintf("Namespace mismatch: expected %s, got %s", input.ExpectedNamespace, namespaceHeader)}
 	}
+	subjectHeader := strings.TrimSpace(headers["sigilum-subject"])
+	if subjectHeader == "" {
+		return VerifySignatureResult{Valid: false, Reason: "Missing sigilum-subject header"}
+	}
+	if strings.TrimSpace(input.ExpectedSubject) != "" && input.ExpectedSubject != subjectHeader {
+		return VerifySignatureResult{Valid: false, Reason: fmt.Sprintf("Subject mismatch: expected %s, got %s", input.ExpectedSubject, subjectHeader)}
+	}
+	if !containsComponent(parsed.Components, "sigilum-subject") {
+		return VerifySignatureResult{Valid: false, Reason: "Missing sigilum-subject in signed components"}
+	}
 
 	keyHeader := headers["sigilum-agent-key"]
 	if keyHeader == "" {
@@ -307,7 +326,20 @@ func VerifyHTTPSignature(input VerifySignatureInput) VerifySignatureResult {
 		return VerifySignatureResult{Valid: false, Reason: "Signature verification failed"}
 	}
 
-	return VerifySignatureResult{Valid: true, Namespace: certificate.Namespace, KeyID: certificate.KeyID}
+	return VerifySignatureResult{Valid: true, Namespace: certificate.Namespace, Subject: subjectHeader, KeyID: certificate.KeyID}
+}
+
+func containsComponent(components []string, value string) bool {
+	target := strings.TrimSpace(value)
+	if target == "" {
+		return false
+	}
+	for _, component := range components {
+		if strings.TrimSpace(component) == target {
+			return true
+		}
+	}
+	return false
 }
 
 func randomUUIDV4() (string, error) {

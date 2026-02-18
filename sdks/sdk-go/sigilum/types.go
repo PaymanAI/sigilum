@@ -8,13 +8,13 @@ type SigilumCertificateProof struct {
 }
 
 type SigilumCertificate struct {
-	Version   int                    `json:"version"`
-	Namespace string                 `json:"namespace"`
-	DID       string                 `json:"did"`
-	KeyID     string                 `json:"keyId"`
-	PublicKey string                 `json:"publicKey"`
-	IssuedAt  string                 `json:"issuedAt"`
-	ExpiresAt *string                `json:"expiresAt"`
+	Version   int                     `json:"version"`
+	Namespace string                  `json:"namespace"`
+	DID       string                  `json:"did"`
+	KeyID     string                  `json:"keyId"`
+	PublicKey string                  `json:"publicKey"`
+	IssuedAt  string                  `json:"issuedAt"`
+	ExpiresAt *string                 `json:"expiresAt"`
 	Proof     SigilumCertificateProof `json:"proof"`
 }
 
@@ -57,6 +57,7 @@ type SignRequestInput struct {
 	Body    []byte
 	Created int64
 	Nonce   string
+	Subject string
 }
 
 type SignedRequest struct {
@@ -72,6 +73,7 @@ type VerifySignatureInput struct {
 	Headers           map[string]string
 	Body              []byte
 	ExpectedNamespace string
+	ExpectedSubject   string
 	NowUnix           int64
 	MaxAgeSeconds     int64
 	SeenNonces        map[string]struct{}
@@ -80,6 +82,7 @@ type VerifySignatureInput struct {
 type VerifySignatureResult struct {
 	Valid     bool
 	Namespace string
+	Subject   string
 	KeyID     string
 	Reason    string
 }
