@@ -138,6 +138,22 @@ Example:
 sigilum doctor
 ```
 
+### `sigilum gateway pair ...`
+
+Starts the local websocket bridge used by dashboard pairing mode.
+
+Use this when dashboard pairing shows a session id + pair code:
+
+```bash
+sigilum gateway pair --session-id <id> --pair-code <code> --namespace <namespace>
+```
+
+Optional flags:
+
+- `--api-url <url>`: Sigilum API base URL (default from `SIGILUM_API_URL` / `SIGILUM_REGISTRY_URL` or `http://127.0.0.1:8787`)
+- `--gateway-admin-url <url>`: local gateway admin endpoint (default `http://127.0.0.1:38100`)
+- `--reconnect-ms <ms>`: websocket reconnect delay (default `2000`)
+
 ### `sigilum openclaw install ...`
 
 Installs Sigilum OpenClaw hooks + skills into `~/.openclaw` and patches `openclaw.json`.
