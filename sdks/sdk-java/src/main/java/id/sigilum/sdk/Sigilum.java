@@ -245,6 +245,17 @@ public final class Sigilum {
     }
 
     headers.put("sigilum-namespace", identity.namespace);
+    String subject = !isBlank(input.subject) ? input.subject.trim() : null;
+    if (isBlank(subject)) {
+      String existingSubject = headers.get("sigilum-subject");
+      if (!isBlank(existingSubject)) {
+        subject = existingSubject.trim();
+      }
+    }
+    if (isBlank(subject)) {
+      subject = identity.namespace;
+    }
+    headers.put("sigilum-subject", subject);
     headers.put("sigilum-agent-key", identity.publicKey);
     headers.put("sigilum-agent-cert", encodeCertificateHeader(identity.certificate));
 
@@ -255,6 +266,7 @@ public final class Sigilum {
       components.add("content-digest");
     }
     components.add("sigilum-namespace");
+    components.add("sigilum-subject");
     components.add("sigilum-agent-key");
     components.add("sigilum-agent-cert");
 
@@ -342,6 +354,17 @@ public final class Sigilum {
       if (!isBlank(input.expectedNamespace) && !input.expectedNamespace.equals(namespaceHeader)) {
         return result.invalid("Namespace mismatch: expected " + input.expectedNamespace + ", got " + namespaceHeader);
       }
+      String subjectHeader = headers.get("sigilum-subject");
+      if (isBlank(subjectHeader)) {
+        return result.invalid("Missing sigilum-subject header");
+      }
+      List<String> components = parseComponents(rawComponents);
+      if (!containsComponent(components, "sigilum-subject")) {
+        return result.invalid("Missing sigilum-subject in signed components");
+      }
+      if (!isBlank(input.expectedSubject) && !input.expectedSubject.equals(subjectHeader)) {
+        return result.invalid("Subject mismatch: expected " + input.expectedSubject + ", got " + subjectHeader);
+      }
 
       String keyHeader = headers.get("sigilum-agent-key");
       if (!certificate.publicKey.equals(keyHeader)) {
@@ -359,7 +382,6 @@ public final class Sigilum {
         }
       }
 
-      List<String> components = parseComponents(rawComponents);
       String signatureParams = signatureParams(components, created, keyId, nonce);
       byte[] signingBase = signingBase(components, normalizeMethod(input.method), normalizeTargetUri(input.url), headers, signatureParams);
 
@@ -370,6 +392,7 @@ public final class Sigilum {
 
       result.valid = true;
       result.namespace = certificate.namespace;
+      result.subject = subjectHeader;
       result.keyId = certificate.keyId;
       result.reason = null;
       return result;
@@ -569,6 +592,15 @@ public final class Sigilum {
       components.add(part.substring(1, part.length() - 1));
     }
     return components;
+  }
+
+  private static boolean containsComponent(List<String> components, String expected) {
+    for (String component : components) {
+      if (expected.equals(component == null ? null : component.trim())) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static String contentDigest(byte[] body) {
@@ -848,6 +880,7 @@ public final class Sigilum {
     public byte[] body;
     public Long created;
     public String nonce;
+    public String subject;
   }
 
   public static class SignedRequest {
@@ -863,6 +896,7 @@ public final class Sigilum {
     public Map<String, String> headers;
     public byte[] body;
     public String expectedNamespace;
+    public String expectedSubject;
     public Long nowEpochSeconds;
     public Long maxAgeSeconds;
     public Set<String> seenNonces;
@@ -871,6 +905,7 @@ public final class Sigilum {
   public static class VerifySignatureResult {
     public boolean valid;
     public String namespace;
+    public String subject;
     public String keyId;
     public String reason;
 
@@ -878,6 +913,7 @@ public final class Sigilum {
       this.valid = false;
       this.reason = message;
       this.namespace = null;
+      this.subject = null;
       this.keyId = null;
       return this;
     }

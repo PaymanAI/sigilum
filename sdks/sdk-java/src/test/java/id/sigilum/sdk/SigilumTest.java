@@ -56,5 +56,37 @@ class SigilumTest {
 
     Sigilum.VerifySignatureResult result = Sigilum.verifyHttpSignature(verify);
     assertTrue(result.valid, result.reason);
+    assertEquals("alice", result.subject);
+  }
+
+  @Test
+  void verifyFailsOnSubjectMismatch() {
+    String home = System.getProperty("java.io.tmpdir") + "/sigilum-java-" + System.nanoTime();
+
+    Sigilum.InitIdentityOptions init = new Sigilum.InitIdentityOptions();
+    init.namespace = "alice";
+    init.homeDir = home;
+    Sigilum.initIdentity(init);
+
+    Sigilum.SigilumIdentity identity = Sigilum.loadIdentity(new Sigilum.LoadIdentityOptions("alice", home));
+
+    Sigilum.SignRequestInput input = new Sigilum.SignRequestInput();
+    input.url = "https://api.sigilum.local/v1/namespaces/alice/claims";
+    input.method = "GET";
+    input.subject = "user:123";
+
+    Sigilum.SignedRequest signed = Sigilum.signHttpRequest(identity, input);
+
+    Sigilum.VerifySignatureInput verify = new Sigilum.VerifySignatureInput();
+    verify.url = signed.url;
+    verify.method = signed.method;
+    verify.headers = signed.headers;
+    verify.expectedNamespace = "alice";
+    verify.expectedSubject = "user:999";
+
+    Sigilum.VerifySignatureResult result = Sigilum.verifyHttpSignature(verify);
+    assertFalse(result.valid);
+    assertNotNull(result.reason);
+    assertTrue(result.reason.toLowerCase().contains("subject mismatch"));
   }
 }
