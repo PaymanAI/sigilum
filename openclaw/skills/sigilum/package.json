@@ -1,0 +1,8 @@
+{
+  "name": "@sigilum/openclaw-skill-sigilum",
+  "version": "0.1.0",
+  "description": "OpenClaw skill for Sigilum CLI workflows",
+  "type": "module",
+  "files": ["SKILL.md", "bin"],
+  "license": "Apache-2.0"
+}
