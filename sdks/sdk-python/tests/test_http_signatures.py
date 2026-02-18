@@ -29,6 +29,7 @@ def test_sign_and_verify_request() -> None:
 
         assert result.valid is True
         assert result.namespace == "alice"
+        assert result.subject == "alice"
 
 
 def test_verify_fails_on_body_tamper() -> None:
@@ -54,3 +55,28 @@ def test_verify_fails_on_body_tamper() -> None:
         assert result.valid is False
         assert result.reason is not None
         assert "digest" in result.reason.lower()
+
+
+def test_verify_fails_on_subject_mismatch() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        init_identity(namespace="alice", home_dir=tmp)
+        identity = load_identity(namespace="alice", home_dir=tmp)
+
+        signed = sign_http_request(
+            identity,
+            url="https://api.sigilum.local/v1/namespaces/alice/claims",
+            method="GET",
+            subject="user:123",
+        )
+
+        result = verify_http_signature(
+            url=signed.url,
+            method=signed.method,
+            headers=signed.headers,
+            expected_namespace="alice",
+            expected_subject="user:999",
+        )
+
+        assert result.valid is False
+        assert result.reason is not None
+        assert "subject mismatch" in result.reason.lower()

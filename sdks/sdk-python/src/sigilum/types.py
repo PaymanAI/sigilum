@@ -59,6 +59,7 @@ class SignedRequest:
 class VerifySignatureResult:
     valid: bool
     namespace: str | None = None
+    subject: str | None = None
     key_id: str | None = None
     reason: str | None = None
 

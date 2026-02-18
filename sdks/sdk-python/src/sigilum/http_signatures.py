@@ -147,6 +147,7 @@ def sign_http_request(
     body: bytes | str | None = None,
     created: int | None = None,
     nonce: str | None = None,
+    subject: str | None = None,
 ) -> SignedRequest:
     normalized_method = method.upper()
     normalized_url = _normalize_target_uri(url)
@@ -157,6 +158,10 @@ def sign_http_request(
         normalized_headers["content-digest"] = _content_digest(body_bytes)
 
     normalized_headers["sigilum-namespace"] = identity.namespace
+    subject_value = (subject or normalized_headers.get("sigilum-subject") or identity.namespace).strip()
+    if not subject_value:
+        subject_value = identity.namespace
+    normalized_headers["sigilum-subject"] = subject_value
     normalized_headers["sigilum-agent-key"] = identity.public_key
     normalized_headers["sigilum-agent-cert"] = encode_certificate_header(identity.certificate)
 
@@ -164,6 +169,7 @@ def sign_http_request(
         "@method",
         "@target-uri",
         "sigilum-namespace",
+        "sigilum-subject",
         "sigilum-agent-key",
         "sigilum-agent-cert",
     ]
@@ -209,6 +215,7 @@ def verify_http_signature(
     headers: HeaderInput,
     body: bytes | str | None = None,
     expected_namespace: str | None = None,
+    expected_subject: str | None = None,
     max_age_seconds: int | None = None,
     now_ts: int | None = None,
     seen_nonces: set[str] | None = None,
@@ -263,11 +270,21 @@ def verify_http_signature(
         namespace_header = normalized_headers.get("sigilum-namespace")
         if namespace_header != cert.namespace:
             return VerifySignatureResult(valid=False, reason="Namespace header mismatch")
+        subject_header = (normalized_headers.get("sigilum-subject") or "").strip()
+        if not subject_header:
+            return VerifySignatureResult(valid=False, reason="Missing sigilum-subject header")
+        if "sigilum-subject" not in components:
+            return VerifySignatureResult(valid=False, reason="Missing sigilum-subject in signed components")
 
         if expected_namespace and expected_namespace != namespace_header:
             return VerifySignatureResult(
                 valid=False,
                 reason=f"Namespace mismatch: expected {expected_namespace}, got {namespace_header}",
+            )
+        if expected_subject and expected_subject != subject_header:
+            return VerifySignatureResult(
+                valid=False,
+                reason=f"Subject mismatch: expected {expected_subject}, got {subject_header}",
             )
 
         key_header = normalized_headers.get("sigilum-agent-key")
@@ -303,6 +320,6 @@ def verify_http_signature(
         public_key = base64.b64decode(key_header.removeprefix("ed25519:"))
         VerifyKey(public_key).verify(signing_base, signature)
 
-        return VerifySignatureResult(valid=True, namespace=cert.namespace, key_id=cert.key_id)
+        return VerifySignatureResult(valid=True, namespace=cert.namespace, subject=subject_header, key_id=cert.key_id)
     except Exception as error:
         return VerifySignatureResult(valid=False, reason=str(error))
