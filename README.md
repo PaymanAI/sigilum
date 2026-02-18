@@ -282,7 +282,7 @@ find apps/api/.wrangler/state -name '*.sqlite' -print
 - `MANIFESTO.md` - project vision, problem framing, and sequence of goals.
 - `LICENSE` - open source license for this repository.
 - `docs/` - project documentation.
-- `openclaw/` - OpenClaw integration assets (hooks, skills, installer, migration notes).
+- `openclaw/` - OpenClaw integration assets (hooks, skills, installer).
 - `apps/` - runnable applications.
 - `config/` - shared TypeScript config package (`@sigilum/config`).
 - `contracts/` - smart contracts and Foundry project.
