@@ -43,6 +43,7 @@ defer resp.Body.Close()
 
 All protected API endpoints require signed headers. Requests are signed with Ed25519 using RFC 9421-style `Signature-Input` and `Signature`, and can be validated server-side with `VerifyHTTPSignature`.
 Signed identity headers include `sigilum-namespace`, `sigilum-subject`, `sigilum-agent-key`, and `sigilum-agent-cert`.
+Use a stable `sigilum-subject` principal id; gateway policy may apply subject-level controls using this value.
 
 ## Auth note
 

@@ -3,6 +3,10 @@
 This file documents environment variables and bindings used by the current default adapter implementation in `apps/api/src` (`ADAPTER_PROVIDER=cloudflare`).
 The API is adapter-based; non-Cloudflare adapters can define different binding/config requirements.
 
+Important terminology note:
+- This file covers API runtime environment configuration.
+- It does **not** describe gateway service-catalog `credential_fields[].env_var` hints used for shared credential variable UX in dashboard/gateway.
+
 ## How Configuration Is Loaded
 
 - Local development:

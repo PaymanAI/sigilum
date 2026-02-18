@@ -29,6 +29,7 @@ A single local-first model for both sides:
   - `sigilum-agent-key`
   - `sigilum-agent-cert`
   - `content-digest` (when body is present)
+- `sigilum-subject` should be a stable requester identifier within the namespace (for example a human user id or app principal id), because gateway policy can apply subject-level controls (for example MCP tool filtering).
 
 4. Service verification primitive
 - `verifyHttpSignature(...)` validates:

@@ -15,7 +15,7 @@ This folder contains all long-form project documentation.
 
 - [`apps/api/README.md`](../apps/api/README.md) - API guide and endpoint overview.
 - [`apps/api/ENV_VARS.md`](../apps/api/ENV_VARS.md) - API environment variables and Cloudflare binding configuration.
-- [`apps/gateway/README.md`](../apps/gateway/README.md) - Gateway behavior, routes, configuration, and assumptions.
+- [`apps/gateway/README.md`](../apps/gateway/README.md) - Gateway behavior, routes, `sigilum-subject` policy semantics, HTTP/MCP protocol support, and shared credential variable (`env_var` hint) usage.
 - [`docs/cli/README.md`](./cli/README.md) - Local CLI install, commands, options, and examples.
 
 ## SDK Docs

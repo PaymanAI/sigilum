@@ -45,6 +45,7 @@ The API is adapter-based; Cloudflare is the current implementation, not a hard p
 ## API Surface
 
 All protected endpoints (`/v1/*` and `/.well-known/*`) require valid Sigilum signed headers.
+Use a stable `sigilum-subject` value per requester principal (within a namespace); downstream gateway policy can apply subject-level controls based on this value.
 Local-only exception: `POST /v1/test/seed` is available only when `ENABLE_TEST_SEED_ENDPOINT=true` and `ENVIRONMENT` is `local` or `test`, is token-gated, and only accepts loopback hosts (`localhost`, `127.0.0.1`, `::1`).
 
 ### Health

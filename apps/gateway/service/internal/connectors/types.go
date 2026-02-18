@@ -133,3 +133,16 @@ type ProxyConfig struct {
 	Secret     string
 	Secrets    map[string]string
 }
+
+type SharedCredentialVariable struct {
+	Key              string `json:"key"`
+	CreatedAt        string `json:"created_at"`
+	UpdatedAt        string `json:"updated_at"`
+	CreatedBySubject string `json:"created_by_subject,omitempty"`
+}
+
+type UpsertSharedCredentialVariableInput struct {
+	Key              string `json:"key"`
+	Value            string `json:"value"`
+	CreatedBySubject string `json:"created_by_subject,omitempty"`
+}

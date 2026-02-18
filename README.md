@@ -236,6 +236,16 @@ Security default:
 - `sigilum service add` and `sigilum service secret set` mask raw secret values in output by default.
 - use `--reveal-secrets` only when you intentionally need plaintext output in terminal history/logs.
 
+Protocol and shared credential notes:
+- `sigilum service add --mode gateway` is the HTTP proxy flow.
+- MCP connections are supported in gateway (`protocol: mcp`) and are typically configured through dashboard provider setup or `sigilum-gateway-cli`.
+- Service-catalog `env_var` fields are dashboard hints for shared credential variables (not automatic process env reads by gateway).
+- Shared variables can be reused across multiple connections by storing secret references like `{{var:OPENAI_API_KEY}}`.
+
+Does usage change?
+- Existing HTTP onboarding stays the same.
+- New optional step if you want reuse across providers: create one shared credential variable and reference it from each connection.
+
 ## Run SDK Tests
 
 TypeScript SDK:

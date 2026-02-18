@@ -32,6 +32,8 @@ All SDKs implement the same signed-header profile for API requests:
   - `sigilum-agent-cert`
 - Optional body integrity via `content-digest`
 
+`sigilum-subject` is not decorative: treat it as a stable requester principal id inside a namespace. Gateway can apply subject-aware policy using this value (for example MCP tool filtering).
+
 Shared conformance vectors are stored in:
 
 - `sdks/test-vectors/http-signatures-rfc9421.json`

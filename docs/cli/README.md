@@ -271,6 +271,16 @@ Notes:
 - Gateway upstream secrets are persisted in `.sigilum-workspace/gateway-connection-secret-<service-slug>`.
 - Raw secret values are hidden by default in CLI output.
 
+Protocol and credential source notes:
+
+- `sigilum service add --mode gateway` provisions HTTP-style gateway connections.
+- For MCP connections, use either:
+  - dashboard provider setup (`protocol: mcp` templates), or
+  - gateway CLI directly: `go run ./apps/gateway/service/cmd/sigilum-gateway-cli add --protocol mcp ...`
+- `--upstream-secret-env` reads a shell environment variable once at command runtime, then stores the resolved value in gateway.
+- This is different from service-catalog `credential_fields[].env_var`, which is a dashboard hint for reusable shared credential variables.
+- Reusable shared credential variables are currently managed through dashboard or gateway admin API (`/api/admin/credential-variables`), then referenced as `{{var:KEY}}` in connection secrets.
+
 Examples:
 
 Native service:

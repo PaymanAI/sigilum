@@ -58,6 +58,9 @@ OpenClaw already exposes enough extension points:
 
 ## Proxy wiring examples
 
+Current OpenClaw integration examples route through HTTP proxy paths (`/proxy/{connection_id}/...`).
+Gateway MCP runtime support (`/mcp/{connection_id}/...`) is configured at gateway/dashboard level and can be used by clients that speak MCP directly.
+
 Model provider through Sigilum gateway endpoint:
 
 ```json

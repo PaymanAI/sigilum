@@ -66,6 +66,8 @@ All protected API endpoints require signed headers. This SDK signs requests with
 - `sigilum-agent-key`
 - `sigilum-agent-cert`
 
+Use a stable `sigilum-subject` principal id (not a random per-request value); gateway policy can use it for subject-level controls.
+
 ## Auth note
 
 Signed headers prove agent identity. Some endpoints also require additional auth:

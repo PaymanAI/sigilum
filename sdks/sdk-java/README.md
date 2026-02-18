@@ -40,6 +40,7 @@ bindings.fetch(
 ```
 
 All protected API endpoints require signed headers. The SDK signs requests with Ed25519 using RFC 9421-style `Signature-Input` and `Signature`, including `sigilum-namespace`, `sigilum-subject`, `sigilum-agent-key`, and `sigilum-agent-cert`.
+Use a stable `sigilum-subject` principal id; gateway policy can use it for subject-level controls.
 
 ## Auth note
 

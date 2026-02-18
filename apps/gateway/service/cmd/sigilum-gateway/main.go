@@ -339,6 +339,66 @@ func main() {
 		}
 	})
 
+	mux.HandleFunc("/api/admin/credential-variables", func(w http.ResponseWriter, r *http.Request) {
+		setCORSHeaders(w, r, cfg.AllowedOrigins)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		switch r.Method {
+		case http.MethodGet:
+			values, err := connectorService.ListCredentialVariables()
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "failed to list credential variables"})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"variables": values})
+		case http.MethodPost:
+			var input connectors.UpsertSharedCredentialVariableInput
+			if err := readJSONBody(r, &input); err != nil {
+				writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+				return
+			}
+			if subject := strings.TrimSpace(r.Header.Get(headerSubject)); subject != "" {
+				input.CreatedBySubject = subject
+			}
+			value, err := connectorService.UpsertCredentialVariable(input)
+			if err != nil {
+				writeCredentialVariableError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, value)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/admin/credential-variables/", func(w http.ResponseWriter, r *http.Request) {
+		setCORSHeaders(w, r, cfg.AllowedOrigins)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		key := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/api/admin/credential-variables/"))
+		if key == "" {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "variable key is required"})
+			return
+		}
+
+		switch r.Method {
+		case http.MethodDelete:
+			if err := connectorService.DeleteCredentialVariable(key); err != nil {
+				writeCredentialVariableError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "key": key})
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
 	mux.HandleFunc("/api/admin/service-catalog", func(w http.ResponseWriter, r *http.Request) {
 		setCORSHeaders(w, r, cfg.AllowedOrigins)
 		if r.Method == http.MethodOptions {
@@ -1278,6 +1338,15 @@ func writeConnectionError(w http.ResponseWriter, err error) {
 		status = http.StatusNotFound
 	case errors.Is(err, connectors.ErrConnectionExists):
 		status = http.StatusConflict
+	}
+	writeJSON(w, status, errorResponse{Error: err.Error()})
+}
+
+func writeCredentialVariableError(w http.ResponseWriter, err error) {
+	status := http.StatusBadRequest
+	switch {
+	case errors.Is(err, connectors.ErrCredentialVariableNotFound):
+		status = http.StatusNotFound
 	}
 	writeJSON(w, status, errorResponse{Error: err.Error()})
 }
