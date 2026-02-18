@@ -1,0 +1,8 @@
+{
+  "name": "@sigilum/openclaw-hook-sigilum-plugin",
+  "version": "0.1.0",
+  "description": "OpenClaw hook that bootstraps one Sigilum keypair per agent",
+  "type": "module",
+  "files": ["HOOK.md", "handler.ts", "config.ts", "keys.ts"],
+  "license": "Apache-2.0"
+}
