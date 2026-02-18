@@ -10,6 +10,7 @@ import { dispatchWebhookEvent } from "./routes/webhooks.js";
 import { authRouter } from "./routes/auth.js";
 import { servicesRouter } from "./routes/services.js";
 import { testSeedRouter } from "./routes/test-seed.js";
+import { gatewayPairingRouter } from "./routes/gateway-pairing.js";
 import type { Env } from "./types.js";
 import { createErrorResponse } from "./utils/validation.js";
 import { getConfig } from "./utils/config.js";
@@ -17,6 +18,7 @@ import { handleBlockchainQueue } from "./blockchain-queue-consumer.js";
 import { handleWebhookQueue } from "./webhook-queue-consumer.js";
 import { requireSignedHeaders } from "./middleware/signed-auth.js";
 export { NonceStoreDurableObject } from "./adapters/cloudflare/nonce-store-do.js";
+export { GatewayPairingDurableObject } from "./adapters/cloudflare/gateway-pairing-do.js";
 
 export const app = new Hono<{ Bindings: Env }>();
 
@@ -59,6 +61,7 @@ app.route("/v1/claims", claimsRouter);
 app.route("/v1/verify", verifyRouter);
 app.route("/v1/auth", authRouter);
 app.route("/v1/services", servicesRouter);
+app.route("/v1/gateway/pairing", gatewayPairingRouter);
 app.route("/v1/test", testSeedRouter);
 app.route("/.well-known/did", didRouter);
 

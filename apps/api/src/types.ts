@@ -10,6 +10,7 @@ export interface Env {
   BLOCKCHAIN_QUEUE?: Queue;  // Optional: only needed in "queue" mode
   WEBHOOK_QUEUE?: Queue; // Optional: queue-backed durable webhook delivery
   NONCE_STORE_DO?: DurableObjectNamespace;
+  GATEWAY_PAIRING_DO?: DurableObjectNamespace;
   WEBHOOK_ALERT_EMAIL_FROM?: string;
   RESEND_API_KEY?: string; // Optional: preferred transport for alert emails
   WEBHOOK_ALLOW_PRIVATE_TARGETS?: string; // Optional: allow private/internal webhook IP targets

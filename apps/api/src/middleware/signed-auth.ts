@@ -17,6 +17,21 @@ function maybeParseDidNamespace(pathname: string): string | undefined {
   return did.slice("did:sigilum:".length);
 }
 
+function isDashboardSessionRoute(pathname: string): boolean {
+  if (pathname === "/v1/test/seed") return true;
+  if (pathname === "/v1/auth" || pathname.startsWith("/v1/auth/")) return true;
+  if (pathname === "/v1/services" || pathname.startsWith("/v1/services/")) return true;
+  if (pathname === "/v1/gateway/pairing" || pathname.startsWith("/v1/gateway/pairing/")) return true;
+
+  // Dashboard moderation actions are JWT/cookie protected in route handlers.
+  if (/^\/v1\/claims\/[^/]+(?:\/(approve|reject|revoke))?$/.test(pathname)) return true;
+
+  // Namespace owner listing endpoint is JWT/cookie protected in route handlers.
+  if (/^\/v1\/namespaces\/[^/]+\/claims$/.test(pathname)) return true;
+
+  return false;
+}
+
 function extractNamespaceFromPath(pathname: string): string | undefined {
   if (!pathname.startsWith("/v1/namespaces/")) return undefined;
   const rest = pathname.slice("/v1/namespaces/".length);
@@ -71,7 +86,7 @@ async function parseJsonBody(rawBody: string): Promise<Record<string, unknown> |
 export async function requireSignedHeaders(c: Context<{ Bindings: Env }>, next: Next) {
   const request = c.req.raw;
   const url = new URL(request.url);
-  if (url.pathname === "/v1/test/seed") {
+  if (isDashboardSessionRoute(url.pathname)) {
     await next();
     return;
   }

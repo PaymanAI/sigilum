@@ -64,6 +64,14 @@ dead_letter_queue = "sigilum-webhook-delivery-dlq"
 name = "NONCE_STORE_DO"
 class_name = "NonceStoreDurableObject"
 
+[[durable_objects.bindings]]
+name = "GATEWAY_PAIRING_DO"
+class_name = "GatewayPairingDurableObject"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["NonceStoreDurableObject"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["GatewayPairingDurableObject"]
