@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -215,5 +217,27 @@ func TestResolveToolArgumentsWrappedAndDirect(t *testing.T) {
 	}
 	if parsed["query"] != "auth" {
 		t.Fatalf("unexpected direct args payload: %#v", parsed)
+	}
+}
+
+func TestValidateSigilumAuthHeadersRejectsDuplicates(t *testing.T) {
+	headers := http.Header{}
+	headers.Add("Signature-Input", "sig1=(\"@method\")")
+	headers.Add("Signature-Input", "sig1=(\"@target-uri\")")
+
+	err := validateSigilumAuthHeaders(headers)
+	if err == nil {
+		t.Fatal("expected duplicate signature-input header to be rejected")
+	}
+}
+
+func TestReadLimitedRequestBodyRejectsTooLarge(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/proxy/demo", io.NopCloser(strings.NewReader("abcdef")))
+	body, err := readLimitedRequestBody(req, 4)
+	if err == nil {
+		t.Fatalf("expected body limit error, got body=%q", string(body))
+	}
+	if !errors.Is(err, errRequestBodyTooLarge) {
+		t.Fatalf("expected errRequestBodyTooLarge, got %v", err)
 	}
 }

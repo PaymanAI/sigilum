@@ -17,7 +17,6 @@ import (
 	claimcache "sigilum.local/gateway/internal/claims"
 	"sigilum.local/gateway/internal/connectors"
 	mcpruntime "sigilum.local/gateway/internal/mcp"
-	"sigilum.local/sdk-go/sigilum"
 )
 
 func handleProxyRequest(
@@ -54,9 +53,9 @@ func handleProxyRequest(
 		)
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := readLimitedRequestBody(r, cfg.MaxRequestBodyBytes)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "failed to read request body"})
+		writeRequestBodyError(w, err)
 		return
 	}
 	_ = r.Body.Close()
@@ -155,9 +154,9 @@ func handleMCPRequest(
 		)
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := readLimitedRequestBody(r, cfg.MaxRequestBodyBytes)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "failed to read request body"})
+		writeRequestBodyError(w, err)
 		return
 	}
 	_ = r.Body.Close()
@@ -271,99 +270,6 @@ func handleMCPRequest(
 			time.Since(start).Round(time.Millisecond),
 		)
 	}
-}
-
-func authorizeConnectionRequest(
-	w http.ResponseWriter,
-	r *http.Request,
-	body []byte,
-	connectionID string,
-	remoteIP string,
-	nonceCache *nonceReplayCache,
-	claimsCache *claimcache.Cache,
-	cfg config.Config,
-) (authorizedIdentity, bool) {
-	allowUnsigned := cfg.AllowUnsignedProxy && isAllowedUnsignedConnection(cfg.AllowUnsignedFor, connectionID)
-	if allowUnsigned {
-		if cfg.LogProxyRequests {
-			log.Printf("proxy request auth bypass enabled connection=%s remote_ip=%s", connectionID, remoteIP)
-		}
-		return authorizedIdentity{}, true
-	}
-
-	headers := r.Header.Clone()
-	signatureResult := sigilum.VerifyHTTPSignature(sigilum.VerifySignatureInput{
-		URL:           requestAbsoluteURL(r, cfg.TrustedProxyCIDRs),
-		Method:        r.Method,
-		Headers:       headersToMap(headers),
-		Body:          body,
-		MaxAgeSeconds: int64(cfg.TimestampTolerance / time.Second),
-	})
-	if !signatureResult.Valid {
-		writeVerificationFailure(w, signatureResult, cfg.LogProxyRequests, connectionID, remoteIP)
-		return authorizedIdentity{}, false
-	}
-	if componentErr := validateSignatureComponents(headers.Get(headerSignatureInput), len(body) > 0); componentErr != nil {
-		if cfg.LogProxyRequests {
-			log.Printf("proxy request component validation failed connection=%s remote_ip=%s err=%v", connectionID, remoteIP, componentErr)
-		}
-		writeProxyAuthFailure(w)
-		return authorizedIdentity{}, false
-	}
-
-	namespace, publicKey, subject, identityErr := extractSigilumIdentity(headers)
-	if identityErr != nil {
-		if cfg.LogProxyRequests {
-			log.Printf("proxy request identity extraction failed connection=%s remote_ip=%s err=%v", connectionID, remoteIP, identityErr)
-		}
-		writeProxyAuthFailure(w)
-		return authorizedIdentity{}, false
-	}
-	if cfg.LogProxyRequests {
-		log.Printf("proxy request subject resolved connection=%s namespace=%s subject=%s", connectionID, namespace, subject)
-	}
-	nonce, nonceErr := extractSignatureNonce(headers.Get(headerSignatureInput))
-	if nonceErr != nil {
-		if cfg.LogProxyRequests {
-			log.Printf("proxy request nonce extraction failed connection=%s remote_ip=%s err=%v", connectionID, remoteIP, nonceErr)
-		}
-		writeProxyAuthFailure(w)
-		return authorizedIdentity{}, false
-	}
-	if nonceCache != nil && nonceCache.Seen(namespace, nonce, time.Now().UTC()) {
-		if cfg.LogProxyRequests {
-			log.Printf("proxy request replay detected connection=%s remote_ip=%s namespace=%s", connectionID, remoteIP, namespace)
-		}
-		writeProxyAuthFailure(w)
-		return authorizedIdentity{}, false
-	}
-	if claimsCache == nil {
-		writeProxyAuthFailure(w)
-		return authorizedIdentity{}, false
-	}
-	approved, claimErr := claimsCache.IsApproved(r.Context(), connectionID, namespace, publicKey)
-	if claimErr != nil {
-		if cfg.LogProxyRequests {
-			log.Printf("proxy request claim cache failed connection=%s remote_ip=%s err=%v", connectionID, remoteIP, claimErr)
-		}
-		writeProxyAuthFailure(w)
-		return authorizedIdentity{}, false
-	}
-	if cfg.LogProxyRequests {
-		log.Printf("proxy claim cache precheck connection=%s namespace=%s approved=%t", connectionID, namespace, approved)
-	}
-	if !approved {
-		if cfg.LogProxyRequests {
-			log.Printf("proxy request denied by claim cache connection=%s remote_ip=%s namespace=%s", connectionID, remoteIP, namespace)
-		}
-		writeProxyAuthFailure(w)
-		return authorizedIdentity{}, false
-	}
-	return authorizedIdentity{
-		Namespace: namespace,
-		Subject:   subject,
-		PublicKey: publicKey,
-	}, true
 }
 
 func resolveToolArguments(body []byte) (json.RawMessage, error) {

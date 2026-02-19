@@ -19,6 +19,8 @@ import (
 	"sigilum.local/sdk-go/sigilum"
 )
 
+var errRequestBodyTooLarge = errors.New("request body exceeds configured limit")
+
 func compactMessage(value string) string {
 	compact := strings.Join(strings.Fields(value), " ")
 	if compact == "" {
@@ -271,6 +273,22 @@ func extractSigilumIdentity(headers http.Header) (namespace string, publicKey st
 	return namespace, publicKey, subject, nil
 }
 
+func validateSigilumAuthHeaders(headers http.Header) error {
+	for _, header := range []string{
+		headerSignatureInput,
+		headerSignature,
+		headerNamespace,
+		headerSubject,
+		headerAgentKey,
+		headerAgentCert,
+	} {
+		if len(headers.Values(header)) > 1 {
+			return fmt.Errorf("duplicate %s header", header)
+		}
+	}
+	return nil
+}
+
 type statusRecorder struct {
 	http.ResponseWriter
 	status       int
@@ -476,6 +494,31 @@ func writeCredentialVariableError(w http.ResponseWriter, err error) {
 		status = http.StatusNotFound
 	}
 	writeJSON(w, status, errorResponse{Error: err.Error()})
+}
+
+func readLimitedRequestBody(r *http.Request, maxBytes int64) ([]byte, error) {
+	if maxBytes <= 0 {
+		maxBytes = 2 << 20
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBytes+1))
+	if err != nil {
+		return nil, errors.New("failed to read request body")
+	}
+	if int64(len(body)) > maxBytes {
+		return nil, errRequestBodyTooLarge
+	}
+	return body, nil
+}
+
+func writeRequestBodyError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errRequestBodyTooLarge) {
+		writeJSON(w, http.StatusRequestEntityTooLarge, errorResponse{
+			Error: "request body exceeds configured limit",
+			Code:  "REQUEST_BODY_TOO_LARGE",
+		})
+		return
+	}
+	writeJSON(w, http.StatusBadRequest, errorResponse{Error: "failed to read request body"})
 }
 
 func readJSONBody(r *http.Request, out any) error {

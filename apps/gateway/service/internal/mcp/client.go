@@ -3,6 +3,8 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -186,12 +188,13 @@ func (c *Client) listTools(ctx context.Context, endpoint string, cfg connectors.
 }
 
 func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.ProxyConfig, method string, params any) (json.RawMessage, error) {
+	sessionCacheKey := cacheKeyForConnection(endpoint, cfg)
 	// Per MCP spec, initialize requests must not carry a prior session id.
 	if method == "initialize" {
-		c.clearSessionID(endpoint)
+		c.clearSessionID(sessionCacheKey)
 	}
 	// Bootstrap a session opportunistically for non-initialize requests.
-	if method != "initialize" && strings.TrimSpace(c.getSessionID(endpoint)) == "" {
+	if method != "initialize" && strings.TrimSpace(c.getSessionID(sessionCacheKey)) == "" {
 		_, _ = c.call(ctx, endpoint, cfg, "initialize", initializeParams())
 	}
 
@@ -235,7 +238,7 @@ func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.Proxy
 				req.Header.Add(key, value)
 			}
 		}
-		if sessionID := c.getSessionID(endpoint); method != "initialize" && sessionID != "" {
+		if sessionID := c.getSessionID(sessionCacheKey); method != "initialize" && sessionID != "" {
 			req.Header.Set("Mcp-Session-Id", sessionID)
 		}
 
@@ -250,7 +253,7 @@ func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.Proxy
 			return 0, "", nil, fmt.Errorf("read mcp response: %w", err)
 		}
 		if sessionID := strings.TrimSpace(resp.Header.Get("Mcp-Session-Id")); sessionID != "" {
-			c.setSessionID(endpoint, sessionID)
+			c.setSessionID(sessionCacheKey, sessionID)
 		}
 		return resp.StatusCode, strings.TrimSpace(resp.Header.Get("Content-Type")), responseBody, nil
 	}
@@ -278,7 +281,7 @@ func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.Proxy
 	}
 
 	if method != "initialize" && isSessionRequiredResponse(statusCode, responseBody) {
-		c.clearSessionID(endpoint)
+		c.clearSessionID(sessionCacheKey)
 		if _, initErr := c.call(ctx, endpoint, cfg, "initialize", initializeParams()); initErr == nil {
 			retryStatusCode, retryContentType, retryResponseBody, retryErr := doRPC(false)
 			if retryErr != nil {
@@ -517,6 +520,23 @@ func trimBearerPrefix(value string) string {
 		return strings.TrimSpace(strings.TrimPrefix(trimmed, "bearer "))
 	}
 	return trimmed
+}
+
+func cacheKeyForConnection(endpoint string, cfg connectors.ProxyConfig) string {
+	connectionID := strings.TrimSpace(cfg.Connection.ID)
+	if connectionID != "" {
+		return "conn:" + connectionID + "\x00" + endpoint
+	}
+
+	identityHash := sha256.Sum256([]byte(strings.Join([]string{
+		endpoint,
+		string(cfg.Connection.Protocol),
+		string(cfg.Connection.AuthMode),
+		strings.TrimSpace(cfg.Connection.AuthHeaderName),
+		cfg.Connection.AuthPrefix,
+		strings.TrimSpace(cfg.Secret),
+	}, "\x00")))
+	return "anon:" + endpoint + "\x00" + hex.EncodeToString(identityHash[:])
 }
 
 func (c *Client) getSessionID(endpoint string) string {

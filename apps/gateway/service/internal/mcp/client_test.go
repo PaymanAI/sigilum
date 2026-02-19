@@ -291,7 +291,7 @@ func TestDiscoverInitializeOmitsSessionHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve endpoint failed: %v", err)
 	}
-	client.setSessionID(endpoint, "stale-session")
+	client.setSessionID(cacheKeyForConnection(endpoint, cfg), "stale-session")
 
 	_, err = client.Discover(context.Background(), cfg)
 	if err != nil {
@@ -470,7 +470,7 @@ func TestCallToolReinitializesOnSessionError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve endpoint failed: %v", err)
 	}
-	client.setSessionID(endpoint, "stale-session")
+	client.setSessionID(cacheKeyForConnection(endpoint, cfg), "stale-session")
 
 	result, err := client.CallTool(context.Background(), cfg, "list_issues", json.RawMessage(`{"limit":1}`))
 	if err != nil {
@@ -487,5 +487,29 @@ func TestCallToolReinitializesOnSessionError(t *testing.T) {
 	}
 	if handlerErr != "" {
 		t.Fatalf("server handler assertion failed: %s", handlerErr)
+	}
+}
+
+func TestCacheKeyForConnectionIsolatedByConnectionID(t *testing.T) {
+	endpoint := "https://mcp.example.com/rpc"
+	cfgA := connectors.ProxyConfig{
+		Connection: connectors.Connection{
+			ID:       "conn-a",
+			Protocol: connectors.ConnectionProtocolMCP,
+		},
+		Secret: "token-a",
+	}
+	cfgB := connectors.ProxyConfig{
+		Connection: connectors.Connection{
+			ID:       "conn-b",
+			Protocol: connectors.ConnectionProtocolMCP,
+		},
+		Secret: "token-a",
+	}
+
+	keyA := cacheKeyForConnection(endpoint, cfgA)
+	keyB := cacheKeyForConnection(endpoint, cfgB)
+	if keyA == keyB {
+		t.Fatalf("expected distinct cache keys for distinct connections, got %q", keyA)
 	}
 }

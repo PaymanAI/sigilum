@@ -46,3 +46,16 @@ func TestLoadAllowsDisablingSignedAdminChecks(t *testing.T) {
 		t.Fatalf("expected require_signed_admin_checks to be false when overridden")
 	}
 }
+
+func TestLoadParsesMaxRequestBodyBytes(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_MAX_REQUEST_BODY_BYTES", "2097152")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.MaxRequestBodyBytes != 2097152 {
+		t.Fatalf("expected max request body bytes to be 2097152, got %d", cfg.MaxRequestBodyBytes)
+	}
+}

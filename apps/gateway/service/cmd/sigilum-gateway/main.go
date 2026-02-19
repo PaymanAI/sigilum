@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -272,9 +271,9 @@ func main() {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
-			body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+			body, err := readLimitedRequestBody(r, cfg.MaxRequestBodyBytes)
 			if err != nil {
-				writeJSON(w, http.StatusBadRequest, errorResponse{Error: "failed to read request body"})
+				writeRequestBodyError(w, err)
 				return
 			}
 			remoteIP := clientIP(r, cfg.TrustedProxyCIDRs)
@@ -323,9 +322,9 @@ func main() {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
-			body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+			body, err := readLimitedRequestBody(r, cfg.MaxRequestBodyBytes)
 			if err != nil {
-				writeJSON(w, http.StatusBadRequest, errorResponse{Error: "failed to read request body"})
+				writeRequestBodyError(w, err)
 				return
 			}
 			remoteIP := clientIP(r, cfg.TrustedProxyCIDRs)
@@ -567,12 +566,13 @@ func main() {
 
 	log.Printf("sigilum-gateway listening on %s", cfg.Addr)
 	log.Printf(
-		"registry=%s timestamp_tolerance=%s nonce_ttl=%s claims_cache_ttl=%s claims_refresh_interval=%s slack_alias_connection_id=%s rotation_enforcement=%s rotation_grace=%s catalog=%s log_proxy_requests=%t require_signed_admin_checks=%t allow_unsigned_proxy=%t allow_unsigned_connections=%s trusted_proxy_cidrs=%s allowed_origins=%s",
+		"registry=%s timestamp_tolerance=%s nonce_ttl=%s claims_cache_ttl=%s claims_refresh_interval=%s max_request_body_bytes=%d slack_alias_connection_id=%s rotation_enforcement=%s rotation_grace=%s catalog=%s log_proxy_requests=%t require_signed_admin_checks=%t allow_unsigned_proxy=%t allow_unsigned_connections=%s trusted_proxy_cidrs=%s allowed_origins=%s",
 		cfg.RegistryURL,
 		cfg.TimestampTolerance,
 		cfg.NonceTTL,
 		cfg.ClaimsCacheTTL,
 		cfg.ClaimsCacheRefreshInterval,
+		cfg.MaxRequestBodyBytes,
 		slackAliasConnectionID,
 		cfg.RotationEnforcement,
 		cfg.RotationGracePeriod,
