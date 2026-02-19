@@ -151,18 +151,29 @@ Security model:
 
 ### `sigilum`
 
-- Wraps current repo CLI command pattern (`sigilum <resource> <verb> [options]`).
-- Supports stack lifecycle, service registration, and simulator/e2e flows.
+- Gateway-first provider workflow skill.
+- Default behavior after install:
+  - check `sigilum-secure-*` gateway runtime access first for provider access (for example `sigilum-secure-linear`)
+  - use signed `/mcp/{connection_id}/tools` checks with per-agent key material from `SIGILUM_KEY_ROOT`
+  - treat `401/403` as authorization-required (claim approval needed for that agent key)
+  - avoid direct provider API key prompts unless gateway path fails
+- Installer enables the skill, and the `sigilum-plugin` hook injects gateway-first routing guidance on startup/new/reload events.
 
 ## Installer behavior
 
 `openclaw/install-openclaw-sigilum.sh`:
 
 1. Installs hooks to `<openclaw-home>/hooks/`
-2. Installs skills to `<openclaw-home>/skills/`
-3. Backs up and updates `openclaw.json`
-4. Sets Sigilum env wiring under hook/skill entries
-5. Leaves `sigilum-authz-notify` disabled unless explicitly enabled
+2. Installs skills to `<openclaw-home>/skills/` and mirrors them to `<agent-workspace>/skills/` when workspace is configured
+3. Bundles a lean Sigilum runtime (`sigilum` launcher + scripts) to `<agent-workspace>/.sigilum/runtime` when workspace is configured (fallback: `<openclaw-home>/skills/sigilum/runtime`)
+4. Backs up and updates `openclaw.json`
+5. Sets Sigilum env wiring under hook/skill entries
+6. Leaves `sigilum-authz-notify` disabled unless explicitly enabled
+
+Lean-runtime note:
+
+- Sandbox runtime focuses on gateway/provider operations.
+- Full local-dev stack workflows (`sigilum up`, `service`, `e2e-tests`) remain host-side workflows.
 
 Backup details:
 

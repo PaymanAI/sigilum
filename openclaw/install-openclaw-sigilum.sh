@@ -151,6 +151,69 @@ build_runtime_bundle() {
   rm -rf "$tmp_runtime"
 }
 
+runtime_home_from_root() {
+  local root="$1"
+  root="${root%/}"
+  if [[ "$root" == */runtime ]]; then
+    printf '%s' "${root%/runtime}"
+    return 0
+  fi
+  printf '%s' "$root"
+}
+
+detect_service_key_source_home() {
+  local -a candidates=()
+  if [[ -n "${SIGILUM_HOME:-}" ]]; then
+    candidates+=("${SIGILUM_HOME}")
+  fi
+  if [[ -n "${GATEWAY_SIGILUM_HOME:-}" ]]; then
+    candidates+=("${GATEWAY_SIGILUM_HOME}")
+  fi
+  candidates+=(
+    "${ROOT_DIR}/.sigilum-workspace"
+    "${HOME}/.sigilum"
+    "${OPENCLAW_HOME}/workspace/.sigilum"
+  )
+
+  local candidate
+  shopt -s nullglob
+  for candidate in "${candidates[@]}"; do
+    [[ -z "$candidate" ]] && continue
+    if [[ -d "$candidate" ]]; then
+      local files=("${candidate%/}"/service-api-key-*)
+      if (( ${#files[@]} > 0 )); then
+        printf '%s' "${candidate%/}"
+        shopt -u nullglob
+        return 0
+      fi
+    fi
+  done
+  shopt -u nullglob
+  return 1
+}
+
+sync_service_api_keys() {
+  local source_home="$1"
+  local destination_home="$2"
+  if [[ -z "$source_home" || -z "$destination_home" ]]; then
+    printf '0'
+    return 0
+  fi
+  mkdir -p "$destination_home"
+  chmod 700 "$destination_home" 2>/dev/null || true
+
+  local copied=0 file target
+  shopt -s nullglob
+  for file in "${source_home%/}"/service-api-key-*; do
+    target="${destination_home%/}/$(basename "$file")"
+    cp "$file" "$target"
+    chmod 600 "$target" 2>/dev/null || true
+    copied=$((copied + 1))
+  done
+  shopt -u nullglob
+  printf '%s' "$copied"
+}
+
 run_cmd() {
   local cmd="$1"
   echo "Running: $cmd"
@@ -494,8 +557,16 @@ fi
 
 echo "Installing bundled Sigilum runtime..."
 build_runtime_bundle "$RUNTIME_ROOT"
+RUNTIME_HOME="$(runtime_home_from_root "$RUNTIME_ROOT")"
+KEY_SOURCE_HOME="$(detect_service_key_source_home || true)"
+if [[ -n "$KEY_SOURCE_HOME" ]]; then
+  SYNCED_KEYS_COUNT="$(sync_service_api_keys "$KEY_SOURCE_HOME" "$RUNTIME_HOME")"
+  echo "Synced ${SYNCED_KEYS_COUNT} service API key file(s) into runtime home: ${RUNTIME_HOME}"
+else
+  echo "No service API key source found to sync into runtime home."
+fi
 
-node - "$CONFIG_PATH" "$MODE" "$NAMESPACE" "$GATEWAY_URL" "$API_URL" "$KEY_ROOT" "$ENABLE_AUTHZ_NOTIFY" "$OWNER_TOKEN" "$DASHBOARD_URL" "$RUNTIME_ROOT" "$SKILL_HELPER_BIN" <<'NODE'
+node - "$CONFIG_PATH" "$MODE" "$NAMESPACE" "$GATEWAY_URL" "$API_URL" "$KEY_ROOT" "$ENABLE_AUTHZ_NOTIFY" "$OWNER_TOKEN" "$DASHBOARD_URL" "$RUNTIME_ROOT" "$SKILL_HELPER_BIN" "$RUNTIME_HOME" <<'NODE'
 const fs = require("fs");
 
 const [
@@ -510,6 +581,7 @@ const [
   dashboardUrl,
   sigilumRuntimeRoot,
   sigilumGatewayHelperBin,
+  sigilumHomeDir,
 ] = process.argv.slice(2);
 
 const asObject = (value) => {
@@ -557,6 +629,7 @@ if (raw.trim()) {
 const config = asObject(parsed);
 const runtimeBin = `${String(sigilumRuntimeRoot || "").replace(/\/+$/g, "")}/sigilum`;
 const gatewayHelperBin = String(sigilumGatewayHelperBin || "").trim();
+const sigilumHome = String(sigilumHomeDir || "").trim();
 
 config.agents = asObject(config.agents);
 config.agents.defaults = asObject(config.agents.defaults);
@@ -596,6 +669,9 @@ config.env.vars = {
   SIGILUM_RUNTIME_BIN: runtimeBin,
   SIGILUM_GATEWAY_HELPER_BIN: gatewayHelperBin,
 };
+if (sigilumHome) {
+  config.env.vars.SIGILUM_HOME = sigilumHome;
+}
 
 config.hooks = asObject(config.hooks);
 config.hooks.internal = asObject(config.hooks.internal);
@@ -651,6 +727,9 @@ sigilumSkill.env = {
   SIGILUM_RUNTIME_BIN: runtimeBin,
   SIGILUM_GATEWAY_HELPER_BIN: gatewayHelperBin,
 };
+if (sigilumHome) {
+  sigilumSkill.env.SIGILUM_HOME = sigilumHome;
+}
 config.skills.entries.sigilum = sigilumSkill;
 
 fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
