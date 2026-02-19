@@ -9,13 +9,11 @@ Canonical packages:
 - `openclaw/hooks/sigilum-plugin/`
 - `openclaw/hooks/sigilum-authz-notify/`
 - `openclaw/skills/sigilum/`
-- `openclaw/skills/sigilum-linear/`
 
-Required vs optional skills:
+Skill status:
 
-- Required: `openclaw/skills/sigilum/`
-- Optional: `openclaw/skills/sigilum-linear/` (installed by default; disable with `--install-linear-skill false`)
-- Legacy and not required: `openclaw/skills/bootstrap/`, `openclaw/skills/linear/`
+- Active: `openclaw/skills/sigilum/`
+- Legacy and not required: `openclaw/skills/bootstrap/`, `openclaw/skills/linear/`, `openclaw/skills/sigilum-linear/`
 
 Installer and CLI entrypoints:
 
@@ -39,6 +37,10 @@ Local OSS mode:
 ```
 
 In `oss-local`, install auto-issues a local namespace-owner JWT (when `--owner-token` is not supplied), stores it under `~/.openclaw/.sigilum/owner-token-<namespace>.jwt`, and prints it.
+Install output also prints:
+
+- dashboard claims URL
+- passkey setup URL (`/bootstrap/passkey?namespace=<namespace>`)
 
 Mode defaults:
 
@@ -121,8 +123,18 @@ Optional env:
 
 - `SIGILUM_GATEWAY_URL`
 - `SIGILUM_API_URL`
+- `SIGILUM_DASHBOARD_URL`
 - `SIGILUM_KEY_ROOT`
 - `SIGILUM_AUTO_BOOTSTRAP_AGENTS`
+
+### Attach passkey for seeded namespace (JWT-only)
+
+When namespace owner was seeded locally (JWT exists, no passkey yet):
+
+1. Open the installer-provided passkey setup URL.
+2. Paste JWT from `~/.openclaw/.sigilum/owner-token-<namespace>.jwt` (or `sigilum auth show --namespace <namespace>`).
+3. Register a passkey.
+4. Sign in via dashboard login page with that passkey.
 
 ### `sigilum-authz-notify`
 
@@ -142,10 +154,6 @@ Security model:
 - Wraps current repo CLI command pattern (`sigilum <resource> <verb> [options]`).
 - Supports stack lifecycle, service registration, and simulator/e2e flows.
 
-### `sigilum-linear`
-
-- Thin provider workflow wrapper for registering Linear behind Sigilum gateway.
-
 ## Installer behavior
 
 `openclaw/install-openclaw-sigilum.sh`:
@@ -163,7 +171,6 @@ Backup details:
   - `<openclaw-home>/backups/hooks/sigilum-plugin.bak.<timestamp>`
   - `<openclaw-home>/backups/hooks/sigilum-authz-notify.bak.<timestamp>`
   - `<openclaw-home>/backups/skills/sigilum.bak.<timestamp>`
-  - `<openclaw-home>/backups/skills/sigilum-linear.bak.<timestamp>`
 - This backup behavior is part of the installer; OpenClaw restart itself does not create these backups.
 - Use `--force` to replace existing hook/skill directories without creating directory backups.
 
