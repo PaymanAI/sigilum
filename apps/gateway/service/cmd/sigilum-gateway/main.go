@@ -171,6 +171,9 @@ func main() {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		if !enforceAdminRequestAccess(w, r, cfg) {
+			return
+		}
 		switch r.Method {
 		case http.MethodGet:
 			list, err := connectorService.ListConnections()
@@ -205,6 +208,9 @@ func main() {
 		setCORSHeaders(w, r, cfg.AllowedOrigins)
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if !enforceAdminRequestAccess(w, r, cfg) {
 			return
 		}
 		resource := strings.TrimPrefix(r.URL.Path, "/api/admin/connections/")
@@ -266,38 +272,21 @@ func main() {
 				return
 			}
 			writeJSON(w, http.StatusOK, conn)
-		case "test":
-			if r.Method != http.MethodPost {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			body, err := readLimitedRequestBody(r, cfg.MaxRequestBodyBytes)
-			if err != nil {
-				writeRequestBodyError(w, err)
-				return
-			}
-			remoteIP := clientIP(r, cfg.TrustedProxyCIDRs)
-			if cfg.RequireSignedAdminChecks && !isLoopbackClient(remoteIP) {
-				if _, ok := authorizeConnectionRequest(
-					w,
-					r,
-					body,
-					connectionID,
-					remoteIP,
-					nonceCache,
-					claimsCache,
-					cfg,
-				); !ok {
+			case "test":
+				if r.Method != http.MethodPost {
+					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 					return
 				}
-			} else if cfg.RequireSignedAdminChecks && cfg.LogProxyRequests && isLoopbackClient(remoteIP) {
-				log.Printf("admin test bypassed signature check for loopback client connection=%s remote_ip=%s", connectionID, remoteIP)
-			}
-			var input connectors.TestConnectionInput
-			if len(bytes.TrimSpace(body)) > 0 {
-				if err := json.Unmarshal(body, &input); err != nil {
-					writeJSON(w, http.StatusBadRequest, errorResponse{Error: fmt.Sprintf("invalid JSON body: %v", err)})
+				body, err := readLimitedRequestBody(r, cfg.MaxRequestBodyBytes)
+				if err != nil {
+					writeRequestBodyError(w, err)
 					return
+				}
+				var input connectors.TestConnectionInput
+				if len(bytes.TrimSpace(body)) > 0 {
+					if err := json.Unmarshal(body, &input); err != nil {
+						writeJSON(w, http.StatusBadRequest, errorResponse{Error: fmt.Sprintf("invalid JSON body: %v", err)})
+						return
 				}
 			}
 			status, statusCode, testErr := runConnectionTest(r.Context(), connectorService, mcpClient, connectionID, input)
@@ -317,37 +306,15 @@ func main() {
 				HTTPStatus: statusCode,
 				Error:      testErr,
 			})
-		case "discover":
-			if r.Method != http.MethodPost {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			body, err := readLimitedRequestBody(r, cfg.MaxRequestBodyBytes)
-			if err != nil {
-				writeRequestBodyError(w, err)
-				return
-			}
-			remoteIP := clientIP(r, cfg.TrustedProxyCIDRs)
-			if cfg.RequireSignedAdminChecks && !isLoopbackClient(remoteIP) {
-				if _, ok := authorizeConnectionRequest(
-					w,
-					r,
-					body,
-					connectionID,
-					remoteIP,
-					nonceCache,
-					claimsCache,
-					cfg,
-				); !ok {
+			case "discover":
+				if r.Method != http.MethodPost {
+					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 					return
 				}
-			} else if cfg.RequireSignedAdminChecks && cfg.LogProxyRequests && isLoopbackClient(remoteIP) {
-				log.Printf("admin discover bypassed signature check for loopback client connection=%s remote_ip=%s", connectionID, remoteIP)
-			}
-			conn, err := connectorService.GetConnection(connectionID)
-			if err != nil {
-				writeConnectionError(w, err)
-				return
+				conn, err := connectorService.GetConnection(connectionID)
+				if err != nil {
+					writeConnectionError(w, err)
+					return
 			}
 			if !isMCPConnection(conn) {
 				writeJSON(w, http.StatusBadRequest, errorResponse{Error: "connection protocol is not mcp"})
@@ -388,6 +355,9 @@ func main() {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		if !enforceAdminRequestAccess(w, r, cfg) {
+			return
+		}
 
 		switch r.Method {
 		case http.MethodGet:
@@ -423,6 +393,9 @@ func main() {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		if !enforceAdminRequestAccess(w, r, cfg) {
+			return
+		}
 
 		key := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/api/admin/credential-variables/"))
 		if key == "" {
@@ -446,6 +419,9 @@ func main() {
 		setCORSHeaders(w, r, cfg.AllowedOrigins)
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if !enforceAdminRequestAccess(w, r, cfg) {
 			return
 		}
 		connectionID := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/api/admin/service-api-keys/"))
@@ -502,6 +478,9 @@ func main() {
 		setCORSHeaders(w, r, cfg.AllowedOrigins)
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if !enforceAdminRequestAccess(w, r, cfg) {
 			return
 		}
 		switch r.Method {

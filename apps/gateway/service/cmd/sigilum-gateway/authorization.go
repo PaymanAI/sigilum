@@ -178,3 +178,34 @@ func enforceClaimAuthorization(
 	}
 	return true
 }
+
+func enforceAdminRequestAccess(w http.ResponseWriter, r *http.Request, cfg config.Config) bool {
+	if !cfg.RequireSignedAdminChecks {
+		return true
+	}
+	remoteIP := clientIP(r, cfg.TrustedProxyCIDRs)
+	if isLoopbackClient(remoteIP) {
+		if cfg.LogProxyRequests {
+			log.Printf(
+				"admin request access granted via loopback path=%s method=%s remote_ip=%s",
+				r.URL.Path,
+				r.Method,
+				remoteIP,
+			)
+		}
+		return true
+	}
+	if cfg.LogProxyRequests {
+		log.Printf(
+			"admin request denied for non-loopback client path=%s method=%s remote_ip=%s",
+			r.URL.Path,
+			r.Method,
+			remoteIP,
+		)
+	}
+	writeJSON(w, http.StatusForbidden, errorResponse{
+		Error: "admin endpoints require loopback access when signed admin checks are enabled",
+		Code:  "ADMIN_ACCESS_FORBIDDEN",
+	})
+	return false
+}

@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"sigilum.local/gateway/config"
 )
 
 func TestValidateSignatureComponentsNoBody(t *testing.T) {
@@ -106,6 +108,44 @@ func TestIsLoopbackClient(t *testing.T) {
 				t.Fatalf("expected %t for %q, got %t", tc.expected, tc.value, got)
 			}
 		})
+	}
+}
+
+func TestEnforceAdminRequestAccessAllowsLoopback(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/connections", nil)
+	req.RemoteAddr = "127.0.0.1:2345"
+	recorder := httptest.NewRecorder()
+
+	ok := enforceAdminRequestAccess(recorder, req, config.Config{
+		RequireSignedAdminChecks: true,
+		LogProxyRequests:         false,
+	})
+	if !ok {
+		t.Fatal("expected loopback admin request to be allowed")
+	}
+}
+
+func TestEnforceAdminRequestAccessRejectsNonLoopback(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/connections", nil)
+	req.RemoteAddr = "203.0.113.10:2345"
+	recorder := httptest.NewRecorder()
+
+	ok := enforceAdminRequestAccess(recorder, req, config.Config{
+		RequireSignedAdminChecks: true,
+		LogProxyRequests:         false,
+	})
+	if ok {
+		t.Fatal("expected non-loopback admin request to be rejected")
+	}
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403, got %d", recorder.Code)
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response, got error: %v", err)
+	}
+	if payload.Code != "ADMIN_ACCESS_FORBIDDEN" {
+		t.Fatalf("expected ADMIN_ACCESS_FORBIDDEN, got %q", payload.Code)
 	}
 }
 
