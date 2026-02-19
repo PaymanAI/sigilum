@@ -28,7 +28,7 @@ Security model:
             "SIGILUM_NAMESPACE": "your-namespace",
             "SIGILUM_API_URL": "https://api.sigilum.id",
             "SIGILUM_OWNER_TOKEN": "<namespace-owner-jwt>",
-            "SIGILUM_DASHBOARD_URL": "https://sigilum.id/claims"
+            "SIGILUM_DASHBOARD_URL": "https://sigilum.id/dashboard"
           }
         }
       }

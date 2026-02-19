@@ -5,12 +5,14 @@ export interface SigilumPluginConfig {
   namespace: string;
   apiUrl: string;
   gatewayUrl: string;
+  dashboardUrl: string;
   keyRoot: string;
   autoBootstrapAgents: boolean;
 }
 
 const DEFAULT_API_URL = "https://api.sigilum.id";
 const DEFAULT_GATEWAY_URL = "http://localhost:38100";
+const DEFAULT_DASHBOARD_URL = "https://sigilum.id/dashboard";
 const DEFAULT_KEY_ROOT = path.join(os.homedir(), ".openclaw", ".sigilum", "keys");
 const DEFAULT_AGENT_ID = "default";
 
@@ -95,6 +97,11 @@ export function resolveSigilumPluginConfig(event: HookEvent): SigilumPluginConfi
     asString(hookEnv.SIGILUM_GATEWAY_URL) ||
     DEFAULT_GATEWAY_URL;
 
+  const dashboardUrl =
+    asString(process.env.SIGILUM_DASHBOARD_URL) ||
+    asString(hookEnv.SIGILUM_DASHBOARD_URL) ||
+    DEFAULT_DASHBOARD_URL;
+
   const keyRoot =
     asString(process.env.SIGILUM_KEY_ROOT) ||
     asString(hookEnv.SIGILUM_KEY_ROOT) ||
@@ -110,6 +117,7 @@ export function resolveSigilumPluginConfig(event: HookEvent): SigilumPluginConfi
     namespace,
     apiUrl,
     gatewayUrl,
+    dashboardUrl,
     keyRoot,
     autoBootstrapAgents,
   };

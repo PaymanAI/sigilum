@@ -29,6 +29,7 @@ What it does:
             "SIGILUM_NAMESPACE": "your-namespace",
             "SIGILUM_GATEWAY_URL": "http://localhost:38100",
             "SIGILUM_API_URL": "http://localhost:8787",
+            "SIGILUM_DASHBOARD_URL": "https://sigilum.id/dashboard",
             "SIGILUM_KEY_ROOT": "/Users/you/.openclaw/.sigilum/keys",
             "SIGILUM_AUTO_BOOTSTRAP_AGENTS": "true"
           }
@@ -44,6 +45,7 @@ What it does:
 - `SIGILUM_NAMESPACE` (required)
 - `SIGILUM_GATEWAY_URL` (optional)
 - `SIGILUM_API_URL` (optional)
+- `SIGILUM_DASHBOARD_URL` (optional)
 - `SIGILUM_KEY_ROOT` (optional)
 - `SIGILUM_AUTO_BOOTSTRAP_AGENTS` (`true|false`, optional, default `true`)
 
