@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -60,51 +60,6 @@ type mcpToolCallRequest struct {
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
-type nonceReplayCache struct {
-	mu        sync.Mutex
-	ttl       time.Duration
-	nonces    map[string]time.Time
-	lastSweep time.Time
-}
-
-func newNonceReplayCache(ttl time.Duration) *nonceReplayCache {
-	if ttl <= 0 {
-		ttl = 10 * time.Minute
-	}
-	return &nonceReplayCache{
-		ttl:    ttl,
-		nonces: map[string]time.Time{},
-	}
-}
-
-func (c *nonceReplayCache) Seen(namespace string, nonce string, now time.Time) bool {
-	namespace = strings.TrimSpace(namespace)
-	nonce = strings.TrimSpace(nonce)
-	if namespace == "" || nonce == "" {
-		return false
-	}
-	key := namespace + "\x00" + nonce
-	expiresAt := now.Add(c.ttl)
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if now.Sub(c.lastSweep) > time.Minute {
-		for k, expiry := range c.nonces {
-			if !expiry.After(now) {
-				delete(c.nonces, k)
-			}
-		}
-		c.lastSweep = now
-	}
-
-	if existing, ok := c.nonces[key]; ok && existing.After(now) {
-		return true
-	}
-	c.nonces[key] = expiresAt
-	return false
-}
-
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -130,7 +85,8 @@ func main() {
 		log.Fatalf("failed to initialize service catalog: %v", err)
 	}
 
-	nonceCache := newNonceReplayCache(cfg.NonceTTL)
+	nonceStorePath := filepath.Join(cfg.DataDir, "nonce-replay-cache.json")
+	nonceCache := newNonceReplayCache(cfg.NonceTTL, nonceStorePath)
 	claimsCache, err := claimcache.NewCache(claimcache.CacheConfig{
 		APIBaseURL:      cfg.RegistryURL,
 		SignerNamespace: cfg.SigilumNamespace,
@@ -178,7 +134,7 @@ func main() {
 		joinAllowedConnections(cfg.AllowUnsignedFor),
 		joinTrustedProxyCIDRs(cfg.TrustedProxyCIDRs),
 	)
-	log.Printf("gateway replay protection storage=in-memory nonce_ttl=%s (restarts clear nonce history)", cfg.NonceTTL)
+	log.Printf("gateway replay protection storage=file nonce_ttl=%s nonce_store=%s", cfg.NonceTTL, nonceStorePath)
 	log.Printf(
 		"gateway runtime claims_cache_ttl=%s claims_refresh_interval=%s max_request_body_bytes=%d shutdown_timeout=%s slack_alias_connection_id=%s rotation_enforcement=%s rotation_grace=%s log_proxy_requests=%t",
 		cfg.ClaimsCacheTTL,
