@@ -394,13 +394,12 @@ if [[ "${GATEWAY_LOCAL_BOOTSTRAP}" == "true" ]]; then
 fi
 
 if [[ -z "${SIGILUM_SERVICE_API_KEY:-}" ]]; then
-  if [[ "${GATEWAY_ALLOW_UNSIGNED_PROXY}" == "false" ]]; then
-    GATEWAY_ALLOW_UNSIGNED_PROXY="true"
-    GATEWAY_ALLOW_UNSIGNED_CONNECTIONS=""
-    echo "SIGILUM_SERVICE_API_KEY is not set. Enabling local unsigned proxy mode (GATEWAY_ALLOW_UNSIGNED_PROXY=true)." >&2
-  else
-    echo "SIGILUM_SERVICE_API_KEY is not set. Using configured unsigned proxy mode." >&2
+  if [[ "${GATEWAY_ALLOW_UNSIGNED_PROXY}" != "true" ]]; then
+    echo "SIGILUM_SERVICE_API_KEY is not set. Refusing to start unsigned gateway by default." >&2
+    echo "Set GATEWAY_ALLOW_UNSIGNED_PROXY=true only for explicit local testing overrides." >&2
+    exit 1
   fi
+  echo "SIGILUM_SERVICE_API_KEY is not set. Using explicitly configured unsigned proxy mode." >&2
 fi
 
 if [[ "${ENABLE_TEST_SEED_ENDPOINT}" == "true" ]] && [[ -z "${SIGILUM_TEST_SEED_TOKEN}" ]]; then

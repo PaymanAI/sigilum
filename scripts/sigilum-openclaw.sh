@@ -81,6 +81,8 @@ const skill = cfg?.skills?.entries?.sigilum;
 const mode = plugin?.env?.SIGILUM_MODE ?? skill?.env?.SIGILUM_MODE ?? "unknown";
 const namespace = plugin?.env?.SIGILUM_NAMESPACE ?? skill?.env?.SIGILUM_NAMESPACE ?? "unknown";
 const dashboardUrl = plugin?.env?.SIGILUM_DASHBOARD_URL ?? notify?.env?.SIGILUM_DASHBOARD_URL ?? "unset";
+const runtimeRoot = skill?.env?.SIGILUM_RUNTIME_ROOT ?? "unset";
+const runtimeRootExists = typeof runtimeRoot === "string" && runtimeRoot !== "unset" && fs.existsSync(runtimeRoot);
 const dashboardOrigin = (() => {
   if (typeof dashboardUrl !== "string" || !dashboardUrl || dashboardUrl === "unset") return "";
   try {
@@ -94,6 +96,8 @@ console.log("Config summary:");
 console.log(`  mode: ${mode}`);
 console.log(`  namespace: ${namespace}`);
 console.log(`  dashboard: ${dashboardUrl}`);
+console.log(`  runtime_root: ${runtimeRoot}`);
+console.log(`  runtime_root_exists: ${runtimeRootExists}`);
 if (dashboardOrigin && namespace !== "unknown") {
   console.log(`  passkey setup: ${dashboardOrigin}/bootstrap/passkey?namespace=${encodeURIComponent(namespace)}`);
 }

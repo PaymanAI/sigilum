@@ -219,6 +219,8 @@ export LINEAR_TOKEN="lin_api_..."
   --upstream-secret-env LINEAR_TOKEN
 ```
 
+Query-parameter auth is also supported (for providers that require API keys in URL query, e.g. `?TYPEFULLY_API_KEY=...`) using `--auth-mode query_param` and `--upstream-header <query_key>`.
+
 List services in a namespace:
 
 ```bash

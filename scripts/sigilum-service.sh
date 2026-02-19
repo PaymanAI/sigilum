@@ -25,8 +25,8 @@ Options for add:
 
 Gateway mode options:
   --upstream-base-url <url>      Required when --mode gateway.
-  --auth-mode <mode>             Optional. bearer|header_key (default: bearer).
-  --upstream-header <name>       Optional. Defaults depend on auth mode.
+  --auth-mode <mode>             Optional. bearer|header_key|query_param (default: bearer).
+  --upstream-header <name>       Optional. Header name (header modes) or query key (query_param mode).
   --auth-prefix <value>          Optional. Defaults depend on auth mode.
   --upstream-secret-key <key>    Optional. Secret key name used by gateway.
   --upstream-secret <value>      Optional. Upstream token/secret value.
@@ -817,8 +817,8 @@ add_service() {
     echo "Invalid --mode: ${mode} (expected native or gateway)" >&2
     exit 1
   fi
-  if [[ "$auth_mode" != "bearer" && "$auth_mode" != "header_key" ]]; then
-    echo "Invalid --auth-mode: ${auth_mode} (expected bearer or header_key)" >&2
+  if [[ "$auth_mode" != "bearer" && "$auth_mode" != "header_key" && "$auth_mode" != "query_param" ]]; then
+    echo "Invalid --auth-mode: ${auth_mode} (expected bearer, header_key, or query_param)" >&2
     exit 1
   fi
   if [[ -z "$service_name" ]]; then
@@ -870,6 +870,8 @@ add_service() {
     if [[ -z "$upstream_secret_key" ]]; then
       if [[ "$auth_mode" == "bearer" ]]; then
         upstream_secret_key="access_token"
+      elif [[ "$auth_mode" == "query_param" ]]; then
+        upstream_secret_key="api_key"
       else
         upstream_secret_key="upstream_key"
       fi
@@ -877,6 +879,8 @@ add_service() {
     if [[ -z "$upstream_header" ]]; then
       if [[ "$auth_mode" == "bearer" ]]; then
         upstream_header="Authorization"
+      elif [[ "$auth_mode" == "query_param" ]]; then
+        upstream_header="api_key"
       else
         upstream_header="X-${service_slug}-Key"
       fi
