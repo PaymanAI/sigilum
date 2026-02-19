@@ -17,7 +17,7 @@ Defaults:
   --api-url           $SIGILUM_API_URL or $SIGILUM_REGISTRY_URL or http://127.0.0.1:8787
   --gateway-admin-url $GATEWAY_ADMIN_URL or http://127.0.0.1:38100
   --reconnect-ms      2000
-  --heartbeat-ms      25000
+  --heartbeat-ms      30000
 `);
 }
 
@@ -29,7 +29,7 @@ function parseArgs(argv) {
     apiUrl: process.env.SIGILUM_API_URL || process.env.SIGILUM_REGISTRY_URL || "http://127.0.0.1:8787",
     gatewayAdminUrl: process.env.GATEWAY_ADMIN_URL || "http://127.0.0.1:38100",
     reconnectMs: 2000,
-    heartbeatMs: 25000,
+    heartbeatMs: 30000,
   };
 
   for (let i = 0; i < argv.length; i += 1) {

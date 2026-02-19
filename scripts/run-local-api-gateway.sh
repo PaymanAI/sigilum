@@ -410,6 +410,7 @@ fi
 api_dev_args=(
   --ip "${API_HOST}"
   --port "${API_PORT}"
+  --log-level warn
   --var "ENVIRONMENT:${ENVIRONMENT}"
   --var "ALLOWED_ORIGINS:${ALLOWED_ORIGINS}"
   --var "WEBAUTHN_ALLOWED_ORIGINS:${WEBAUTHN_ALLOWED_ORIGINS}"
