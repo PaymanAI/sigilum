@@ -23,7 +23,7 @@ Legend:
 
 ## Execution Log
 
-- [ ] Create this checklist.
+- [x] Create this checklist.
 - [x] R-001 fixed: removed eval-style config parsing fallback in installer/auth/doctor scripts.
 - [x] R-002 fixed: improved gateway-admin transport + explicit approval context outputs and skill guidance.
 - [x] R-003 fixed: bounded request body reads + explicit 413 handling.
@@ -34,4 +34,4 @@ Legend:
 - [x] R-008 fixed: added first-time deterministic validation runbook and linked docs.
 - [x] R-009 fixed: clarified approval-required instructions in skill/hook guidance.
 - [x] Complete items in priority order.
-- [ ] After each completed item: update status here, run relevant tests, stage, and commit.
+- [x] After each completed item: update status here, run relevant tests, stage, and commit.
