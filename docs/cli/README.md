@@ -156,7 +156,11 @@ Optional flags:
 
 ### `sigilum openclaw install ...`
 
-Installs Sigilum OpenClaw hooks + skills into `~/.openclaw` and patches `openclaw.json`.
+Installs Sigilum OpenClaw hooks + skills into `~/.openclaw`, mirrors skill files into `<agent-workspace>/skills` when workspace is configured, bundles a lean runtime (`sigilum` launcher + scripts) under `<agent-workspace>/.sigilum/runtime` by default (fallback: `~/.openclaw/skills/sigilum/runtime`), and patches `openclaw.json`.
+
+Lean-runtime note:
+- Sandbox runtime is optimized for gateway/provider checks.
+- Full local stack lifecycle/service bootstrap commands are host workflows.
 
 Basic usage:
 
@@ -173,6 +177,7 @@ Common options:
 - `--gateway-url <url>`
 - `--api-url <url>`
 - `--key-root <path>`
+- `--runtime-root <path>`
 - `--enable-authz-notify <true|false>` (default `false`)
 - `--owner-token <token>` (required if authz notify enabled)
 - `--auto-owner-token <true|false>` (default: `true` in `oss-local` if `--owner-token` not provided)
@@ -201,7 +206,7 @@ Status:
 sigilum openclaw status
 ```
 
-Status output also includes configured namespace, dashboard URL, and passkey setup URL.
+Status output also includes configured namespace, dashboard URL, passkey setup URL, runtime root, and runtime existence.
 
 ### `sigilum auth ...`
 
@@ -258,7 +263,7 @@ General options:
 Gateway mode options:
 
 - `--upstream-base-url <url>` (required in gateway mode)
-- `--auth-mode <mode>`: `bearer` or `header_key` (default: `bearer`)
+- `--auth-mode <mode>`: `bearer`, `header_key`, or `query_param` (default: `bearer`)
 - `--upstream-header <name>`: upstream auth header name
 - `--auth-prefix <value>`: auth header prefix (for example `Bearer `)
 - `--upstream-secret-key <key>`: key name used in gateway secrets map
@@ -287,7 +292,7 @@ Protocol and credential source notes:
 - Service-catalog templates may include `mcp_base_url` and `mcp_endpoint` defaults so dashboard protocol toggles can prefill the MCP target (for example Linear: `https://mcp.linear.app` + `/mcp`).
 - `--upstream-secret-env` reads a shell environment variable once at command runtime, then stores the resolved value in gateway.
 - This is different from service-catalog `credential_fields[].env_var`, which is a dashboard hint for reusable shared credential variables.
-- Reusable shared credential variables are currently managed through dashboard or gateway admin API (`/api/admin/credential-variables`), then referenced as `{{var:KEY}}` in connection secrets.
+- Reusable shared credential variables are currently managed through dashboard or gateway admin API (`/api/admin/credential-variables`), then referenced as `{{KEY}}` in connection secrets.
 
 Examples:
 
@@ -312,6 +317,22 @@ sigilum service add \
   --upstream-base-url https://api.linear.app \
   --auth-mode bearer \
   --upstream-secret-env LINEAR_TOKEN
+```
+
+Gateway service (query parameter auth, for APIs that require `?API_KEY=...`):
+
+```bash
+export TYPEFULLY_API_KEY="tfy_..."
+
+sigilum service add \
+  --service-slug typefully \
+  --service-name "Typefully" \
+  --mode gateway \
+  --upstream-base-url https://mcp.typefully.com \
+  --auth-mode query_param \
+  --upstream-header TYPEFULLY_API_KEY \
+  --upstream-secret-key api_key \
+  --upstream-secret-env TYPEFULLY_API_KEY
 ```
 
 ### `sigilum service list`
