@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"sigilum.local/gateway/internal/connectors"
@@ -22,6 +23,8 @@ const (
 
 type Client struct {
 	httpClient *http.Client
+	sessionsMu sync.RWMutex
+	sessions   map[string]string
 }
 
 type rpcRequest struct {
@@ -68,6 +71,7 @@ func NewClient(timeout time.Duration) *Client {
 	}
 	return &Client{
 		httpClient: &http.Client{Timeout: timeout},
+		sessions:   make(map[string]string),
 	}
 }
 
@@ -178,6 +182,11 @@ func (c *Client) listTools(ctx context.Context, endpoint string, cfg connectors.
 }
 
 func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.ProxyConfig, method string, params any) (json.RawMessage, error) {
+	// Per MCP spec, initialize requests must not carry a prior session id.
+	if method == "initialize" {
+		c.clearSessionID(endpoint)
+	}
+
 	requestPayload, err := json.Marshal(rpcRequest{
 		JSONRPC: "2.0",
 		ID:      "sigilum-gateway",
@@ -188,37 +197,89 @@ func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.Proxy
 		return nil, fmt.Errorf("marshal mcp request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(requestPayload))
-	if err != nil {
-		return nil, fmt.Errorf("build mcp request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	doRPC := func(forceBearerAuthorization bool) (int, string, []byte, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(requestPayload))
+		if err != nil {
+			return 0, "", nil, fmt.Errorf("build mcp request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		// Streamable HTTP MCP servers (e.g. Linear MCP) require clients to accept both
+		// JSON responses and SSE streams.
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		query := req.URL.Query()
+		connectors.ApplyAuthQuery(query, cfg.Connection, cfg.Secret)
+		req.URL.RawQuery = query.Encode()
 
-	authHeaders := http.Header{}
-	connectors.ApplyAuthHeader(authHeaders, cfg.Connection, cfg.Secret)
-	for key, values := range authHeaders {
-		for _, value := range values {
-			req.Header.Add(key, value)
+		authHeaders := http.Header{}
+		if forceBearerAuthorization {
+			headerName := strings.TrimSpace(cfg.Connection.AuthHeaderName)
+			if headerName == "" {
+				headerName = "Authorization"
+			}
+			secret := strings.TrimSpace(cfg.Secret)
+			secret = trimBearerPrefix(secret)
+			authHeaders.Set(headerName, "Bearer "+secret)
+		} else {
+			connectors.ApplyAuthHeader(authHeaders, cfg.Connection, cfg.Secret)
+		}
+		for key, values := range authHeaders {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
+		if sessionID := c.getSessionID(endpoint); method != "initialize" && sessionID != "" {
+			req.Header.Set("Mcp-Session-Id", sessionID)
+		}
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return 0, "", nil, fmt.Errorf("mcp request failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		responseBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodySize))
+		if err != nil {
+			return 0, "", nil, fmt.Errorf("read mcp response: %w", err)
+		}
+		if sessionID := strings.TrimSpace(resp.Header.Get("Mcp-Session-Id")); sessionID != "" {
+			c.setSessionID(endpoint, sessionID)
+		}
+		return resp.StatusCode, strings.TrimSpace(resp.Header.Get("Content-Type")), responseBody, nil
+	}
+
+	statusCode, contentType, responseBody, err := doRPC(false)
+	if err != nil {
+		return nil, err
+	}
+
+	shouldRetryWithBearer := statusCode == http.StatusUnauthorized &&
+		cfg.Connection.Protocol == connectors.ConnectionProtocolMCP &&
+		cfg.Connection.AuthMode == connectors.AuthModeHeaderKey &&
+		strings.EqualFold(strings.TrimSpace(cfg.Connection.AuthHeaderName), "Authorization") &&
+		strings.TrimSpace(cfg.Connection.AuthPrefix) == "" &&
+		strings.TrimSpace(cfg.Secret) != "" &&
+		!strings.HasPrefix(strings.TrimSpace(cfg.Secret), "Bearer ")
+
+	if shouldRetryWithBearer {
+		retryStatusCode, retryContentType, retryResponseBody, retryErr := doRPC(true)
+		if retryErr == nil {
+			statusCode = retryStatusCode
+			contentType = retryContentType
+			responseBody = retryResponseBody
 		}
 	}
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("mcp request failed: %w", err)
+	if statusCode < 200 || statusCode >= 300 {
+		return nil, fmt.Errorf("mcp server http %d: %s", statusCode, compactMessage(string(responseBody)))
 	}
-	defer resp.Body.Close()
 
-	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodySize))
+	rpcPayload, err := extractRPCPayload(contentType, responseBody)
 	if err != nil {
-		return nil, fmt.Errorf("read mcp response: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("mcp server http %d: %s", resp.StatusCode, compactMessage(string(responseBody)))
+		return nil, fmt.Errorf("decode mcp response: %w", err)
 	}
 
 	var rpcResp rpcResponse
-	if err := json.Unmarshal(responseBody, &rpcResp); err != nil {
+	if err := json.Unmarshal(rpcPayload, &rpcResp); err != nil {
 		return nil, fmt.Errorf("decode mcp response: %w", err)
 	}
 	if rpcResp.Error != nil {
@@ -228,6 +289,66 @@ func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.Proxy
 		return nil, fmt.Errorf("mcp method %s returned empty result", method)
 	}
 	return rpcResp.Result, nil
+}
+
+func extractRPCPayload(contentType string, body []byte) ([]byte, error) {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return nil, errors.New("empty response body")
+	}
+
+	looksLikeSSE := strings.Contains(strings.ToLower(contentType), "text/event-stream") ||
+		bytes.HasPrefix(trimmed, []byte("event:")) ||
+		bytes.HasPrefix(trimmed, []byte("data:"))
+	if !looksLikeSSE {
+		return trimmed, nil
+	}
+
+	events := parseSSEDataEvents(string(trimmed))
+	if len(events) == 0 {
+		return nil, errors.New("stream response missing data payload")
+	}
+	// Prefer the last JSON-ish payload because MCP servers can emit multiple events.
+	for i := len(events) - 1; i >= 0; i-- {
+		candidate := strings.TrimSpace(events[i])
+		if candidate == "" || candidate == "[DONE]" {
+			continue
+		}
+		if strings.HasPrefix(candidate, "{") || strings.HasPrefix(candidate, "[") {
+			return []byte(candidate), nil
+		}
+	}
+	return nil, fmt.Errorf("stream response did not contain JSON payload: %s", compactMessage(events[len(events)-1]))
+}
+
+func parseSSEDataEvents(payload string) []string {
+	lines := strings.Split(payload, "\n")
+	events := make([]string, 0, 4)
+	currentData := make([]string, 0, 2)
+
+	flush := func() {
+		if len(currentData) == 0 {
+			return
+		}
+		events = append(events, strings.Join(currentData, "\n"))
+		currentData = currentData[:0]
+	}
+
+	for _, raw := range lines {
+		line := strings.TrimRight(raw, "\r")
+		if strings.TrimSpace(line) == "" {
+			flush()
+			continue
+		}
+		if strings.HasPrefix(line, ":") {
+			continue
+		}
+		if strings.HasPrefix(line, "data:") {
+			currentData = append(currentData, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+		}
+	}
+	flush()
+	return events
 }
 
 func resolveEndpoint(conn connectors.Connection) (string, error) {
@@ -251,19 +372,33 @@ func resolveEndpoint(conn connectors.Connection) (string, error) {
 	if endpoint == "" {
 		endpoint = "/"
 	}
-	if strings.HasPrefix(endpoint, "http://") || strings.HasPrefix(endpoint, "https://") {
-		target, err := url.Parse(endpoint)
-		if err != nil {
-			return "", fmt.Errorf("invalid mcp endpoint: %w", err)
-		}
-		if target.Scheme == "" || target.Host == "" {
+	ref, err := url.Parse(endpoint)
+	if err != nil {
+		return "", fmt.Errorf("invalid mcp endpoint: %w", err)
+	}
+	if ref.Scheme != "" || ref.Host != "" {
+		if ref.Scheme == "" || ref.Host == "" {
 			return "", errors.New("mcp endpoint must include scheme and host")
 		}
-		return target.String(), nil
+		return ref.String(), nil
 	}
 
-	base.Path = joinPath(base.Path, endpoint)
+	base.Path = joinPath(base.Path, ref.Path)
 	base.RawPath = base.Path
+	if ref.RawQuery != "" {
+		query := base.Query()
+		refQuery, err := url.ParseQuery(ref.RawQuery)
+		if err != nil {
+			return "", fmt.Errorf("invalid mcp endpoint query: %w", err)
+		}
+		for key, values := range refQuery {
+			query.Del(key)
+			for _, value := range values {
+				query.Add(key, value)
+			}
+		}
+		base.RawQuery = query.Encode()
+	}
 	return base.String(), nil
 }
 
@@ -307,4 +442,33 @@ func compactMessage(value string) string {
 		return compact
 	}
 	return compact[:maxLen] + "..."
+}
+
+func trimBearerPrefix(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if strings.HasPrefix(trimmed, "Bearer ") {
+		return strings.TrimSpace(strings.TrimPrefix(trimmed, "Bearer "))
+	}
+	if strings.HasPrefix(trimmed, "bearer ") {
+		return strings.TrimSpace(strings.TrimPrefix(trimmed, "bearer "))
+	}
+	return trimmed
+}
+
+func (c *Client) getSessionID(endpoint string) string {
+	c.sessionsMu.RLock()
+	defer c.sessionsMu.RUnlock()
+	return c.sessions[endpoint]
+}
+
+func (c *Client) setSessionID(endpoint string, sessionID string) {
+	c.sessionsMu.Lock()
+	defer c.sessionsMu.Unlock()
+	c.sessions[endpoint] = sessionID
+}
+
+func (c *Client) clearSessionID(endpoint string) {
+	c.sessionsMu.Lock()
+	defer c.sessionsMu.Unlock()
+	delete(c.sessions, endpoint)
 }

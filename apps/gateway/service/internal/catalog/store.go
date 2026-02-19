@@ -137,19 +137,23 @@ func normalizeCatalog(catalog ServiceCatalog) (ServiceCatalog, error) {
 		if service.AuthMode == "" {
 			service.AuthMode = "bearer"
 		}
-		if service.AuthMode != "bearer" && service.AuthMode != "header_key" {
-			return ServiceCatalog{}, fmt.Errorf("services[%d].auth_mode must be bearer or header_key", index)
+		if service.AuthMode != "bearer" && service.AuthMode != "header_key" && service.AuthMode != "query_param" {
+			return ServiceCatalog{}, fmt.Errorf("services[%d].auth_mode must be bearer, header_key, or query_param", index)
 		}
 
 		service.AuthHeaderName = strings.TrimSpace(service.AuthHeaderName)
 		if service.AuthHeaderName == "" {
-			service.AuthHeaderName = "Authorization"
+			if service.AuthMode == "query_param" {
+				service.AuthHeaderName = "api_key"
+			} else {
+				service.AuthHeaderName = "Authorization"
+			}
 		}
 		service.AuthPrefix = service.AuthPrefix
 		if service.AuthMode == "bearer" && service.AuthPrefix == "" {
 			service.AuthPrefix = "Bearer "
 		}
-		if service.AuthMode == "header_key" && service.AuthPrefix == "" {
+		if (service.AuthMode == "header_key" || service.AuthMode == "query_param") && service.AuthPrefix == "" {
 			service.AuthPrefix = ""
 		}
 

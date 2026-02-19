@@ -5,6 +5,7 @@ type AuthMode string
 const (
 	AuthModeBearer    AuthMode = "bearer"
 	AuthModeHeaderKey AuthMode = "header_key"
+	AuthModeQueryParam AuthMode = "query_param"
 )
 
 type ConnectionProtocol string
@@ -104,6 +105,9 @@ type CreateConnectionInput struct {
 type UpdateConnectionInput struct {
 	Name                   string                   `json:"name"`
 	PathPrefix             string                   `json:"path_prefix"`
+	AuthMode               string                   `json:"auth_mode"`
+	AuthHeaderName         string                   `json:"auth_header_name"`
+	AuthPrefix             string                   `json:"auth_prefix"`
 	AuthSecretKey          string                   `json:"auth_secret_key"`
 	RotationIntervalDays   int                      `json:"rotation_interval_days"`
 	Status                 string                   `json:"status"`

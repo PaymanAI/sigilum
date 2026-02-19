@@ -46,7 +46,7 @@ Service catalog templates now support both HTTP and MCP provider definitions:
 - `protocol`: `http` (default) or `mcp`
 - MCP template fields: `mcp_base_url`, `mcp_transport`, `mcp_endpoint`, `mcp_tool_allowlist`, `mcp_tool_denylist`, `mcp_max_tools_exposed`, `mcp_subject_tool_policies`
 - Credential fields can include `env_var` hints for dashboard UX (display-only hint; secrets still stored in gateway)
-- Shared credential variables can be defined once and reused across multiple connections via secret references like `{{var:OPENAI_API_KEY}}`.
+- Shared credential variables can be defined once and reused across multiple connections via secret references like `{{OPENAI_API_KEY}}`.
 - Shared variable metadata includes `created_by_subject` for audit traceability.
 
 ## `sigilum-subject` Semantics
@@ -66,7 +66,7 @@ Service catalog templates now support both HTTP and MCP provider definitions:
   - runtime paths: `/mcp/{connection_id}/tools` and `/mcp/{connection_id}/tools/{tool}/call`
   - optional auth secret configuration (only required when MCP upstream requires credentials)
   - supports discovery (`POST /api/admin/connections/{id}/discover`) and per-subject tool policy filtering
-- Shared credential variable references (`{{var:KEY}}`) are resolved for both HTTP and MCP connections.
+- Shared credential variable references (`{{KEY}}`) are resolved for both HTTP and MCP connections.
 
 ## Request Flow (Proxy)
 
@@ -105,6 +105,14 @@ If any auth step fails, gateway returns a structured error without forwarding up
   - `GET /api/admin/service-catalog`
   - `PUT /api/admin/service-catalog`
 
+Admin test/discover hardening:
+
+- `POST /api/admin/connections/{id}/test`
+- `POST /api/admin/connections/{id}/discover`
+
+now require signed, claim-gated caller identity by default (`GATEWAY_REQUIRE_SIGNED_ADMIN_CHECKS=true`).
+Set `GATEWAY_REQUIRE_SIGNED_ADMIN_CHECKS=false` only for trusted local maintenance compatibility.
+
 `POST /api/admin/credential-variables` accepts optional `created_by_subject` and also honors the `sigilum-subject` header (header takes precedence).
 
 ## Shared Variables and `env_var`
@@ -113,7 +121,7 @@ If any auth step fails, gateway returns a structured error without forwarding up
 - Dashboard setup uses this key to:
   - detect existing shared credential variables
   - let users reuse an existing value without re-entry
-  - store connection secrets as references (`{{var:KEY}}`) instead of duplicating raw values per connection
+  - store connection secrets as references (`{{KEY}}`) instead of duplicating raw values per connection
 - If you manage gateway directly, define shared variables via admin API and reference them in connection secrets:
 
 ```bash
@@ -127,7 +135,7 @@ curl -sS -X POST http://127.0.0.1:38100/api/admin/credential-variables \
 ```json
 {
   "secrets": {
-    "api_key": "{{var:OPENAI_API_KEY}}"
+    "api_key": "{{OPENAI_API_KEY}}"
   }
 }
 ```
@@ -137,7 +145,7 @@ curl -sS -X POST http://127.0.0.1:38100/api/admin/credential-variables \
 - Existing HTTP setup still works unchanged (`auth_secret_key` + direct secret value).
 - New optional step for reusable credentials:
   1. Create shared credential variable once.
-  2. Reference it from one or more connections with `{{var:KEY}}`.
+  2. Reference it from one or more connections with `{{KEY}}`.
 - For MCP providers, choose `protocol: "mcp"` and run discovery after saving connection config.
 
 Connection secrets are stored encrypted in local BadgerDB at `GATEWAY_DATA_DIR/badger`.
@@ -157,6 +165,7 @@ The gateway also provides a local CLI for managing stored service connections di
 - `go run ./apps/gateway/service/cmd/sigilum-gateway-cli get --id slack-proxy`
 - `go run ./apps/gateway/service/cmd/sigilum-gateway-cli add --name Slack --base-url https://slack.com/api --auth-mode bearer --auth-prefix "Bearer " --auth-secret-key bot_token --secret bot_token=<token>`
 - `go run ./apps/gateway/service/cmd/sigilum-gateway-cli add --name LinearMCP --protocol mcp --base-url https://mcp.linear.app --mcp-endpoint /mcp --auth-secret-key api_key --secret api_key=<token> --mcp-allow linear.searchIssues --mcp-deny linear.createIssue`
+- `go run ./apps/gateway/service/cmd/sigilum-gateway-cli add --name TypefullyMCP --protocol mcp --base-url https://mcp.typefully.com --mcp-endpoint 'https://mcp.typefully.com/mcp?TYPEFULLY_API_KEY={{__API_KEY__}}' --auth-mode query_param --auth-header-name TYPEFULLY_API_KEY --auth-secret-key __API_KEY__ --secret __API_KEY__=<token>`
 - `go run ./apps/gateway/service/cmd/sigilum-gateway-cli update --id slack-proxy --status active`
 - `go run ./apps/gateway/service/cmd/sigilum-gateway-cli rotate --id slack-proxy --secret bot_token=<new_token>`
 - `go run ./apps/gateway/service/cmd/sigilum-gateway-cli test --id slack-proxy --method GET --path /auth.test`
@@ -244,6 +253,7 @@ Key variables:
 - `GATEWAY_DATA_DIR` - local persistent data directory.
 - `GATEWAY_ALLOWED_ORIGINS` - explicit browser origin allowlist for admin API CORS.
 - `GATEWAY_TRUSTED_PROXY_CIDRS` - trusted proxy hop CIDRs/IPs allowed to supply `X-Forwarded-*`.
+- `GATEWAY_REQUIRE_SIGNED_ADMIN_CHECKS` - require Sigilum-signed, claim-approved caller on admin `test/discover` routes (default `true`).
 - Default local port block:
   - Envoy ingress: `38000`
   - Gateway service: `38100`

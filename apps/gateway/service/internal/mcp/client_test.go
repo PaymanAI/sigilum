@@ -28,6 +28,22 @@ func TestResolveEndpoint(t *testing.T) {
 	}
 }
 
+func TestResolveEndpointPreservesRelativeQueryParams(t *testing.T) {
+	conn := connectors.Connection{
+		Protocol:    connectors.ConnectionProtocolMCP,
+		BaseURL:     "https://mcp.typefully.com",
+		MCPEndpoint: "/mcp?TYPEFULLY_API_KEY={{__API_KEY__}}",
+	}
+
+	endpoint, err := resolveEndpoint(conn)
+	if err != nil {
+		t.Fatalf("resolve endpoint failed: %v", err)
+	}
+	if endpoint != "https://mcp.typefully.com/mcp?TYPEFULLY_API_KEY=%7B%7B__API_KEY__%7D%7D" {
+		t.Fatalf("unexpected endpoint: %s", endpoint)
+	}
+}
+
 func TestDiscoverAndCallTool(t *testing.T) {
 	var mu sync.Mutex
 	handlerErr := ""
@@ -124,6 +140,162 @@ func TestDiscoverAndCallTool(t *testing.T) {
 	}
 	if len(result) == 0 {
 		t.Fatal("expected non-empty call result")
+	}
+	if handlerErr != "" {
+		t.Fatalf("server handler assertion failed: %s", handlerErr)
+	}
+}
+
+func TestDiscoverWithQueryParamAuth(t *testing.T) {
+	var mu sync.Mutex
+	handlerErr := ""
+	setHandlerErr := func(message string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if handlerErr == "" {
+			handlerErr = message
+		}
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("TYPEFULLY_API_KEY"); got != "tfy-123" {
+			setHandlerErr("expected TYPEFULLY_API_KEY query param")
+			http.Error(w, "missing query auth", http.StatusUnauthorized)
+			return
+		}
+		if got := r.Header.Get("Authorization"); got != "" {
+			setHandlerErr("unexpected authorization header in query_param mode")
+			http.Error(w, "unexpected authorization header", http.StatusBadRequest)
+			return
+		}
+
+		var req rpcRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			setHandlerErr("decode request failed")
+			http.Error(w, "decode request failed", http.StatusBadRequest)
+			return
+		}
+
+		switch req.Method {
+		case "initialize":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "sigilum-gateway",
+				"result": map[string]any{
+					"protocolVersion": "2024-11-05",
+					"serverInfo": map[string]any{
+						"name":    "typefully-mcp",
+						"version": "1.0.0",
+					},
+				},
+			})
+		case "tools/list":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "sigilum-gateway",
+				"result": map[string]any{
+					"tools": []map[string]any{},
+				},
+			})
+		default:
+			http.Error(w, "unknown method", http.StatusBadRequest)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(5 * time.Second)
+	cfg := connectors.ProxyConfig{
+		Connection: connectors.Connection{
+			Protocol:       connectors.ConnectionProtocolMCP,
+			BaseURL:        server.URL,
+			AuthMode:       connectors.AuthModeQueryParam,
+			AuthHeaderName: "TYPEFULLY_API_KEY",
+		},
+		Secret: "tfy-123",
+	}
+
+	if _, err := client.Discover(context.Background(), cfg); err != nil {
+		t.Fatalf("discover failed: %v", err)
+	}
+	if handlerErr != "" {
+		t.Fatalf("server handler assertion failed: %s", handlerErr)
+	}
+}
+
+func TestDiscoverInitializeOmitsSessionHeader(t *testing.T) {
+	var mu sync.Mutex
+	handlerErr := ""
+	setHandlerErr := func(message string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if handlerErr == "" {
+			handlerErr = message
+		}
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req rpcRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			setHandlerErr("decode request failed")
+			http.Error(w, "decode request failed", http.StatusBadRequest)
+			return
+		}
+
+		switch req.Method {
+		case "initialize":
+			if got := r.Header.Get("Mcp-Session-Id"); got != "" {
+				setHandlerErr("initialize must not send session header")
+				http.Error(w, "invalid initialize", http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Mcp-Session-Id", "fresh-session")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "sigilum-gateway",
+				"result": map[string]any{
+					"protocolVersion": "2024-11-05",
+					"serverInfo": map[string]any{
+						"name":    "test-mcp",
+						"version": "1.0.0",
+					},
+				},
+			})
+		case "tools/list":
+			if got := r.Header.Get("Mcp-Session-Id"); got != "fresh-session" {
+				setHandlerErr("tools/list expected fresh session header")
+				http.Error(w, "missing session", http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "sigilum-gateway",
+				"result": map[string]any{
+					"tools": []map[string]any{},
+				},
+			})
+		default:
+			http.Error(w, "unknown method", http.StatusBadRequest)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(5 * time.Second)
+	cfg := connectors.ProxyConfig{
+		Connection: connectors.Connection{
+			Protocol: connectors.ConnectionProtocolMCP,
+			BaseURL:  server.URL,
+		},
+	}
+
+	endpoint, err := resolveEndpoint(cfg.Connection)
+	if err != nil {
+		t.Fatalf("resolve endpoint failed: %v", err)
+	}
+	client.setSessionID(endpoint, "stale-session")
+
+	_, err = client.Discover(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("discover failed: %v", err)
 	}
 	if handlerErr != "" {
 		t.Fatalf("server handler assertion failed: %s", handlerErr)

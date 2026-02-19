@@ -206,7 +206,7 @@ func runAdd(args []string) error {
 	protocol := fs.String("protocol", "http", "Connection protocol: http|mcp")
 	baseURL := fs.String("base-url", "", "Upstream base URL")
 	pathPrefix := fs.String("path-prefix", "", "Upstream path prefix")
-	authMode := fs.String("auth-mode", "bearer", "Auth mode: bearer|header_key")
+	authMode := fs.String("auth-mode", "bearer", "Auth mode: bearer|header_key|query_param")
 	authHeaderName := fs.String("auth-header-name", "", "Auth header name")
 	authPrefix := fs.String("auth-prefix", "", "Auth value prefix")
 	authSecretKey := fs.String("auth-secret-key", "", "Primary secret key name in secrets map")
@@ -274,6 +274,9 @@ func runUpdate(args []string) error {
 	id := fs.String("id", "", "Connection ID")
 	name := fs.String("name", "", "Connection name")
 	pathPrefix := fs.String("path-prefix", "", "Upstream path prefix")
+	authMode := fs.String("auth-mode", "", "Auth mode: bearer|header_key|query_param")
+	authHeaderName := fs.String("auth-header-name", "", "Auth header or query parameter name")
+	authPrefix := fs.String("auth-prefix", "", "Auth value prefix")
 	authSecretKey := fs.String("auth-secret-key", "", "Primary secret key name")
 	rotationDays := fs.Int("rotation-interval-days", 0, "Secret rotation interval in days")
 	status := fs.String("status", "", "Connection status: active|disabled")
@@ -308,6 +311,9 @@ func runUpdate(args []string) error {
 	conn, err := service.UpdateConnection(strings.TrimSpace(*id), connectors.UpdateConnectionInput{
 		Name:                 strings.TrimSpace(*name),
 		PathPrefix:           strings.TrimSpace(*pathPrefix),
+		AuthMode:             strings.TrimSpace(*authMode),
+		AuthHeaderName:       strings.TrimSpace(*authHeaderName),
+		AuthPrefix:           *authPrefix,
 		AuthSecretKey:        strings.TrimSpace(*authSecretKey),
 		RotationIntervalDays: *rotationDays,
 		Status:               strings.TrimSpace(*status),

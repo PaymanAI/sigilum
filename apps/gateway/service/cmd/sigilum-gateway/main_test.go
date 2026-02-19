@@ -85,6 +85,28 @@ func TestClientIPUsesForwardedHeadersFromTrustedProxy(t *testing.T) {
 	}
 }
 
+func TestIsLoopbackClient(t *testing.T) {
+	cases := []struct {
+		name     string
+		value    string
+		expected bool
+	}{
+		{name: "ipv4 loopback", value: "127.0.0.1", expected: true},
+		{name: "ipv6 loopback", value: "::1", expected: true},
+		{name: "localhost hostname", value: "localhost", expected: true},
+		{name: "public ip", value: "203.0.113.10", expected: false},
+		{name: "empty", value: "", expected: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isLoopbackClient(tc.value); got != tc.expected {
+				t.Fatalf("expected %t for %q, got %t", tc.expected, tc.value, got)
+			}
+		})
+	}
+}
+
 func TestResolveServiceAPIKeyPrefersScopedEnv(t *testing.T) {
 	t.Setenv("SIGILUM_SERVICE_API_KEY_DEMO_SERVICE_GATEWAY", "scoped-key")
 	t.Setenv("SIGILUM_HOME", "")
@@ -106,6 +128,30 @@ func TestResolveServiceAPIKeyFallsBackToFile(t *testing.T) {
 
 	if got := resolveServiceAPIKey("demo-service-gateway", "", tmp); got != "file-key" {
 		t.Fatalf("expected file key, got %q", got)
+	}
+}
+
+func TestResolveServiceAPIKeyPrefersFileOverDefault(t *testing.T) {
+	t.Setenv("SIGILUM_SERVICE_API_KEY_DEMO_SERVICE_GATEWAY", "")
+	t.Setenv("SIGILUM_HOME", "")
+
+	tmp := t.TempDir()
+	keyFile := filepath.Join(tmp, "service-api-key-demo-service-gateway")
+	if err := os.WriteFile(keyFile, []byte("file-key\n"), 0o600); err != nil {
+		t.Fatalf("write key file: %v", err)
+	}
+
+	if got := resolveServiceAPIKey("demo-service-gateway", "default-key", tmp); got != "file-key" {
+		t.Fatalf("expected file key to override default key, got %q", got)
+	}
+}
+
+func TestResolveServiceAPIKeyFallsBackToDefaultWithoutFile(t *testing.T) {
+	t.Setenv("SIGILUM_SERVICE_API_KEY_DEMO_SERVICE_GATEWAY", "")
+	t.Setenv("SIGILUM_HOME", "")
+
+	if got := resolveServiceAPIKey("demo-service-gateway", "default-key", t.TempDir()); got != "default-key" {
+		t.Fatalf("expected default key fallback, got %q", got)
 	}
 }
 

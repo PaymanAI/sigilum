@@ -20,7 +20,6 @@ import (
 const (
 	keyConnectionPrefix       = "conn/"
 	keyCredentialVarPrefix    = "credvar/"
-	variableRefPrefix         = "{{var:"
 	variableRefSuffix         = "}}"
 	maxCredentialVariableSize = 16 * 1024
 )
@@ -247,6 +246,43 @@ func (s *Service) UpdateConnection(id string, input UpdateConnectionInput) (Conn
 		if input.PathPrefix != "" {
 			conn.PathPrefix = normalizePathPrefix(input.PathPrefix)
 		}
+		modeChanged := false
+		if strings.TrimSpace(input.AuthMode) != "" {
+			nextMode, err := parseAuthMode(input.AuthMode)
+			if err != nil {
+				return err
+			}
+			if conn.AuthMode != nextMode {
+				modeChanged = true
+			}
+			conn.AuthMode = nextMode
+		}
+		if strings.TrimSpace(input.AuthHeaderName) != "" {
+			conn.AuthHeaderName = strings.TrimSpace(input.AuthHeaderName)
+		} else if modeChanged {
+			switch conn.AuthMode {
+			case AuthModeQueryParam:
+				conn.AuthHeaderName = "api_key"
+			default:
+				if strings.TrimSpace(conn.AuthHeaderName) == "" {
+					conn.AuthHeaderName = "Authorization"
+				}
+			}
+		}
+		if input.AuthPrefix != "" {
+			conn.AuthPrefix = input.AuthPrefix
+		} else if modeChanged {
+			switch conn.AuthMode {
+			case AuthModeBearer:
+				conn.AuthPrefix = "Bearer "
+			case AuthModeHeaderKey, AuthModeQueryParam:
+				conn.AuthPrefix = ""
+			}
+		}
+		if conn.AuthMode == AuthModeQueryParam && strings.TrimSpace(conn.AuthHeaderName) == "" {
+			conn.AuthHeaderName = "api_key"
+		}
+
 		if strings.TrimSpace(input.AuthSecretKey) != "" {
 			nextKey := strings.TrimSpace(input.AuthSecretKey)
 			if len(conn.CredentialKeys) > 0 && !containsString(conn.CredentialKeys, nextKey) {
@@ -856,15 +892,22 @@ func normalizeCreateInput(input CreateConnectionInput) (Connection, map[string]s
 
 	authHeaderName := strings.TrimSpace(input.AuthHeaderName)
 	if authHeaderName == "" {
-		authHeaderName = "Authorization"
+		switch mode {
+		case AuthModeQueryParam:
+			authHeaderName = "api_key"
+		default:
+			authHeaderName = "Authorization"
+		}
 	}
 
 	authPrefix := input.AuthPrefix
-	if authPrefix == "" {
-		authPrefix = "Bearer "
-	}
-	if mode == AuthModeHeaderKey && input.AuthPrefix == "" {
-		authPrefix = ""
+	if input.AuthPrefix == "" {
+		switch mode {
+		case AuthModeBearer:
+			authPrefix = "Bearer "
+		case AuthModeHeaderKey, AuthModeQueryParam:
+			authPrefix = ""
+		}
 	}
 
 	secrets, err := normalizeSecretsMap(input.Secrets)
@@ -1109,7 +1152,7 @@ func parseAuthMode(raw string) (AuthMode, error) {
 	switch mode {
 	case "":
 		return AuthModeBearer, nil
-	case AuthModeBearer, AuthModeHeaderKey:
+	case AuthModeBearer, AuthModeHeaderKey, AuthModeQueryParam:
 		return mode, nil
 	default:
 		return "", fmt.Errorf("invalid auth_mode: %s", raw)
@@ -1220,6 +1263,16 @@ func normalizeStoredConnection(conn *Connection) {
 	if conn.AuthMode == "" {
 		conn.AuthMode = AuthModeBearer
 	}
+	if strings.TrimSpace(conn.AuthHeaderName) == "" {
+		if conn.AuthMode == AuthModeQueryParam {
+			conn.AuthHeaderName = "api_key"
+		} else {
+			conn.AuthHeaderName = "Authorization"
+		}
+	}
+	if conn.AuthMode == AuthModeBearer && conn.AuthPrefix == "" {
+		conn.AuthPrefix = "Bearer "
+	}
 	if conn.Status == "" {
 		conn.Status = ConnectionStatusActive
 	}
@@ -1240,17 +1293,17 @@ func isMCPConnection(conn Connection) bool {
 
 func parseCredentialVariableReference(value string) (string, bool) {
 	trimmed := strings.TrimSpace(value)
-	if !strings.HasPrefix(trimmed, variableRefPrefix) || !strings.HasSuffix(trimmed, variableRefSuffix) {
+	if !strings.HasPrefix(trimmed, "{{") || !strings.HasSuffix(trimmed, variableRefSuffix) {
 		return "", false
 	}
-	key := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, variableRefPrefix), variableRefSuffix))
-	if key == "" {
+	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "{{"), variableRefSuffix))
+	if inner == "" {
 		return "", false
 	}
-	if !isValidCredentialVariableKey(key) {
+	if !isValidCredentialVariableKey(inner) {
 		return "", false
 	}
-	return key, true
+	return inner, true
 }
 
 func isValidCredentialVariableKey(value string) bool {

@@ -1,6 +1,9 @@
 package connectors
 
-import "testing"
+import (
+	"net/url"
+	"testing"
+)
 
 func TestAuthHeaderBearerDefaults(t *testing.T) {
 	name, value := authHeader(Connection{AuthMode: AuthModeBearer}, "token-123")
@@ -58,5 +61,37 @@ func TestAuthHeaderBearerOnlyPrefixValue(t *testing.T) {
 	_, value := authHeader(Connection{AuthMode: AuthModeBearer}, "Bearer")
 	if value != "Bearer " {
 		t.Fatalf("expected normalized empty bearer token, got %q", value)
+	}
+}
+
+func TestAuthHeaderQueryParamModeReturnsEmptyHeader(t *testing.T) {
+	name, value := authHeader(Connection{
+		AuthMode:       AuthModeQueryParam,
+		AuthHeaderName: "TYPEFULLY_API_KEY",
+	}, "token-123")
+	if name != "" || value != "" {
+		t.Fatalf("expected no header for query_param mode, got %q=%q", name, value)
+	}
+}
+
+func TestApplyAuthQuerySetsConfiguredParam(t *testing.T) {
+	values := url.Values{}
+	ApplyAuthQuery(values, Connection{
+		AuthMode:       AuthModeQueryParam,
+		AuthHeaderName: "TYPEFULLY_API_KEY",
+	}, "token-123")
+	if got := values.Get("TYPEFULLY_API_KEY"); got != "token-123" {
+		t.Fatalf("expected query param token-123, got %q", got)
+	}
+}
+
+func TestApplyAuthQueryStripsBearerPrefix(t *testing.T) {
+	values := url.Values{}
+	ApplyAuthQuery(values, Connection{
+		AuthMode:       AuthModeQueryParam,
+		AuthHeaderName: "TYPEFULLY_API_KEY",
+	}, "Bearer token-123")
+	if got := values.Get("TYPEFULLY_API_KEY"); got != "token-123" {
+		t.Fatalf("expected query param token-123, got %q", got)
 	}
 }

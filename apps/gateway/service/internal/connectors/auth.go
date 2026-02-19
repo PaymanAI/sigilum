@@ -2,6 +2,7 @@ package connectors
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -13,10 +14,16 @@ func ApplyAuthHeader(headers http.Header, conn Connection, secret string) {
 	headers.Set(headerName, headerValue)
 }
 
+func ApplyAuthQuery(values url.Values, conn Connection, secret string) {
+	paramName, paramValue := authQuery(conn, secret)
+	if paramName == "" {
+		return
+	}
+	values.Set(paramName, paramValue)
+}
+
 func authHeader(conn Connection, secret string) (name string, value string) {
-	normalizedSecret := strings.TrimSpace(secret)
-	normalizedSecret = trimAuthPrefix(normalizedSecret, conn.AuthPrefix)
-	normalizedSecret = trimAuthPrefix(normalizedSecret, "Bearer ")
+	normalizedSecret := normalizeAuthSecret(conn, secret)
 
 	headerName := strings.TrimSpace(conn.AuthHeaderName)
 	if headerName == "" {
@@ -32,6 +39,8 @@ func authHeader(conn Connection, secret string) (name string, value string) {
 		return headerName, prefix + normalizedSecret
 	case AuthModeHeaderKey:
 		return headerName, conn.AuthPrefix + normalizedSecret
+	case AuthModeQueryParam:
+		return "", ""
 	default:
 		prefix := conn.AuthPrefix
 		if prefix == "" {
@@ -39,6 +48,26 @@ func authHeader(conn Connection, secret string) (name string, value string) {
 		}
 		return headerName, prefix + normalizedSecret
 	}
+}
+
+func authQuery(conn Connection, secret string) (name string, value string) {
+	if conn.AuthMode != AuthModeQueryParam {
+		return "", ""
+	}
+
+	normalizedSecret := normalizeAuthSecret(conn, secret)
+	paramName := strings.TrimSpace(conn.AuthHeaderName)
+	if paramName == "" {
+		paramName = "api_key"
+	}
+	return paramName, conn.AuthPrefix + normalizedSecret
+}
+
+func normalizeAuthSecret(conn Connection, secret string) string {
+	normalizedSecret := strings.TrimSpace(secret)
+	normalizedSecret = trimAuthPrefix(normalizedSecret, conn.AuthPrefix)
+	normalizedSecret = trimAuthPrefix(normalizedSecret, "Bearer ")
+	return normalizedSecret
 }
 
 func trimAuthPrefix(secret string, prefix string) string {

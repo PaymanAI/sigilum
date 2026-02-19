@@ -25,6 +25,9 @@ func NewReverseProxy(cfg ProxyConfig, upstreamPath string, rawQuery string) (*ht
 		req.URL.RawQuery = rawQuery
 
 		stripSigilumHeaders(req.Header)
+		query := req.URL.Query()
+		ApplyAuthQuery(query, cfg.Connection, cfg.Secret)
+		req.URL.RawQuery = query.Encode()
 		ApplyAuthHeader(req.Header, cfg.Connection, cfg.Secret)
 	}
 

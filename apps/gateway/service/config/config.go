@@ -27,6 +27,7 @@ type Config struct {
 	LogProxyRequests           bool
 	AllowUnsignedProxy         bool
 	AllowUnsignedFor           map[string]struct{}
+	RequireSignedAdminChecks   bool
 	RotationEnforcement        string
 	RotationGracePeriod        time.Duration
 	TimestampTolerance         time.Duration
@@ -53,6 +54,7 @@ func Load() (Config, error) {
 		LogProxyRequests:           true,
 		AllowUnsignedProxy:         false,
 		AllowUnsignedFor:           map[string]struct{}{},
+		RequireSignedAdminChecks:   true,
 		RotationEnforcement:        "warn",
 		RotationGracePeriod:        0,
 		TimestampTolerance:         5 * time.Minute,
@@ -75,6 +77,11 @@ func Load() (Config, error) {
 		return Config{}, err
 	} else {
 		cfg.AllowUnsignedProxy = value
+	}
+	if value, err := getEnvBool("GATEWAY_REQUIRE_SIGNED_ADMIN_CHECKS", cfg.RequireSignedAdminChecks); err != nil {
+		return Config{}, err
+	} else {
+		cfg.RequireSignedAdminChecks = value
 	}
 	cfg.AllowUnsignedFor = parseCSVSet(getEnv("GATEWAY_ALLOW_UNSIGNED_CONNECTIONS", ""))
 	if origins, err := parseAllowedOrigins(getEnv("GATEWAY_ALLOWED_ORIGINS", joinCSVSet(cfg.AllowedOrigins))); err != nil {

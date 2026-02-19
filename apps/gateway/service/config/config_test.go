@@ -20,3 +20,29 @@ func TestParseTrustedProxyCIDRsRejectsInvalidEntry(t *testing.T) {
 		t.Fatalf("expected parse failure for invalid entry")
 	}
 }
+
+func TestLoadDefaultsRequireSignedAdminChecks(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_REQUIRE_SIGNED_ADMIN_CHECKS", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.RequireSignedAdminChecks {
+		t.Fatalf("expected require_signed_admin_checks default to true")
+	}
+}
+
+func TestLoadAllowsDisablingSignedAdminChecks(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_REQUIRE_SIGNED_ADMIN_CHECKS", "false")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.RequireSignedAdminChecks {
+		t.Fatalf("expected require_signed_admin_checks to be false when overridden")
+	}
+}

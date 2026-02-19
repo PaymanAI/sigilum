@@ -122,24 +122,57 @@ func resolveServiceAPIKey(connectionID string, defaultValue string, sigilumHomeD
 	if scoped := strings.TrimSpace(os.Getenv("SIGILUM_SERVICE_API_KEY_" + serviceAPIKeyEnvSuffix(connectionID))); scoped != "" {
 		return scoped
 	}
+	if !isSafeServiceKeyID(connectionID) {
+		if fallback := strings.TrimSpace(defaultValue); fallback != "" {
+			return fallback
+		}
+		return ""
+	}
+
+	for _, homeDir := range candidateServiceKeyHomes(sigilumHomeDir) {
+		raw, err := os.ReadFile(filepath.Join(homeDir, "service-api-key-"+connectionID))
+		if err != nil {
+			continue
+		}
+		key := strings.TrimSpace(string(raw))
+		if key != "" {
+			return key
+		}
+	}
 	if fallback := strings.TrimSpace(defaultValue); fallback != "" {
 		return fallback
 	}
-	if !isSafeServiceKeyID(connectionID) {
-		return ""
+	return ""
+}
+
+func candidateServiceKeyHomes(explicitHome string) []string {
+	candidates := []string{}
+	if value := strings.TrimSpace(explicitHome); value != "" {
+		candidates = append(candidates, value)
 	}
-	homeDir := strings.TrimSpace(sigilumHomeDir)
-	if homeDir == "" {
-		homeDir = strings.TrimSpace(os.Getenv("SIGILUM_HOME"))
+	if value := strings.TrimSpace(os.Getenv("SIGILUM_HOME")); value != "" {
+		candidates = append(candidates, value)
 	}
-	if homeDir == "" {
-		return ""
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		candidates = append(candidates, filepath.Join(home, ".sigilum"))
+		candidates = append(candidates, filepath.Join(home, ".openclaw", "workspace", ".sigilum"))
+		candidates = append(candidates, filepath.Join(home, ".openclaw", ".sigilum"))
 	}
-	raw, err := os.ReadFile(filepath.Join(homeDir, "service-api-key-"+connectionID))
-	if err != nil {
-		return ""
+
+	seen := map[string]struct{}{}
+	deduped := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		trimmed := strings.TrimSpace(candidate)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		deduped = append(deduped, trimmed)
 	}
-	return strings.TrimSpace(string(raw))
+	return deduped
 }
 
 func serviceAPIKeyEnvSuffix(connectionID string) string {
@@ -193,6 +226,16 @@ func isSafeServiceKeyID(value string) bool {
 		}
 	}
 	return true
+}
+
+func truncateKeyPrefix(key string, maxLen int) string {
+	if key == "" {
+		return ""
+	}
+	if len(key) <= maxLen {
+		return key[:len(key)/2] + "..."
+	}
+	return key[:maxLen] + "..."
 }
 
 func writeVerificationFailure(
@@ -500,6 +543,20 @@ func clientIP(r *http.Request, trustedProxyCIDRs []*net.IPNet) string {
 		}
 	}
 	return remoteAddrIPString(r.RemoteAddr)
+}
+
+func isLoopbackClient(remoteIP string) bool {
+	trimmed := strings.TrimSpace(remoteIP)
+	if trimmed == "" {
+		return false
+	}
+	if strings.EqualFold(trimmed, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(trimmed); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }
 
 func isTrustedProxy(remoteAddr string, trustedProxyCIDRs []*net.IPNet) bool {

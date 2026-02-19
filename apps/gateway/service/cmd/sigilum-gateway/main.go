@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -269,14 +272,41 @@ func main() {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
-			var input connectors.TestConnectionInput
-			if err := readJSONBody(r, &input); err != nil {
-				writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+			body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, errorResponse{Error: "failed to read request body"})
 				return
+			}
+			remoteIP := clientIP(r, cfg.TrustedProxyCIDRs)
+			if cfg.RequireSignedAdminChecks && !isLoopbackClient(remoteIP) {
+				if _, ok := authorizeConnectionRequest(
+					w,
+					r,
+					body,
+					connectionID,
+					remoteIP,
+					nonceCache,
+					claimsCache,
+					cfg,
+				); !ok {
+					return
+				}
+			} else if cfg.RequireSignedAdminChecks && cfg.LogProxyRequests && isLoopbackClient(remoteIP) {
+				log.Printf("admin test bypassed signature check for loopback client connection=%s remote_ip=%s", connectionID, remoteIP)
+			}
+			var input connectors.TestConnectionInput
+			if len(bytes.TrimSpace(body)) > 0 {
+				if err := json.Unmarshal(body, &input); err != nil {
+					writeJSON(w, http.StatusBadRequest, errorResponse{Error: fmt.Sprintf("invalid JSON body: %v", err)})
+					return
+				}
 			}
 			status, statusCode, testErr := runConnectionTest(r.Context(), connectorService, mcpClient, connectionID, input)
 			if recordErr := connectorService.RecordTestResult(connectionID, status, statusCode, testErr); recordErr != nil {
 				log.Printf("warning: failed to record test result for %s: %v", connectionID, recordErr)
+			}
+			if status != "pass" {
+				log.Printf("connection test failed connection=%s status_code=%d error=%s", connectionID, statusCode, testErr)
 			}
 
 			responseCode := http.StatusOK
@@ -292,6 +322,28 @@ func main() {
 			if r.Method != http.MethodPost {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
+			}
+			body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, errorResponse{Error: "failed to read request body"})
+				return
+			}
+			remoteIP := clientIP(r, cfg.TrustedProxyCIDRs)
+			if cfg.RequireSignedAdminChecks && !isLoopbackClient(remoteIP) {
+				if _, ok := authorizeConnectionRequest(
+					w,
+					r,
+					body,
+					connectionID,
+					remoteIP,
+					nonceCache,
+					claimsCache,
+					cfg,
+				); !ok {
+					return
+				}
+			} else if cfg.RequireSignedAdminChecks && cfg.LogProxyRequests && isLoopbackClient(remoteIP) {
+				log.Printf("admin discover bypassed signature check for loopback client connection=%s remote_ip=%s", connectionID, remoteIP)
 			}
 			conn, err := connectorService.GetConnection(connectionID)
 			if err != nil {
@@ -391,6 +443,62 @@ func main() {
 		}
 	})
 
+	mux.HandleFunc("/api/admin/service-api-keys/", func(w http.ResponseWriter, r *http.Request) {
+		setCORSHeaders(w, r, cfg.AllowedOrigins)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		connectionID := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/api/admin/service-api-keys/"))
+		if connectionID == "" || !isSafeServiceKeyID(connectionID) {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "valid connection id is required"})
+			return
+		}
+		switch r.Method {
+		case http.MethodPut:
+			var input struct {
+				Key string `json:"key"`
+			}
+			if err := readJSONBody(r, &input); err != nil {
+				writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+				return
+			}
+			key := strings.TrimSpace(input.Key)
+			if key == "" {
+				writeJSON(w, http.StatusBadRequest, errorResponse{Error: "key is required"})
+				return
+			}
+			homeDir := strings.TrimSpace(cfg.SigilumHomeDir)
+			if homeDir == "" {
+				homeDir = strings.TrimSpace(os.Getenv("SIGILUM_HOME"))
+			}
+			if homeDir == "" {
+				writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "SIGILUM_HOME is not configured"})
+				return
+			}
+			if err := os.MkdirAll(homeDir, 0o700); err != nil {
+				writeJSON(w, http.StatusInternalServerError, errorResponse{Error: fmt.Sprintf("failed to create sigilum home: %v", err)})
+				return
+			}
+			keyFile := filepath.Join(homeDir, "service-api-key-"+connectionID)
+			if err := os.WriteFile(keyFile, []byte(key+"\n"), 0o600); err != nil {
+				writeJSON(w, http.StatusInternalServerError, errorResponse{Error: fmt.Sprintf("failed to write key file: %v", err)})
+				return
+			}
+			log.Printf("service API key written for connection=%s file=%s", connectionID, keyFile)
+			writeJSON(w, http.StatusOK, map[string]any{"connection_id": connectionID, "written": true})
+		case http.MethodGet:
+			key := resolveServiceAPIKey(connectionID, cfg.ServiceAPIKey, cfg.SigilumHomeDir)
+			writeJSON(w, http.StatusOK, map[string]any{
+				"connection_id": connectionID,
+				"has_key":       key != "",
+				"key_prefix":    truncateKeyPrefix(key, 8),
+			})
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
 	mux.HandleFunc("/api/admin/service-catalog", func(w http.ResponseWriter, r *http.Request) {
 		setCORSHeaders(w, r, cfg.AllowedOrigins)
 		if r.Method == http.MethodOptions {
@@ -459,7 +567,7 @@ func main() {
 
 	log.Printf("sigilum-gateway listening on %s", cfg.Addr)
 	log.Printf(
-		"registry=%s timestamp_tolerance=%s nonce_ttl=%s claims_cache_ttl=%s claims_refresh_interval=%s slack_alias_connection_id=%s rotation_enforcement=%s rotation_grace=%s catalog=%s log_proxy_requests=%t allow_unsigned_proxy=%t allow_unsigned_connections=%s trusted_proxy_cidrs=%s allowed_origins=%s",
+		"registry=%s timestamp_tolerance=%s nonce_ttl=%s claims_cache_ttl=%s claims_refresh_interval=%s slack_alias_connection_id=%s rotation_enforcement=%s rotation_grace=%s catalog=%s log_proxy_requests=%t require_signed_admin_checks=%t allow_unsigned_proxy=%t allow_unsigned_connections=%s trusted_proxy_cidrs=%s allowed_origins=%s",
 		cfg.RegistryURL,
 		cfg.TimestampTolerance,
 		cfg.NonceTTL,
@@ -470,6 +578,7 @@ func main() {
 		cfg.RotationGracePeriod,
 		cfg.ServiceCatalogFile,
 		cfg.LogProxyRequests,
+		cfg.RequireSignedAdminChecks,
 		cfg.AllowUnsignedProxy,
 		joinAllowedConnections(cfg.AllowUnsignedFor),
 		joinTrustedProxyCIDRs(cfg.TrustedProxyCIDRs),

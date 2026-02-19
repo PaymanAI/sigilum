@@ -64,6 +64,35 @@ func TestResolveProxyConfigAllowsMCPWithoutAuthSecret(t *testing.T) {
 	}
 }
 
+func TestCreateConnectionMCPQueryParamAuthDefaults(t *testing.T) {
+	service := newTestService(t)
+	defer service.Close()
+
+	conn, err := service.CreateConnection(CreateConnectionInput{
+		ID:            "typefully-mcp",
+		Name:          "Typefully MCP",
+		Protocol:      "mcp",
+		BaseURL:       "https://mcp.typefully.com",
+		AuthMode:      "query_param",
+		AuthSecretKey: "api_key",
+		Secrets: map[string]string{
+			"api_key": "tfy-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected mcp query_param create success, got error: %v", err)
+	}
+	if conn.AuthMode != AuthModeQueryParam {
+		t.Fatalf("expected query_param auth mode, got %s", conn.AuthMode)
+	}
+	if conn.AuthHeaderName != "api_key" {
+		t.Fatalf("expected default query param name api_key, got %q", conn.AuthHeaderName)
+	}
+	if conn.AuthPrefix != "" {
+		t.Fatalf("expected empty auth prefix for query_param mode, got %q", conn.AuthPrefix)
+	}
+}
+
 func TestSaveMCPDiscovery(t *testing.T) {
 	service := newTestService(t)
 	defer service.Close()
@@ -122,7 +151,7 @@ func TestResolveProxyConfigInjectsSharedCredentialVariable(t *testing.T) {
 		AuthMode:      "bearer",
 		AuthSecretKey: "api_key",
 		Secrets: map[string]string{
-			"api_key": "{{var:OPENAI_API_KEY}}",
+			"api_key": "{{OPENAI_API_KEY}}",
 		},
 	})
 	if err != nil {
@@ -150,7 +179,7 @@ func TestResolveProxyConfigFailsWhenSharedCredentialVariableMissing(t *testing.T
 		AuthMode:      "header_key",
 		AuthSecretKey: "api_key",
 		Secrets: map[string]string{
-			"api_key": "{{var:LINEAR_API_KEY}}",
+			"api_key": "{{LINEAR_API_KEY}}",
 		},
 	})
 	if err != nil {
@@ -210,6 +239,42 @@ func TestCredentialVariableLifecycle(t *testing.T) {
 	}
 	if err := service.DeleteCredentialVariable("STRIPE_API_KEY"); err == nil {
 		t.Fatal("expected not found after delete")
+	}
+}
+
+func TestResolveProxyConfigDoesNotResolveLegacyVarPrefix(t *testing.T) {
+	service := newTestService(t)
+	defer service.Close()
+
+	_, err := service.UpsertCredentialVariable(UpsertSharedCredentialVariableInput{
+		Key:   "LEGACY_API_KEY",
+		Value: "legacy-live-123",
+	})
+	if err != nil {
+		t.Fatalf("upsert credential variable failed: %v", err)
+	}
+
+	_, err = service.CreateConnection(CreateConnectionInput{
+		ID:            "legacy-http",
+		Name:          "Legacy",
+		Protocol:      "http",
+		BaseURL:       "https://api.legacy.com",
+		AuthMode:      "header_key",
+		AuthSecretKey: "api_key",
+		Secrets: map[string]string{
+			"api_key": "{{var:LEGACY_API_KEY}}",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create connection failed: %v", err)
+	}
+
+	cfg, err := service.ResolveProxyConfig("legacy-http")
+	if err != nil {
+		t.Fatalf("resolve proxy config failed: %v", err)
+	}
+	if cfg.Secret != "{{var:LEGACY_API_KEY}}" {
+		t.Fatalf("expected unresolved legacy template, got %q", cfg.Secret)
 	}
 }
 
