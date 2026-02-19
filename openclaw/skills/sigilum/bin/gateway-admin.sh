@@ -44,6 +44,18 @@ has_cmd() {
   command -v "$1" >/dev/null 2>&1
 }
 
+append_trap() {
+  local new_handler="$1"
+  local signal="${2:-EXIT}"
+  local existing
+  existing="$(trap -p "$signal" | awk -F"'" '{print $2}')"
+  if [[ -n "$existing" ]]; then
+    trap "${existing}; ${new_handler}" "$signal"
+  else
+    trap "${new_handler}" "$signal"
+  fi
+}
+
 trim() {
   local value="$1"
   value="${value#"${value%%[![:space:]]*}"}"
@@ -144,6 +156,33 @@ response_body_from_file() {
   awk 'BEGIN{body=0} /^\r?$/{if(!body){body=1;next}} body{print}' "$file"
 }
 
+read_socket_response() {
+  local out_file="$1"
+  local timeout_seconds="${SIGILUM_HTTP_TIMEOUT_SECONDS:-20}"
+  if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
+    timeout_seconds=20
+  fi
+
+  if has_cmd timeout; then
+    timeout "${timeout_seconds}" cat <&3 >"$out_file" 2>/dev/null
+    return $?
+  fi
+
+  : >"$out_file"
+  local line
+  while IFS= read -r -t "$timeout_seconds" line <&3; do
+    printf '%s\n' "$line" >>"$out_file"
+  done
+  local rc=$?
+  if (( rc > 128 )); then
+    return 124
+  fi
+  if [[ $rc -eq 0 || $rc -eq 1 ]]; then
+    return 0
+  fi
+  return $rc
+}
+
 http_request_with_curl() {
   local method="$1"
   local endpoint="$2"
@@ -218,9 +257,20 @@ http_request_with_devtcp() {
     fi
   } >&3
 
-  cat <&3 >"$request_file" 2>/dev/null || true
+  local read_status=0
+  if ! read_socket_response "$request_file"; then
+    read_status=$?
+  fi
   exec 3<&-
   exec 3>&-
+  if [[ $read_status -ne 0 ]]; then
+    if [[ $read_status -eq 124 ]]; then
+      echo "Gateway response timed out after ${SIGILUM_HTTP_TIMEOUT_SECONDS:-20}s (set SIGILUM_HTTP_TIMEOUT_SECONDS to adjust)." >&2
+    else
+      echo "Failed to read gateway response from socket (status=$read_status)." >&2
+    fi
+    exit 2
+  fi
 
   HTTP_STATUS_LINE="$(head -n 1 "$request_file" | tr -d '\r')"
   HTTP_STATUS="$(printf '%s' "$HTTP_STATUS_LINE" | awk '{print $2}')"
@@ -415,7 +465,7 @@ build_signing_context() {
   fi
 
   TMP_SIGN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sigilum-gateway-sign-XXXXXX")"
-  trap 'rm -rf "${TMP_SIGN_DIR}"' EXIT
+  append_trap 'rm -rf "${TMP_SIGN_DIR}"' EXIT
 
   printf '%s' "$PRIVATE_SEED_B64" | openssl base64 -d -A >"${TMP_SIGN_DIR}/seed.bin"
   local seed_hex der_hex
@@ -517,7 +567,7 @@ signed_request() {
 
   signing_base="${TMP_SIGN_DIR}/signing-base.txt"
   {
-    printf '"@method": %s\n' "$(printf '%s' "$method" | tr '[:upper:]' '[:lower:]')"
+    printf '"@method": %s\n' "$method"
     printf '"@target-uri": %s\n' "$target_uri"
     if [[ -n "$content_digest" ]]; then
       printf '"content-digest": %s\n' "$content_digest"

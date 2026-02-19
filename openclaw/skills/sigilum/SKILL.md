@@ -67,12 +67,12 @@ When user asks: “can you access linear?”
 1. Derive connection id: `sigilum-secure-linear`.
 2. Run signed tools check: `"${HELPER}" tools "sigilum-secure-linear" "${GATEWAY_URL}"`.
 3. Interpret `HTTP_STATUS`:
-4. `200`: yes, accessible via Sigilum gateway for this agent key.
-5. `401` or `403`: agent authorization required.
-6. If `APPROVAL_REQUIRED=true`, include `APPROVAL_NAMESPACE`, `APPROVAL_AGENT_ID`, and `APPROVAL_PUBLIC_KEY` in your user-facing approval instructions.
-7. If `CLAIM_HTTP_STATUS` is present and indicates pending/already pending/already approved, report that claim registration was submitted (or already exists).
-8. `404`: connection missing; ask user to configure/install the provider connection.
-9. Other non-2xx: gateway/upstream issue; surface exact error and next action.
+   - `200`: yes, accessible via Sigilum gateway for this agent key.
+   - `401` or `403`: agent authorization required.
+   - If `APPROVAL_REQUIRED=true`, include `APPROVAL_NAMESPACE`, `APPROVAL_AGENT_ID`, and `APPROVAL_PUBLIC_KEY` in your user-facing approval instructions.
+   - If `CLAIM_HTTP_STATUS` is present and indicates pending/already pending/already approved, report that claim registration was submitted (or already exists).
+   - `404`: connection missing; ask user to configure/install the provider connection.
+   - Other non-2xx: gateway/upstream issue; surface exact error and next action.
 
 ## Runtime CLI (optional)
 

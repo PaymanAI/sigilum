@@ -333,3 +333,49 @@ func TestReadLimitedRequestBodyRejectsTooLarge(t *testing.T) {
 		t.Fatalf("expected errRequestBodyTooLarge, got %v", err)
 	}
 }
+
+func TestReadJSONBodyRejectsTooLarge(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/connections", io.NopCloser(strings.NewReader(`{"key":"abcdefghijklmnopqrstuvwxyz"}`)))
+	var payload map[string]any
+
+	err := readJSONBody(req, &payload, 16)
+	if !errors.Is(err, errRequestBodyTooLarge) {
+		t.Fatalf("expected errRequestBodyTooLarge, got %v", err)
+	}
+}
+
+func TestSetCORSHeadersSkipsDisallowedOrigin(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/connections", nil)
+	req.Header.Set("Origin", "https://evil.example")
+
+	setCORSHeaders(recorder, req, map[string]struct{}{
+		"https://allowed.example": {},
+	})
+
+	headers := recorder.Header()
+	if got := headers.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("expected no allow-origin header for disallowed origin, got %q", got)
+	}
+	if got := headers.Get("Access-Control-Allow-Methods"); got != "" {
+		t.Fatalf("expected no allow-methods header for disallowed origin, got %q", got)
+	}
+}
+
+func TestSetCORSHeadersSetsHeadersForAllowedOrigin(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/connections", nil)
+	req.Header.Set("Origin", "https://allowed.example")
+
+	setCORSHeaders(recorder, req, map[string]struct{}{
+		"https://allowed.example": {},
+	})
+
+	headers := recorder.Header()
+	if got := headers.Get("Access-Control-Allow-Origin"); got != "https://allowed.example" {
+		t.Fatalf("expected allow-origin for allowed origin, got %q", got)
+	}
+	if got := headers.Get("Access-Control-Allow-Methods"); got == "" {
+		t.Fatalf("expected allow-methods header for allowed origin")
+	}
+}

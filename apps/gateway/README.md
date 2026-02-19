@@ -173,7 +173,7 @@ The gateway also provides a local CLI for managing stored service connections di
 
 CLI reads:
 
-- `GATEWAY_DATA_DIR` (default `/var/lib/sigilum-gateway`)
+- `GATEWAY_DATA_DIR` (default `$XDG_DATA_HOME/sigilum-gateway` or `$HOME/.local/share/sigilum-gateway`)
 - `GATEWAY_MASTER_KEY` (required; can be passed via `--master-key`)
 
 ## Envoy (Optional Local Ingress)

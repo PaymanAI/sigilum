@@ -2,15 +2,18 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"sigilum.local/gateway/config"
@@ -184,8 +187,8 @@ func main() {
 			writeJSON(w, http.StatusOK, map[string]any{"connections": list})
 		case http.MethodPost:
 			var input connectors.CreateConnectionInput
-			if err := readJSONBody(r, &input); err != nil {
-				writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+			if err := readJSONBody(r, &input, cfg.MaxRequestBodyBytes); err != nil {
+				writeJSONBodyError(w, err)
 				return
 			}
 
@@ -238,8 +241,8 @@ func main() {
 				w.WriteHeader(http.StatusNoContent)
 			case http.MethodPatch:
 				var input connectors.UpdateConnectionInput
-				if err := readJSONBody(r, &input); err != nil {
-					writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+				if err := readJSONBody(r, &input, cfg.MaxRequestBodyBytes); err != nil {
+					writeJSONBodyError(w, err)
 					return
 				}
 				conn, err := connectorService.UpdateConnection(connectionID, input)
@@ -262,8 +265,8 @@ func main() {
 				return
 			}
 			var input connectors.RotateSecretInput
-			if err := readJSONBody(r, &input); err != nil {
-				writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+			if err := readJSONBody(r, &input, cfg.MaxRequestBodyBytes); err != nil {
+				writeJSONBodyError(w, err)
 				return
 			}
 			conn, err := connectorService.RotateSecret(connectionID, input)
@@ -272,21 +275,21 @@ func main() {
 				return
 			}
 			writeJSON(w, http.StatusOK, conn)
-			case "test":
-				if r.Method != http.MethodPost {
-					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		case "test":
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			body, err := readLimitedRequestBody(r, cfg.MaxRequestBodyBytes)
+			if err != nil {
+				writeRequestBodyError(w, err)
+				return
+			}
+			var input connectors.TestConnectionInput
+			if len(bytes.TrimSpace(body)) > 0 {
+				if err := json.Unmarshal(body, &input); err != nil {
+					writeJSON(w, http.StatusBadRequest, errorResponse{Error: fmt.Sprintf("invalid JSON body: %v", err)})
 					return
-				}
-				body, err := readLimitedRequestBody(r, cfg.MaxRequestBodyBytes)
-				if err != nil {
-					writeRequestBodyError(w, err)
-					return
-				}
-				var input connectors.TestConnectionInput
-				if len(bytes.TrimSpace(body)) > 0 {
-					if err := json.Unmarshal(body, &input); err != nil {
-						writeJSON(w, http.StatusBadRequest, errorResponse{Error: fmt.Sprintf("invalid JSON body: %v", err)})
-						return
 				}
 			}
 			status, statusCode, testErr := runConnectionTest(r.Context(), connectorService, mcpClient, connectionID, input)
@@ -306,15 +309,15 @@ func main() {
 				HTTPStatus: statusCode,
 				Error:      testErr,
 			})
-			case "discover":
-				if r.Method != http.MethodPost {
-					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-					return
-				}
-				conn, err := connectorService.GetConnection(connectionID)
-				if err != nil {
-					writeConnectionError(w, err)
-					return
+		case "discover":
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			conn, err := connectorService.GetConnection(connectionID)
+			if err != nil {
+				writeConnectionError(w, err)
+				return
 			}
 			if !isMCPConnection(conn) {
 				writeJSON(w, http.StatusBadRequest, errorResponse{Error: "connection protocol is not mcp"})
@@ -369,8 +372,8 @@ func main() {
 			writeJSON(w, http.StatusOK, map[string]any{"variables": values})
 		case http.MethodPost:
 			var input connectors.UpsertSharedCredentialVariableInput
-			if err := readJSONBody(r, &input); err != nil {
-				writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+			if err := readJSONBody(r, &input, cfg.MaxRequestBodyBytes); err != nil {
+				writeJSONBodyError(w, err)
 				return
 			}
 			if subject := strings.TrimSpace(r.Header.Get(headerSubject)); subject != "" {
@@ -434,8 +437,8 @@ func main() {
 			var input struct {
 				Key string `json:"key"`
 			}
-			if err := readJSONBody(r, &input); err != nil {
-				writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+			if err := readJSONBody(r, &input, cfg.MaxRequestBodyBytes); err != nil {
+				writeJSONBodyError(w, err)
 				return
 			}
 			key := strings.TrimSpace(input.Key)
@@ -493,8 +496,8 @@ func main() {
 			writeJSON(w, http.StatusOK, payload)
 		case http.MethodPut:
 			var input catalog.ServiceCatalog
-			if err := readJSONBody(r, &input); err != nil {
-				writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+			if err := readJSONBody(r, &input, cfg.MaxRequestBodyBytes); err != nil {
+				writeJSONBodyError(w, err)
 				return
 			}
 			if err := catalogStore.Save(input); err != nil {
@@ -543,27 +546,62 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	log.Printf("sigilum-gateway listening on %s", cfg.Addr)
+	log.Printf("gateway listening addr=%s", cfg.Addr)
 	log.Printf(
-		"registry=%s timestamp_tolerance=%s nonce_ttl=%s claims_cache_ttl=%s claims_refresh_interval=%s max_request_body_bytes=%d slack_alias_connection_id=%s rotation_enforcement=%s rotation_grace=%s catalog=%s log_proxy_requests=%t require_signed_admin_checks=%t allow_unsigned_proxy=%t allow_unsigned_connections=%s trusted_proxy_cidrs=%s allowed_origins=%s",
+		"gateway security registry=%s timestamp_tolerance=%s nonce_ttl=%s require_signed_admin_checks=%t allow_unsigned_proxy=%t allow_unsigned_connections=%s trusted_proxy_cidrs=%s",
 		cfg.RegistryURL,
 		cfg.TimestampTolerance,
 		cfg.NonceTTL,
-		cfg.ClaimsCacheTTL,
-		cfg.ClaimsCacheRefreshInterval,
-		cfg.MaxRequestBodyBytes,
-		slackAliasConnectionID,
-		cfg.RotationEnforcement,
-		cfg.RotationGracePeriod,
-		cfg.ServiceCatalogFile,
-		cfg.LogProxyRequests,
 		cfg.RequireSignedAdminChecks,
 		cfg.AllowUnsignedProxy,
 		joinAllowedConnections(cfg.AllowUnsignedFor),
 		joinTrustedProxyCIDRs(cfg.TrustedProxyCIDRs),
+	)
+	log.Printf(
+		"gateway runtime claims_cache_ttl=%s claims_refresh_interval=%s max_request_body_bytes=%d shutdown_timeout=%s slack_alias_connection_id=%s rotation_enforcement=%s rotation_grace=%s log_proxy_requests=%t",
+		cfg.ClaimsCacheTTL,
+		cfg.ClaimsCacheRefreshInterval,
+		cfg.MaxRequestBodyBytes,
+		cfg.ShutdownTimeout,
+		slackAliasConnectionID,
+		cfg.RotationEnforcement,
+		cfg.RotationGracePeriod,
+		cfg.LogProxyRequests,
+	)
+	log.Printf(
+		"gateway storage data_dir=%s catalog=%s allowed_origins=%s",
+		cfg.DataDir,
+		cfg.ServiceCatalogFile,
 		joinAllowedOrigins(cfg.AllowedOrigins),
 	)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("server error: %v", err)
+
+	serverCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+
+	serverErrCh := make(chan error, 1)
+	go func() {
+		serverErrCh <- srv.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serverErrCh:
+		if err != nil && err != http.ErrServerClosed {
+			log.Fatalf("server error: %v", err)
+		}
+	case <-serverCtx.Done():
+		log.Printf("shutdown signal received; draining for up to %s", cfg.ShutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+		defer cancel()
+
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("graceful shutdown failed: %v", err)
+			if closeErr := srv.Close(); closeErr != nil {
+				log.Printf("forced server close failed: %v", closeErr)
+			}
+		}
+
+		if err := <-serverErrCh; err != nil && err != http.ErrServerClosed {
+			log.Fatalf("server error during shutdown: %v", err)
+		}
 	}
 }

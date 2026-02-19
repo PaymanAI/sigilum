@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+	"time"
+)
 
 func TestParseTrustedProxyCIDRs(t *testing.T) {
 	cidrs, err := parseTrustedProxyCIDRs("203.0.113.0/24, 10.0.0.1, 2001:db8::/32")
@@ -57,5 +61,51 @@ func TestLoadParsesMaxRequestBodyBytes(t *testing.T) {
 	}
 	if cfg.MaxRequestBodyBytes != 2097152 {
 		t.Fatalf("expected max request body bytes to be 2097152, got %d", cfg.MaxRequestBodyBytes)
+	}
+}
+
+func TestLoadDefaultsDataDirToUserHome(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_DATA_DIR", "")
+	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("HOME", "/tmp/sigilum-test-home")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	expected := filepath.Join("/tmp/sigilum-test-home", ".local", "share", "sigilum-gateway")
+	if cfg.DataDir != expected {
+		t.Fatalf("expected data dir %q, got %q", expected, cfg.DataDir)
+	}
+}
+
+func TestLoadPrefersXDGDataHome(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_DATA_DIR", "")
+	t.Setenv("XDG_DATA_HOME", "/tmp/sigilum-xdg")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	expected := filepath.Join("/tmp/sigilum-xdg", "sigilum-gateway")
+	if cfg.DataDir != expected {
+		t.Fatalf("expected data dir %q, got %q", expected, cfg.DataDir)
+	}
+}
+
+func TestLoadParsesShutdownTimeoutSeconds(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_SHUTDOWN_TIMEOUT_SECONDS", "25")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.ShutdownTimeout != 25*time.Second {
+		t.Fatalf("expected shutdown timeout 25s, got %s", cfg.ShutdownTimeout)
 	}
 }

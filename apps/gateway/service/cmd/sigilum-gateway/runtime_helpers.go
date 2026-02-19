@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -528,18 +529,29 @@ func writeRequestBodyError(w http.ResponseWriter, err error) {
 	writeJSON(w, http.StatusBadRequest, errorResponse{Error: "failed to read request body"})
 }
 
-func readJSONBody(r *http.Request, out any) error {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+func readJSONBody(r *http.Request, out any, maxBytes int64) error {
+	body, err := readLimitedRequestBody(r, maxBytes)
 	if err != nil {
-		return errors.New("failed to read request body")
+		return err
 	}
-	if len(body) == 0 {
+	if len(bytes.TrimSpace(body)) == 0 {
 		return errors.New("request body is required")
 	}
 	if err := json.Unmarshal(body, out); err != nil {
 		return fmt.Errorf("invalid JSON body: %w", err)
 	}
 	return nil
+}
+
+func writeJSONBodyError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errRequestBodyTooLarge) {
+		writeJSON(w, http.StatusRequestEntityTooLarge, errorResponse{
+			Error: "request body exceeds configured limit",
+			Code:  "REQUEST_BODY_TOO_LARGE",
+		})
+		return
+	}
+	writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
@@ -569,11 +581,11 @@ func setCORSHeaders(w http.ResponseWriter, r *http.Request, allowedOrigins map[s
 		if _, ok := allowedOrigins[origin]; ok {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Max-Age", "86400")
 		}
 	}
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-	w.Header().Set("Access-Control-Max-Age", "86400")
 }
 
 func writeProxyAuthFailure(w http.ResponseWriter) {

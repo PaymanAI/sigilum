@@ -33,12 +33,13 @@ type Config struct {
 	RotationGracePeriod        time.Duration
 	TimestampTolerance         time.Duration
 	NonceTTL                   time.Duration
+	ShutdownTimeout            time.Duration
 }
 
 func Load() (Config, error) {
 	cfg := Config{
 		Addr:               getEnv("GATEWAY_ADDR", ":38100"),
-		DataDir:            getEnv("GATEWAY_DATA_DIR", "/var/lib/sigilum-gateway"),
+		DataDir:            getEnv("GATEWAY_DATA_DIR", defaultGatewayDataDir()),
 		ServiceCatalogFile: getEnv("GATEWAY_SERVICE_CATALOG_FILE", ""),
 		MasterKey:          getEnv("GATEWAY_MASTER_KEY", ""),
 		RegistryURL:        getEnv("SIGILUM_REGISTRY_URL", getEnv("SIGILUM_API_URL", "https://api.sigilum.id")),
@@ -61,6 +62,7 @@ func Load() (Config, error) {
 		RotationGracePeriod:        0,
 		TimestampTolerance:         5 * time.Minute,
 		NonceTTL:                   10 * time.Minute,
+		ShutdownTimeout:            15 * time.Second,
 		RegistryRequestTimeout:     60 * time.Second,
 	}
 
@@ -121,6 +123,11 @@ func Load() (Config, error) {
 	} else {
 		cfg.NonceTTL = time.Duration(seconds) * time.Second
 	}
+	if seconds, err := getEnvInt("GATEWAY_SHUTDOWN_TIMEOUT_SECONDS", int(cfg.ShutdownTimeout/time.Second)); err != nil {
+		return Config{}, err
+	} else {
+		cfg.ShutdownTimeout = time.Duration(seconds) * time.Second
+	}
 	if seconds, err := getEnvInt("GATEWAY_CLAIMS_CACHE_TTL_SECONDS", int(cfg.ClaimsCacheTTL/time.Second)); err != nil {
 		return Config{}, err
 	} else {
@@ -141,6 +148,16 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func defaultGatewayDataDir() string {
+	if xdgDataHome := strings.TrimSpace(os.Getenv("XDG_DATA_HOME")); xdgDataHome != "" {
+		return xdgDataHome + "/sigilum-gateway"
+	}
+	if homeDir, err := os.UserHomeDir(); err == nil && strings.TrimSpace(homeDir) != "" {
+		return homeDir + "/.local/share/sigilum-gateway"
+	}
+	return "./gateway-data"
 }
 
 func getEnv(name, defaultValue string) string {

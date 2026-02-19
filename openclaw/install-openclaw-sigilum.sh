@@ -256,12 +256,6 @@ sync_service_api_keys() {
   printf '%s' "$copied"
 }
 
-run_cmd() {
-  local cmd="$1"
-  echo "Running: $cmd"
-  sh -c "$cmd"
-}
-
 dashboard_origin_from_url() {
   local raw="$1"
   node - "$raw" <<'NODE'

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -120,19 +121,29 @@ func usage() {
 	_, _ = fmt.Fprintln(os.Stderr, "  test     --id <id> [flags]         Test upstream connection")
 	_, _ = fmt.Fprintln(os.Stderr, "")
 	_, _ = fmt.Fprintln(os.Stderr, "Global environment:")
-	_, _ = fmt.Fprintln(os.Stderr, "  GATEWAY_DATA_DIR (default /var/lib/sigilum-gateway)")
+	_, _ = fmt.Fprintln(os.Stderr, "  GATEWAY_DATA_DIR (default $XDG_DATA_HOME/sigilum-gateway or $HOME/.local/share/sigilum-gateway)")
 	_, _ = fmt.Fprintln(os.Stderr, "  GATEWAY_MASTER_KEY (required)")
 }
 
 func parseCommonFlags(fs *flag.FlagSet) (dataDir *string, masterKey *string) {
 	defaultDataDir := strings.TrimSpace(os.Getenv("GATEWAY_DATA_DIR"))
 	if defaultDataDir == "" {
-		defaultDataDir = "/var/lib/sigilum-gateway"
+		defaultDataDir = defaultGatewayDataDir()
 	}
 	defaultMasterKey := strings.TrimSpace(os.Getenv("GATEWAY_MASTER_KEY"))
 	dataDir = fs.String("data-dir", defaultDataDir, "Gateway data directory")
 	masterKey = fs.String("master-key", defaultMasterKey, "Gateway master key")
 	return dataDir, masterKey
+}
+
+func defaultGatewayDataDir() string {
+	if xdgDataHome := strings.TrimSpace(os.Getenv("XDG_DATA_HOME")); xdgDataHome != "" {
+		return filepath.Join(xdgDataHome, "sigilum-gateway")
+	}
+	if homeDir, err := os.UserHomeDir(); err == nil && strings.TrimSpace(homeDir) != "" {
+		return filepath.Join(homeDir, ".local", "share", "sigilum-gateway")
+	}
+	return "./gateway-data"
 }
 
 func openService(dataDir string, masterKey string) (*connectors.Service, error) {

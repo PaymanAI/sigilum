@@ -91,8 +91,7 @@ func NewCache(cfg CacheConfig) (*Cache, error) {
 		refreshInterval = cacheTTL
 	}
 
-	httpClient := http.DefaultClient
-	httpClient = &http.Client{Timeout: requestTimeout}
+	httpClient := &http.Client{Timeout: requestTimeout}
 
 	bindings, err := sigilum.Certify(sigilum.CertifyOptions{
 		Namespace:  cfg.SignerNamespace,

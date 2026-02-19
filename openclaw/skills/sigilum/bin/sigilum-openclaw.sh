@@ -6,6 +6,14 @@ SKILL_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OPENCLAW_HOME_DIR="${OPENCLAW_HOME:-${HOME}/.openclaw}"
 WORKSPACE_RUNTIME="${OPENCLAW_HOME_DIR}/workspace/.sigilum/runtime/sigilum"
 
+# Resolution order (highest to lowest priority):
+# 1) SIGILUM_RUNTIME_BIN
+# 2) SIGILUM_RUNTIME_ROOT/sigilum
+# 3) Bundled skill runtime
+# 4) OpenClaw workspace runtime
+# 5) SIGILUM_CLI_PATH
+# 6) SIGILUM_REPO_ROOT/sigilum
+# 7) sigilum from PATH
 if [[ -n "${SIGILUM_RUNTIME_BIN:-}" ]] && [[ -x "${SIGILUM_RUNTIME_BIN}" ]]; then
   exec "${SIGILUM_RUNTIME_BIN}" "$@"
 fi
