@@ -274,3 +274,7 @@ From repo root:
   - `docker compose -f apps/gateway/docker-compose.yml up --build`
 
 If using compose, ensure your `.env` in `apps/gateway/` is configured first.
+
+For full gateway + OpenClaw end-to-end validation steps (including approval flow and expected outputs), see:
+
+- `docs/cli/GATEWAY_OPENCLAW_VALIDATION.md`

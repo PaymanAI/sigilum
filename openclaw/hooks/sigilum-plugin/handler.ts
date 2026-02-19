@@ -114,6 +114,7 @@ function buildGatewayPolicyMessage(gatewayURL: string, mcpConnections: string[])
     "  1) Derive connection id: sigilum-secure-<provider>",
     "  2) Run signed runtime check via helper: gateway-admin.sh tools <connection_id>",
     "  3) Answer from HTTP_STATUS (200=yes, 401/403=auth required, 404=missing connection)",
+    "  4) If APPROVAL_REQUIRED=true, include APPROVAL_NAMESPACE + APPROVAL_AGENT_ID + APPROVAL_PUBLIC_KEY in the approval request to the user.",
     "- Do not ask for direct provider API keys unless gateway connection is missing/disabled/test fails.",
     `- Gateway URL: ${normalizeGatewayBaseURL(gatewayURL) || "<unset>"}`,
     "- Enforce per-agent registration: runtime checks must be signed and claim-gated.",

@@ -135,6 +135,36 @@ install_tree() {
   cp -R "$src" "$dest"
 }
 
+normalize_runtime_permissions() {
+  local runtime_root="$1"
+  [[ -z "$runtime_root" ]] && return 0
+  if [[ ! -d "$runtime_root" ]]; then
+    return 0
+  fi
+
+  chmod -R u+rwX,go-rwx "$runtime_root" 2>/dev/null || true
+  if [[ -f "${runtime_root}/sigilum" ]]; then
+    chmod 700 "${runtime_root}/sigilum" 2>/dev/null || true
+  fi
+  if [[ -d "${runtime_root}/scripts" ]]; then
+    find "${runtime_root}/scripts" -type f -name "*.sh" -exec chmod 700 {} + 2>/dev/null || true
+    find "${runtime_root}/scripts" -type f ! -name "*.sh" -exec chmod 600 {} + 2>/dev/null || true
+  fi
+}
+
+normalize_skill_permissions() {
+  local skill_root="$1"
+  [[ -z "$skill_root" ]] && return 0
+  if [[ ! -d "$skill_root" ]]; then
+    return 0
+  fi
+
+  chmod -R u+rwX,go-rwx "$skill_root" 2>/dev/null || true
+  if [[ -d "${skill_root}/bin" ]]; then
+    find "${skill_root}/bin" -type f -name "*.sh" -exec chmod 700 {} + 2>/dev/null || true
+  fi
+}
+
 build_runtime_bundle() {
   local dest="$1"
   local tmp_runtime
@@ -147,7 +177,7 @@ build_runtime_bundle() {
   cp -R "$SIGILUM_SCRIPTS_SRC" "${tmp_runtime}/scripts"
 
   install_tree "${tmp_runtime}" "$dest" "skills"
-  chmod -R u+rwX,go+rX "$dest" 2>/dev/null || true
+  normalize_runtime_permissions "$dest"
   rm -rf "$tmp_runtime"
 }
 
@@ -548,12 +578,14 @@ install_tree "$HOOK_AUTHZ_NOTIFY_SRC" "${HOOKS_DIR}/sigilum-authz-notify" "hooks
 
 echo "Installing skills..."
 install_tree "$SKILL_SIGILUM_SRC" "${SKILLS_DIR}/sigilum" "skills"
+normalize_skill_permissions "${SKILLS_DIR}/sigilum"
 
 AGENT_WORKSPACE="$(detect_agent_workspace "$CONFIG_PATH")"
 if [[ -n "$AGENT_WORKSPACE" ]]; then
   WORKSPACE_SKILLS_DIR="${AGENT_WORKSPACE%/}/skills"
   echo "Installing workspace skill mirror..."
   install_tree "$SKILL_SIGILUM_SRC" "${WORKSPACE_SKILLS_DIR}/sigilum" "skills"
+  normalize_skill_permissions "${WORKSPACE_SKILLS_DIR}/sigilum"
 fi
 
 DEFAULT_RUNTIME_ROOT="${SKILLS_DIR}/sigilum/runtime"

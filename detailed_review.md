@@ -17,9 +17,9 @@ Legend:
 | R-004 | P1 | security, architecture, gateway | done | `apps/gateway/service/cmd/sigilum-gateway/runtime_helpers.go`, `apps/gateway/service/cmd/sigilum-gateway/authorization.go` | Added duplicate-header rejection for critical Sigilum/signature headers before signature verification. |
 | R-005 | P1 | performance, bug, mcp, gateway | done | `apps/gateway/service/internal/mcp/client.go`, `apps/gateway/service/internal/mcp/client_test.go` | MCP session cache now isolates by connection/auth context (not endpoint-only), preventing cross-connection session collisions. |
 | R-006 | P1 | architecture, design, readability, gateway | done | `apps/gateway/service/cmd/sigilum-gateway/authorization.go`, `apps/gateway/service/cmd/sigilum-gateway/runtime.go` | Extracted authorization flow into modular helper functions (`verifySignedRequest`, identity resolution, nonce replay enforcement, claim authorization). |
-| R-007 | P2 | security, permissions, install | open | `openclaw/install-openclaw-sigilum.sh` | Runtime install sets broad recursive permissions but does not explicitly enforce executable bits for runtime command scripts after copy. Harden permission normalization for scripts/binaries. |
-| R-008 | P2 | documentation, ux, developer-experience | open | `openclaw/README.md`, `apps/gateway/README.md` | End-to-end first-time validation steps are spread across files and ambiguous. Add a single deterministic step-by-step validation path with expected outcomes and failure diagnostics. |
-| R-009 | P2 | documentation, design, skills | open | `openclaw/skills/sigilum/SKILL.md`, `openclaw/hooks/sigilum-plugin/handler.ts` | Skill/hook guidance is partially redundant and not explicit enough for approval-denied workflows. Make instructions unambiguous, minimal, and deterministic. |
+| R-007 | P2 | security, permissions, install | done | `openclaw/install-openclaw-sigilum.sh` | Added explicit permission normalization for runtime and skill installs; owner-only defaults with explicit executable bits for shell entrypoints. |
+| R-008 | P2 | documentation, ux, developer-experience | done | `docs/cli/GATEWAY_OPENCLAW_VALIDATION.md`, `openclaw/README.md`, `apps/gateway/README.md`, `docs/cli/README.md` | Added a deterministic first-time step-by-step validation runbook with expected results and troubleshooting, and linked it from gateway/openclaw docs. |
+| R-009 | P2 | documentation, design, skills | done | `openclaw/skills/sigilum/SKILL.md`, `openclaw/hooks/sigilum-plugin/handler.ts`, `openclaw/hooks/sigilum-plugin/HOOK.md` | Clarified approval-denied guidance to require explicit `APPROVAL_*` fields in user-facing instructions. |
 
 ## Execution Log
 
@@ -30,5 +30,8 @@ Legend:
 - [x] R-004 fixed: duplicate critical signed-header rejection before verification.
 - [x] R-005 fixed: MCP session isolation per connection/auth context.
 - [x] R-006 fixed: split gateway authorization into smaller modular helpers.
-- [ ] Complete items in priority order.
+- [x] R-007 fixed: explicit runtime/skill permission normalization during install.
+- [x] R-008 fixed: added first-time deterministic validation runbook and linked docs.
+- [x] R-009 fixed: clarified approval-required instructions in skill/hook guidance.
+- [x] Complete items in priority order.
 - [ ] After each completed item: update status here, run relevant tests, stage, and commit.

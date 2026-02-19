@@ -17,6 +17,7 @@ What it does:
    - check `sigilum-secure-*` connections first for provider access
    - use signed runtime checks (`/mcp/{connection_id}/tools`) for capability checks
    - enforce claim-gated access per agent key
+   - when approval is required (`401/403`), include helper `APPROVAL_*` fields (namespace/agent/public-key/service) in user-facing instructions
    - avoid `/api/admin/*` for capability checks
    - do not request direct provider API keys unless gateway path fails
 5. Lists active `sigilum-secure-*` MCP gateway connections (including `sigilum-secure-linear` when present).

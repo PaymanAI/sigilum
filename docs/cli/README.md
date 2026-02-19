@@ -208,6 +208,10 @@ sigilum openclaw status
 
 Status output also includes configured namespace, dashboard URL, passkey setup URL, runtime root, and runtime existence.
 
+Validation runbook:
+
+- `docs/cli/GATEWAY_OPENCLAW_VALIDATION.md`
+
 ### `sigilum auth ...`
 
 Bootstrap and manage namespace-owner JWT tokens used by `sigilum-authz-notify`.

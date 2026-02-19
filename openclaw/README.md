@@ -30,6 +30,10 @@ Installer and CLI entrypoints:
 
 This installs hooks/skills into `~/.openclaw` and patches `~/.openclaw/openclaw.json`.
 
+For a deterministic first-time validation path, use:
+
+- `docs/cli/GATEWAY_OPENCLAW_VALIDATION.md`
+
 Local OSS mode:
 
 ```bash
