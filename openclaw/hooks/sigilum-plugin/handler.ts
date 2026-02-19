@@ -2,6 +2,20 @@ import { collectAgentIDs, resolveSigilumPluginConfig, type HookEvent } from "./c
 import { ensureAgentKeypair } from "./keys.ts";
 
 type HookHandler = (event: HookEvent) => Promise<void>;
+type ConnectionProtocol = "http" | "mcp";
+type ConnectionStatus = "active" | "disabled";
+
+type GatewayConnection = {
+  id?: string;
+  name?: string;
+  protocol?: ConnectionProtocol;
+  status?: ConnectionStatus;
+};
+
+type GatewayConnectionsResponse = {
+  connections?: GatewayConnection[];
+};
+
 
 function isGatewayStartupEvent(event: HookEvent): boolean {
   return event.type === "gateway" && event.action === "startup";
@@ -45,6 +59,93 @@ function buildPasskeySetupUrl(dashboardUrl: string, namespace: string): string {
   return `${origin}/bootstrap/passkey?namespace=${encodeURIComponent(ns)}`;
 }
 
+function normalizeGatewayBaseURL(value: string): string {
+  return String(value || "").trim().replace(/\/+$/g, "");
+}
+
+async function listGatewayConnections(gatewayURL: string): Promise<GatewayConnection[]> {
+  const response = await fetch(`${normalizeGatewayBaseURL(gatewayURL)}/api/admin/connections`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(`list connections failed (${response.status})`);
+  }
+  const payload = (await response.json()) as GatewayConnectionsResponse;
+  return Array.isArray(payload.connections) ? payload.connections : [];
+}
+
+function selectActiveSecureMCPConnections(connections: GatewayConnection[]): string[] {
+  const ids = connections
+    .filter((connection) => {
+      const id = String(connection.id || "").trim();
+      const protocol = String(connection.protocol || "").trim().toLowerCase();
+      const status = String(connection.status || "").trim().toLowerCase();
+      return (
+        id.startsWith("sigilum-secure-") &&
+        protocol === "mcp" &&
+        (status === "" || status === "active")
+      );
+    })
+    .map((connection) => String(connection.id || "").trim())
+    .filter((id) => id.length > 0);
+  return [...new Set(ids)].sort();
+}
+
+async function listActiveSigilumMCPConnections(gatewayURL: string): Promise<string[]> {
+  const connections = await listGatewayConnections(gatewayURL);
+  return selectActiveSecureMCPConnections(connections);
+}
+
+function providerFromConnectionID(connectionID: string): string {
+  const id = String(connectionID || "").trim();
+  const prefix = "sigilum-secure-";
+  if (!id.startsWith(prefix)) {
+    return "";
+  }
+  return id.slice(prefix.length).trim();
+}
+
+function buildGatewayPolicyMessage(gatewayURL: string, mcpConnections: string[]): string {
+  const lines: string[] = [
+    "Sigilum gateway-first policy:",
+    "- Use Sigilum gateway as the default provider path.",
+    "- For provider capability questions (for example: \"can you access linear?\"):",
+    "  1) Derive connection id: sigilum-secure-<provider>",
+    "  2) Run signed runtime check via helper: gateway-admin.sh tools <connection_id>",
+    "  3) Answer from HTTP_STATUS (200=yes, 401/403=auth required, 404=missing connection)",
+    "- Do not ask for direct provider API keys unless gateway connection is missing/disabled/test fails.",
+    `- Gateway URL: ${normalizeGatewayBaseURL(gatewayURL) || "<unset>"}`,
+    "- Enforce per-agent registration: runtime checks must be signed and claim-gated.",
+    "- Do not use /api/admin/* as capability checks (admin bypass path).",
+    "- Runtime endpoints:",
+    "  - GET /mcp/{connection_id}/tools",
+    "  - POST /mcp/{connection_id}/tools/{tool}/call",
+  ];
+
+  if (mcpConnections.length > 0) {
+    lines.push("- Active Sigilum MCP connections:");
+    for (const id of mcpConnections) {
+      const provider = providerFromConnectionID(id);
+      if (provider) {
+        lines.push(`  - ${id} (provider=${provider})`);
+      } else {
+        lines.push(`  - ${id}`);
+      }
+    }
+  } else {
+    lines.push("- Active Sigilum MCP connections: none discovered.");
+  }
+
+  if (mcpConnections.includes("sigilum-secure-linear")) {
+    lines.push(
+      "- Linear route present: sigilum-secure-linear. Prefer gateway path before requesting a direct Linear API key.",
+    );
+  }
+
+  return lines.join("\n");
+}
+
 const handler: HookHandler = async (event) => {
   if (!shouldRun(event)) {
     return;
@@ -62,6 +163,17 @@ const handler: HookHandler = async (event) => {
         console.log(`[sigilum-plugin] passkey_setup=${passkeySetupUrl}`);
       }
     }
+
+    let mcpConnections: string[] = [];
+    try {
+      mcpConnections = await listActiveSigilumMCPConnections(cfg.gatewayUrl);
+    } catch (err) {
+      console.error(
+        "[sigilum-plugin] mcp discovery inventory failed:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+    event.messages.push(buildGatewayPolicyMessage(cfg.gatewayUrl, mcpConnections));
 
     if (!cfg.autoBootstrapAgents) {
       return;

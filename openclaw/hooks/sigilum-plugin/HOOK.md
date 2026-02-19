@@ -13,7 +13,14 @@ What it does:
 1. Resolves Sigilum settings from hook env (and process env fallback).
 2. Discovers configured agent IDs from OpenClaw config.
 3. Ensures one Ed25519 keypair per agent under a deterministic key root.
-4. Runs at gateway startup and when new sessions/config reload events happen.
+4. Injects a gateway-first policy into agent context:
+   - check `sigilum-secure-*` connections first for provider access
+   - use signed runtime checks (`/mcp/{connection_id}/tools`) for capability checks
+   - enforce claim-gated access per agent key
+   - avoid `/api/admin/*` for capability checks
+   - do not request direct provider API keys unless gateway path fails
+5. Lists active `sigilum-secure-*` MCP gateway connections (including `sigilum-secure-linear` when present).
+6. Runs at gateway startup and when new sessions/config reload events happen.
 
 ## Recommended OpenClaw Config
 
