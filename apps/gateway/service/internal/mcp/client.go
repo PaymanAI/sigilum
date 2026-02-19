@@ -133,7 +133,7 @@ func (c *Client) Discover(ctx context.Context, cfg connectors.ProxyConfig) (conn
 			ProtocolVersion: strings.TrimSpace(initResult.ProtocolVersion),
 		},
 		Tools:            tools,
-		LastDiscoveredAt: time.Now().UTC().Format(time.RFC3339Nano),
+		LastDiscoveredAt: time.Now().UTC(),
 	}
 	if discovery.Server.ProtocolVersion == "" {
 		discovery.Server.ProtocolVersion = strings.TrimSpace(initResult.ProtocolVersionAlt)

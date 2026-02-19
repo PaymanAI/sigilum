@@ -1,10 +1,12 @@
 package connectors
 
+import "time"
+
 type AuthMode string
 
 const (
-	AuthModeBearer    AuthMode = "bearer"
-	AuthModeHeaderKey AuthMode = "header_key"
+	AuthModeBearer     AuthMode = "bearer"
+	AuthModeHeaderKey  AuthMode = "header_key"
 	AuthModeQueryParam AuthMode = "query_param"
 )
 
@@ -49,7 +51,7 @@ type MCPServerInfo struct {
 type MCPDiscovery struct {
 	Server             MCPServerInfo `json:"server,omitempty"`
 	Tools              []MCPTool     `json:"tools,omitempty"`
-	LastDiscoveredAt   string        `json:"last_discovered_at,omitempty"`
+	LastDiscoveredAt   time.Time     `json:"last_discovered_at,omitempty"`
 	LastDiscoveryError string        `json:"last_discovery_error,omitempty"`
 }
 
@@ -70,15 +72,15 @@ type Connection struct {
 	MCPSubjectToolPolicies map[string]MCPToolPolicy `json:"mcp_subject_tool_policies,omitempty"`
 	MCPDiscovery           MCPDiscovery             `json:"mcp_discovery,omitempty"`
 	Status                 ConnectionStatus         `json:"status"`
-	CreatedAt              string                   `json:"created_at"`
-	UpdatedAt              string                   `json:"updated_at"`
-	LastTestedAt           string                   `json:"last_tested_at,omitempty"`
+	CreatedAt              time.Time                `json:"created_at"`
+	UpdatedAt              time.Time                `json:"updated_at"`
+	LastTestedAt           time.Time                `json:"last_tested_at,omitempty"`
 	LastTestStatus         string                   `json:"last_test_status,omitempty"`
 	LastTestHTTPStatus     int                      `json:"last_test_http_status,omitempty"`
 	LastTestError          string                   `json:"last_test_error,omitempty"`
-	LastRotatedAt          string                   `json:"last_rotated_at,omitempty"`
+	LastRotatedAt          time.Time                `json:"last_rotated_at,omitempty"`
 	RotationIntervalDays   int                      `json:"rotation_interval_days,omitempty"`
-	NextRotationDueAt      string                   `json:"next_rotation_due_at,omitempty"`
+	NextRotationDueAt      time.Time                `json:"next_rotation_due_at,omitempty"`
 	SecretVersion          int                      `json:"secret_version"`
 }
 
@@ -139,10 +141,10 @@ type ProxyConfig struct {
 }
 
 type SharedCredentialVariable struct {
-	Key              string `json:"key"`
-	CreatedAt        string `json:"created_at"`
-	UpdatedAt        string `json:"updated_at"`
-	CreatedBySubject string `json:"created_by_subject,omitempty"`
+	Key              string    `json:"key"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	CreatedBySubject string    `json:"created_by_subject,omitempty"`
 }
 
 type UpsertSharedCredentialVariableInput struct {

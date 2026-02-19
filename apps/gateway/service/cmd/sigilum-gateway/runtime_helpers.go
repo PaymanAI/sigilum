@@ -19,12 +19,8 @@ func evaluateRotationPolicy(conn connectors.Connection, mode string, gracePeriod
 		return false, ""
 	}
 
-	dueAtRaw := strings.TrimSpace(conn.NextRotationDueAt)
-	if dueAtRaw == "" {
-		return false, ""
-	}
-	dueAt, err := time.Parse(time.RFC3339Nano, dueAtRaw)
-	if err != nil {
+	dueAt := conn.NextRotationDueAt
+	if dueAt.IsZero() {
 		return false, ""
 	}
 
@@ -58,7 +54,7 @@ func shouldAutoDiscoverMCPTools(conn connectors.Connection) bool {
 	if len(conn.MCPDiscovery.Tools) > 0 {
 		return false
 	}
-	return strings.TrimSpace(conn.MCPDiscovery.LastDiscoveredAt) == ""
+	return conn.MCPDiscovery.LastDiscoveredAt.IsZero()
 }
 
 func hasSigilumHeaders(headers http.Header) bool {

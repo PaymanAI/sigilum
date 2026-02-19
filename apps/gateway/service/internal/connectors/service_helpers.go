@@ -11,7 +11,7 @@ import (
 )
 
 func normalizeCreateInput(input CreateConnectionInput) (Connection, map[string]string, error) {
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := time.Now().UTC()
 	id := strings.TrimSpace(input.ID)
 	if id == "" {
 		id = slugify(input.Name)
@@ -134,7 +134,7 @@ func normalizeCreateInput(input CreateConnectionInput) (Connection, map[string]s
 		RotationIntervalDays:   input.RotationIntervalDays,
 	}
 	if conn.RotationIntervalDays > 0 {
-		conn.NextRotationDueAt = time.Now().UTC().Add(time.Duration(conn.RotationIntervalDays) * 24 * time.Hour).Format(time.RFC3339Nano)
+		conn.NextRotationDueAt = time.Now().UTC().Add(time.Duration(conn.RotationIntervalDays) * 24 * time.Hour)
 	}
 
 	return conn, secrets, nil

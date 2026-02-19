@@ -126,7 +126,7 @@ func TestSaveMCPDiscovery(t *testing.T) {
 	if len(updated.MCPDiscovery.Tools) != 2 {
 		t.Fatalf("expected deduped tools, got %d", len(updated.MCPDiscovery.Tools))
 	}
-	if updated.MCPDiscovery.LastDiscoveredAt == "" {
+	if updated.MCPDiscovery.LastDiscoveredAt.IsZero() {
 		t.Fatal("expected discovery timestamp")
 	}
 }

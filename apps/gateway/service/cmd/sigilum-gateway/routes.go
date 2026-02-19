@@ -205,7 +205,7 @@ func registerAdminRoutes(
 			}
 			discovery, err := mcpClient.Discover(r.Context(), proxyCfg)
 			if err != nil {
-				conn.MCPDiscovery.LastDiscoveredAt = time.Now().UTC().Format(time.RFC3339Nano)
+				conn.MCPDiscovery.LastDiscoveredAt = time.Now().UTC()
 				conn.MCPDiscovery.LastDiscoveryError = err.Error()
 				if _, saveErr := connectorService.SaveMCPDiscovery(connectionID, conn.MCPDiscovery); saveErr != nil {
 					log.Printf("warning: failed to persist mcp discovery error for %s: %v", connectionID, saveErr)

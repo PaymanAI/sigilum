@@ -67,7 +67,7 @@ func (s *Service) UpsertCredentialVariable(input UpsertSharedCredentialVariableI
 		return SharedCredentialVariable{}, fmt.Errorf("value exceeds %d bytes", maxCredentialVariableSize)
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := time.Now().UTC()
 	createdBySubject := strings.TrimSpace(input.CreatedBySubject)
 	var out SharedCredentialVariable
 

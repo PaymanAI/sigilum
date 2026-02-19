@@ -35,10 +35,10 @@ type encryptedSecret struct {
 }
 
 type credentialVariableRecord struct {
-	Key              string `json:"key"`
-	CreatedAt        string `json:"created_at"`
-	UpdatedAt        string `json:"updated_at"`
-	CreatedBySubject string `json:"created_by_subject,omitempty"`
+	Key              string    `json:"key"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	CreatedBySubject string    `json:"created_by_subject,omitempty"`
 }
 
 type Service struct {
@@ -291,10 +291,8 @@ func (s *Service) UpdateConnection(id string, input UpdateConnectionInput) (Conn
 		}
 		if input.RotationIntervalDays > 0 {
 			conn.RotationIntervalDays = input.RotationIntervalDays
-			if conn.LastRotatedAt != "" {
-				if ts, err := time.Parse(time.RFC3339Nano, conn.LastRotatedAt); err == nil {
-					conn.NextRotationDueAt = ts.Add(time.Duration(conn.RotationIntervalDays) * 24 * time.Hour).UTC().Format(time.RFC3339Nano)
-				}
+			if !conn.LastRotatedAt.IsZero() {
+				conn.NextRotationDueAt = conn.LastRotatedAt.Add(time.Duration(conn.RotationIntervalDays) * 24 * time.Hour).UTC()
 			}
 		}
 		if input.Status != "" {
@@ -350,7 +348,7 @@ func (s *Service) UpdateConnection(id string, input UpdateConnectionInput) (Conn
 			}
 			conn.MCPSubjectToolPolicies = normalized
 		}
-		conn.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		conn.UpdatedAt = time.Now().UTC()
 
 		payload, err := json.Marshal(conn)
 		if err != nil {
@@ -393,14 +391,13 @@ func (s *Service) SaveMCPDiscovery(id string, discovery MCPDiscovery) (Connectio
 			return fmt.Errorf("connection %q is not an mcp connection", id)
 		}
 
-		discovery.LastDiscoveredAt = strings.TrimSpace(discovery.LastDiscoveredAt)
-		if discovery.LastDiscoveredAt == "" {
-			discovery.LastDiscoveredAt = time.Now().UTC().Format(time.RFC3339Nano)
+		if discovery.LastDiscoveredAt.IsZero() {
+			discovery.LastDiscoveredAt = time.Now().UTC()
 		}
 		discovery.LastDiscoveryError = sanitizeError(discovery.LastDiscoveryError)
 		discovery.Tools = normalizeMCPTools(discovery.Tools)
 		conn.MCPDiscovery = discovery
-		conn.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		conn.UpdatedAt = time.Now().UTC()
 
 		payload, err := json.Marshal(conn)
 		if err != nil {
@@ -496,11 +493,11 @@ func (s *Service) RotateSecret(id string, input RotateSecretInput) (Connection, 
 
 		now := time.Now().UTC()
 		conn.SecretVersion = nextVersion
-		conn.LastRotatedAt = now.Format(time.RFC3339Nano)
-		conn.UpdatedAt = now.Format(time.RFC3339Nano)
+		conn.LastRotatedAt = now
+		conn.UpdatedAt = now
 		conn.CredentialKeys = sortedSecretKeys(nextSecrets)
 		if conn.RotationIntervalDays > 0 {
-			conn.NextRotationDueAt = now.Add(time.Duration(conn.RotationIntervalDays) * 24 * time.Hour).Format(time.RFC3339Nano)
+			conn.NextRotationDueAt = now.Add(time.Duration(conn.RotationIntervalDays) * 24 * time.Hour)
 		}
 
 		metaBytes, err := json.Marshal(conn)
@@ -546,7 +543,7 @@ func (s *Service) RecordTestResult(id string, status string, httpStatus int, tes
 			return err
 		}
 
-		conn.LastTestedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		conn.LastTestedAt = time.Now().UTC()
 		conn.LastTestStatus = status
 		conn.LastTestHTTPStatus = httpStatus
 		conn.LastTestError = sanitizeError(testErr)

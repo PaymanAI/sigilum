@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"sigilum.local/gateway/config"
 	"sigilum.local/gateway/internal/connectors"
@@ -293,7 +294,7 @@ func TestShouldAutoDiscoverMCPTools(t *testing.T) {
 				Protocol: connectors.ConnectionProtocolMCP,
 				MCPDiscovery: connectors.MCPDiscovery{
 					Tools:            nil,
-					LastDiscoveredAt: "2026-02-19T00:00:00Z",
+					LastDiscoveredAt: time.Date(2026, time.February, 19, 0, 0, 0, 0, time.UTC),
 				},
 			},
 			expected: false,
@@ -306,7 +307,7 @@ func TestShouldAutoDiscoverMCPTools(t *testing.T) {
 					Tools: []connectors.MCPTool{
 						{Name: "search"},
 					},
-					LastDiscoveredAt: "2026-02-19T00:00:00Z",
+					LastDiscoveredAt: time.Date(2026, time.February, 19, 0, 0, 0, 0, time.UTC),
 				},
 			},
 			expected: false,
