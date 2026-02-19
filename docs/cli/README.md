@@ -177,12 +177,17 @@ Common options:
 - `--owner-token <token>` (required if authz notify enabled)
 - `--auto-owner-token <true|false>` (default: `true` in `oss-local` if `--owner-token` not provided)
 - `--owner-email <email>` (default: `<namespace>@local.sigilum`)
-- `--install-linear-skill <true|false>`
 - `--restart`
+
+MCP-first note:
+- The legacy `sigilum-linear` skill is removed from this installer path.
+- Use gateway/dashboard MCP provider connections for Linear and other MCP servers.
 
 `oss-local` note:
 
 - installer auto-registers local namespace owner (if missing), issues local JWT, writes it to `<openclaw-home>/.sigilum/owner-token-<namespace>.jwt`, and prints it.
+- installer prints dashboard claims URL and passkey setup URL (`/bootstrap/passkey?namespace=<namespace>`), so seeded namespaces can attach a passkey without deleting/re-signup.
+- passkey setup page accepts namespace-owner JWT and registers a passkey, then you can sign in normally at `/login`.
 
 `managed` note:
 
@@ -195,6 +200,8 @@ Status:
 ```bash
 sigilum openclaw status
 ```
+
+Status output also includes configured namespace, dashboard URL, and passkey setup URL.
 
 ### `sigilum auth ...`
 
@@ -277,6 +284,7 @@ Protocol and credential source notes:
 - For MCP connections, use either:
   - dashboard provider setup (`protocol: mcp` templates), or
   - gateway CLI directly: `go run ./apps/gateway/service/cmd/sigilum-gateway-cli add --protocol mcp ...`
+- Service-catalog templates may include `mcp_base_url` and `mcp_endpoint` defaults so dashboard protocol toggles can prefill the MCP target (for example Linear: `https://mcp.linear.app` + `/mcp`).
 - `--upstream-secret-env` reads a shell environment variable once at command runtime, then stores the resolved value in gateway.
 - This is different from service-catalog `credential_fields[].env_var`, which is a dashboard hint for reusable shared credential variables.
 - Reusable shared credential variables are currently managed through dashboard or gateway admin API (`/api/admin/credential-variables`), then referenced as `{{var:KEY}}` in connection secrets.
