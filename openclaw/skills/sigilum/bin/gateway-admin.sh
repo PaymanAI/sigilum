@@ -20,7 +20,7 @@ Defaults:
   subject     = ${SIGILUM_SUBJECT:-<agent_id>}
 
 Notes:
-  - This helper uses bash /dev/tcp and supports plain HTTP only.
+  - This helper prefers `curl` (supports HTTP/HTTPS); falls back to bash /dev/tcp for HTTP when curl is unavailable.
   - `tools` and `call` sign requests with the selected per-agent key.
   - On `401/403 AUTH_FORBIDDEN`, `tools`/`call` auto-attempt claim submission to
     `${SIGILUM_API_URL:-${SIGILUM_REGISTRY_URL}}` using service API key env/file.
@@ -38,6 +38,10 @@ ensure_cmd() {
     echo "Missing required command: ${name}" >&2
     exit 2
   fi
+}
+
+has_cmd() {
+  command -v "$1" >/dev/null 2>&1
 }
 
 trim() {
@@ -82,8 +86,8 @@ parse_url() {
       URL_SCHEME="http"
       ;;
     https://*)
-      echo "HTTPS is not supported by gateway-admin.sh (bash /dev/tcp helper)." >&2
-      return 2
+      without_scheme="${raw#https://}"
+      URL_SCHEME="https"
       ;;
     *)
       without_scheme="$raw"
@@ -101,10 +105,19 @@ parse_url() {
   URL_HOST="${hostport%%:*}"
   URL_PORT="${hostport##*:}"
   if [[ "$URL_HOST" == "$URL_PORT" ]]; then
-    URL_PORT="80"
+    if [[ "$URL_SCHEME" == "https" ]]; then
+      URL_PORT="443"
+    else
+      URL_PORT="80"
+    fi
   fi
   if [[ -z "$URL_HOST" ]]; then
     echo "Invalid URL host: ${raw}" >&2
+    return 2
+  fi
+  if [[ "$URL_SCHEME" == "https" ]] && ! has_cmd curl; then
+    echo "HTTPS target requires curl, but curl is not installed in this runtime." >&2
+    echo "Install curl or use an http:// gateway URL for local-only /dev/tcp fallback." >&2
     return 2
   fi
   URL_BASE_PATH="$path"
@@ -119,12 +132,51 @@ request_path_for_endpoint() {
   printf '%s' "$path"
 }
 
+request_url_for_endpoint() {
+  local endpoint="$1"
+  local req_path
+  req_path="$(request_path_for_endpoint "$endpoint")"
+  printf '%s://%s:%s%s' "$URL_SCHEME" "$URL_HOST" "$URL_PORT" "$req_path"
+}
+
 response_body_from_file() {
   local file="$1"
   awk 'BEGIN{body=0} /^\r?$/{if(!body){body=1;next}} body{print}' "$file"
 }
 
-http_request() {
+http_request_with_curl() {
+  local method="$1"
+  local endpoint="$2"
+  local body="${3:-}"
+  shift 3 || true
+  local -a headers=("$@")
+  local request_url response_headers response_body status_code
+  request_url="$(request_url_for_endpoint "$endpoint")"
+  response_headers="$(mktemp "${TMPDIR:-/tmp}/sigilum-gateway-http-headers-XXXXXX")"
+  response_body="$(mktemp "${TMPDIR:-/tmp}/sigilum-gateway-http-body-XXXXXX")"
+  trap 'rm -f "${response_headers:-}" "${response_body:-}"' RETURN
+
+  local -a args
+  args=(
+    -sS
+    -D "$response_headers"
+    -o "$response_body"
+    -X "$method"
+  )
+  local header
+  for header in "${headers[@]-}"; do
+    args+=(-H "$header")
+  done
+  if [[ -n "$body" ]]; then
+    args+=(--data-binary "$body")
+  fi
+  status_code="$(curl "${args[@]}" "$request_url" -w "%{http_code}" || true)"
+  HTTP_STATUS="$(trim "${status_code:-}")"
+  HTTP_STATUS_LINE="$(awk 'toupper($1) ~ /^HTTP\// {line=$0} END {gsub(/\r/, "", line); print line}' "$response_headers")"
+  HTTP_BODY="$(cat "$response_body")"
+}
+
+http_request_with_devtcp() {
   local method="$1"
   local endpoint="$2"
   local body="${3:-}"
@@ -136,12 +188,20 @@ http_request() {
     echo "Invalid gateway URL." >&2
     exit 2
   fi
+  if [[ "${URL_SCHEME}" != "http" ]]; then
+    echo "HTTPS requests require curl in this helper runtime." >&2
+    exit 2
+  fi
 
   path="$(request_path_for_endpoint "$endpoint")"
   request_file="$(mktemp "${TMPDIR:-/tmp}/sigilum-gateway-http-XXXXXX")"
   trap 'rm -f "${request_file:-}"' RETURN
 
-  exec 3<>"/dev/tcp/${URL_HOST}/${URL_PORT}"
+  if ! exec 3<>"/dev/tcp/${URL_HOST}/${URL_PORT}"; then
+    echo "Unable to open TCP socket to ${URL_HOST}:${URL_PORT} (scheme=${URL_SCHEME})." >&2
+    echo "Install curl for robust HTTP/HTTPS transport in restricted runtimes." >&2
+    exit 2
+  fi
   {
     printf '%s %s HTTP/1.0\r\n' "$method" "$path"
     printf 'Host: %s:%s\r\n' "$URL_HOST" "$URL_PORT"
@@ -165,6 +225,20 @@ http_request() {
   HTTP_STATUS_LINE="$(head -n 1 "$request_file" | tr -d '\r')"
   HTTP_STATUS="$(printf '%s' "$HTTP_STATUS_LINE" | awk '{print $2}')"
   HTTP_BODY="$(response_body_from_file "$request_file")"
+}
+
+http_request() {
+  local method="$1"
+  local endpoint="$2"
+  local body="${3:-}"
+  shift 3 || true
+  local -a headers=("$@")
+
+  if has_cmd curl; then
+    http_request_with_curl "$method" "$endpoint" "$body" "${headers[@]}"
+    return 0
+  fi
+  http_request_with_devtcp "$method" "$endpoint" "$body" "${headers[@]}"
 }
 
 create_nonce() {
@@ -567,11 +641,27 @@ attempt_claim_registration_if_needed() {
   return 0
 }
 
+print_approval_required_context() {
+  local connection_id="${1:-}"
+  if ! should_attempt_claim_registration; then
+    return 0
+  fi
+  printf 'APPROVAL_REQUIRED=true\n'
+  printf 'APPROVAL_NAMESPACE=%s\n' "${SIG_NAMESPACE:-}"
+  printf 'APPROVAL_AGENT_ID=%s\n' "${AGENT_ID:-}"
+  printf 'APPROVAL_SUBJECT=%s\n' "${SIG_SUBJECT:-}"
+  printf 'APPROVAL_PUBLIC_KEY=%s\n' "${SIG_PUBLIC_KEY:-}"
+  printf 'APPROVAL_SERVICE=%s\n' "${connection_id}"
+  printf 'APPROVAL_MESSAGE=%s\n' "Namespace-owner approval is required for this agent key/service claim."
+}
+
 print_response() {
+  local connection_id="${1:-}"
   printf 'HTTP_STATUS=%s\n' "${HTTP_STATUS:-0}"
   if [[ -n "${HTTP_BODY:-}" ]]; then
     printf '%s\n' "$HTTP_BODY"
   fi
+  print_approval_required_context "$connection_id"
   if [[ -n "${CLAIM_HTTP_STATUS:-}" ]]; then
     printf 'CLAIM_HTTP_STATUS=%s\n' "${CLAIM_HTTP_STATUS}"
     if [[ -n "${CLAIM_HTTP_BODY:-}" ]]; then
@@ -605,7 +695,7 @@ case "$cmd" in
     build_signing_context
     signed_request "GET" "/mcp/${connection_id}/tools" ""
     attempt_claim_registration_if_needed "$connection_id" || true
-    print_response
+    print_response "$connection_id"
     ;;
   call)
     connection_id="${2:-}"
@@ -620,7 +710,7 @@ case "$cmd" in
     build_signing_context
     signed_request "POST" "/mcp/${connection_id}/tools/${tool_name}/call" "$args_json"
     attempt_claim_registration_if_needed "$connection_id" || true
-    print_response
+    print_response "$connection_id"
     ;;
   list)
     deny_insecure_admin
@@ -640,7 +730,7 @@ case "$cmd" in
     gateway_url="${3:-$(gateway_url_default)}"
     parse_url "$gateway_url" || exit 2
     http_request "POST" "/api/admin/connections/${connection_id}/test" "{}"
-    print_response
+    print_response "$connection_id"
     ;;
   discover)
     deny_insecure_admin
@@ -653,7 +743,7 @@ case "$cmd" in
     gateway_url="${3:-$(gateway_url_default)}"
     parse_url "$gateway_url" || exit 2
     http_request "POST" "/api/admin/connections/${connection_id}/discover" "{}"
-    print_response
+    print_response "$connection_id"
     ;;
   -h|--help|help|"")
     usage

@@ -12,7 +12,7 @@ Legend:
 | ID | Priority | Tags | Status | Files | Issue |
 |---|---|---|---|---|---|
 | R-001 | P0 | security, bug, scripts | done | `openclaw/install-openclaw-sigilum.sh`, `scripts/sigilum-auth.sh`, `scripts/sigilum-doctor.sh` | Config parsing used `Function(...)` fallback on local config text. Replaced with strict JSON/JSON5 parsing and explicit parse errors (no eval fallback). |
-| R-002 | P0 | security, reliability, ux, scripts | open | `openclaw/skills/sigilum/bin/gateway-admin.sh`, `openclaw/skills/sigilum/SKILL.md` | Gateway helper depends on bash `/dev/tcp`, only supports HTTP, and provides weak operator guidance on approval-required failures. Add robust transport path and explicit approval metadata output (namespace, agent id, key, service, required action). |
+| R-002 | P0 | security, reliability, ux, scripts | done | `openclaw/skills/sigilum/bin/gateway-admin.sh`, `openclaw/skills/sigilum/SKILL.md` | Added curl-first transport with HTTPS support (HTTP `/dev/tcp` fallback only), clearer runtime transport errors, and explicit approval-required output fields (`APPROVAL_*`) for namespace/agent/key/service context. |
 | R-003 | P1 | security, performance, bug, gateway | open | `apps/gateway/service/cmd/sigilum-gateway/runtime.go` | Proxy/MCP runtime reads request bodies without hard limit, creating memory pressure/DoS risk. Add configurable max request-body limits and `413` handling. |
 | R-004 | P1 | security, architecture, gateway | open | `apps/gateway/service/cmd/sigilum-gateway/runtime.go`, `apps/gateway/service/cmd/sigilum-gateway/runtime_helpers.go` | Signature verification path accepts ambiguous duplicate signed headers (first-value wins). Reject duplicate critical Sigilum/signature headers before verification. |
 | R-005 | P1 | performance, bug, mcp, gateway | open | `apps/gateway/service/internal/mcp/client.go`, `apps/gateway/service/internal/mcp/client_test.go` | MCP session cache keyed only by endpoint; different connections sharing endpoint can collide sessions and trigger stale/invalid session behavior. Isolate session keys per connection/auth context. |
@@ -25,5 +25,6 @@ Legend:
 
 - [ ] Create this checklist.
 - [x] R-001 fixed: removed eval-style config parsing fallback in installer/auth/doctor scripts.
+- [x] R-002 fixed: improved gateway-admin transport + explicit approval context outputs and skill guidance.
 - [ ] Complete items in priority order.
 - [ ] After each completed item: update status here, run relevant tests, stage, and commit.
