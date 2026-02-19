@@ -165,6 +165,18 @@ normalize_skill_permissions() {
   fi
 }
 
+normalize_hook_permissions() {
+  local hook_root="$1"
+  [[ -z "$hook_root" ]] && return 0
+  if [[ ! -d "$hook_root" ]]; then
+    return 0
+  fi
+
+  chmod -R u+rwX,go-rwx "$hook_root" 2>/dev/null || true
+  find "$hook_root" -type f -name "*.sh" -exec chmod 700 {} + 2>/dev/null || true
+  find "$hook_root" -type f ! -name "*.sh" -exec chmod 600 {} + 2>/dev/null || true
+}
+
 build_runtime_bundle() {
   local dest="$1"
   local tmp_runtime
@@ -567,6 +579,7 @@ chmod 700 "$KEY_ROOT" 2>/dev/null || true
 if [[ ! -f "$CONFIG_PATH" ]]; then
   mkdir -p "$(dirname "$CONFIG_PATH")"
   printf '{}\n' >"$CONFIG_PATH"
+  chmod 600 "$CONFIG_PATH" 2>/dev/null || true
 fi
 
 CONFIG_BACKUP="$(backup_path "$CONFIG_PATH")"
@@ -575,6 +588,8 @@ cp "$CONFIG_PATH" "$CONFIG_BACKUP"
 echo "Installing hooks..."
 install_tree "$HOOK_PLUGIN_SRC" "${HOOKS_DIR}/sigilum-plugin" "hooks"
 install_tree "$HOOK_AUTHZ_NOTIFY_SRC" "${HOOKS_DIR}/sigilum-authz-notify" "hooks"
+normalize_hook_permissions "${HOOKS_DIR}/sigilum-plugin"
+normalize_hook_permissions "${HOOKS_DIR}/sigilum-authz-notify"
 
 echo "Installing skills..."
 install_tree "$SKILL_SIGILUM_SRC" "${SKILLS_DIR}/sigilum" "skills"
@@ -785,6 +800,11 @@ if (sigilumHome) {
 config.skills.entries.sigilum = sigilumSkill;
 
 fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+try {
+  fs.chmodSync(configPath, 0o600);
+} catch {
+  // Best effort on non-posix filesystems.
+}
 NODE
 
 if [[ "$RESTART" == "true" ]]; then

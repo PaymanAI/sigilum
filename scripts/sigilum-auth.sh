@@ -249,6 +249,7 @@ update_openclaw_config_token() {
   if [[ ! -f "$config_path" ]]; then
     mkdir -p "$(dirname "$config_path")"
     printf '{}\n' >"$config_path"
+    chmod 600 "$config_path" 2>/dev/null || true
   fi
 
   node - "$config_path" "$namespace" "$api_url" "$token" "$enable_authz_notify" <<'NODE'
@@ -310,6 +311,11 @@ if (authzEntry.enabled === true && token && String(token).trim()) {
 config.hooks.internal.entries["sigilum-authz-notify"] = authzEntry;
 
 fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+try {
+  fs.chmodSync(configPath, 0o600);
+} catch {
+  // Best effort on non-posix filesystems.
+}
 NODE
 }
 
