@@ -6,8 +6,6 @@ CREATE TABLE IF NOT EXISTS services (
   slug TEXT NOT NULL UNIQUE,
   domain TEXT,
   description TEXT,
-  plan TEXT NOT NULL DEFAULT 'free',
-  paid_until TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT
 );
