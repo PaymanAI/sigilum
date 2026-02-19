@@ -7,8 +7,8 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 HOOK_PLUGIN_SRC="${ROOT_DIR}/openclaw/hooks/sigilum-plugin"
 HOOK_AUTHZ_NOTIFY_SRC="${ROOT_DIR}/openclaw/hooks/sigilum-authz-notify"
 SKILL_SIGILUM_SRC="${ROOT_DIR}/openclaw/skills/sigilum"
-SKILL_LINEAR_SRC="${ROOT_DIR}/openclaw/skills/sigilum-linear"
-SIGILUM_CLI_PATH_DEFAULT="${ROOT_DIR}/sigilum"
+SIGILUM_LAUNCHER_SRC="${ROOT_DIR}/sigilum"
+SIGILUM_SCRIPTS_SRC="${ROOT_DIR}/scripts"
 
 OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
 CONFIG_PATH=""
@@ -17,12 +17,13 @@ NAMESPACE="${SIGILUM_NAMESPACE:-${USER:-default}}"
 GATEWAY_URL="${SIGILUM_GATEWAY_URL:-}"
 API_URL="${SIGILUM_API_URL:-}"
 KEY_ROOT=""
+RUNTIME_ROOT="${SIGILUM_RUNTIME_ROOT:-}"
+AGENT_WORKSPACE=""
 ENABLE_AUTHZ_NOTIFY="false"
 OWNER_TOKEN="${SIGILUM_OWNER_TOKEN:-}"
-DASHBOARD_URL="${SIGILUM_DASHBOARD_URL:-https://sigilum.id/claims}"
+DASHBOARD_URL="${SIGILUM_DASHBOARD_URL:-}"
 AUTO_OWNER_TOKEN="${SIGILUM_AUTO_OWNER_TOKEN:-}"
 OWNER_EMAIL="${SIGILUM_OWNER_EMAIL:-}"
-INSTALL_LINEAR_SKILL="true"
 FORCE="false"
 RESTART="false"
 STOP_CMD=""
@@ -43,12 +44,12 @@ Options:
   --gateway-url URL               Sigilum gateway URL (mode default: http://localhost:38100)
   --api-url URL                   Sigilum API URL (managed default: https://api.sigilum.id, oss-local default: http://127.0.0.1:8787)
   --key-root PATH                 Agent key root (default: <openclaw-home>/.sigilum/keys)
+  --runtime-root PATH             Bundled runtime destination (default: <agent-workspace>/.sigilum/runtime, else <openclaw-home>/skills/sigilum/runtime)
   --enable-authz-notify BOOL      Enable authz notify hook (true|false, default: false)
   --owner-token TOKEN             Namespace-owner JWT for authz notify hook
   --auto-owner-token BOOL         Auto-issue local owner JWT in oss-local mode (default: true in oss-local when --owner-token is not provided)
   --owner-email VALUE             Owner email for local auto-registration (default: <namespace>@local.sigilum)
   --dashboard-url URL             Dashboard URL shown in authz notifications
-  --install-linear-skill BOOL     Install sigilum-linear skill (true|false, default: true)
   --force                         Replace existing Sigilum hook/skill directories without backup
   --restart                       Restart OpenClaw after install
   --stop-cmd CMD                  Command used with --restart to stop OpenClaw
@@ -65,6 +66,14 @@ require_dir() {
   local path="$1"
   if [[ ! -d "$path" ]]; then
     echo "Missing required source directory: $path" >&2
+    exit 1
+  fi
+}
+
+require_file() {
+  local path="$1"
+  if [[ ! -f "$path" ]]; then
+    echo "Missing required source file: $path" >&2
     exit 1
   fi
 }
@@ -126,10 +135,147 @@ install_tree() {
   cp -R "$src" "$dest"
 }
 
+build_runtime_bundle() {
+  local dest="$1"
+  local tmp_runtime
+  tmp_runtime="$(mktemp -d "${TMPDIR:-/tmp}/sigilum-openclaw-runtime-XXXXXX")"
+
+  # Lean sandbox runtime: launcher + command scripts only.
+  # This avoids copying full monorepo sources into OpenClaw workspace.
+  cp "$SIGILUM_LAUNCHER_SRC" "${tmp_runtime}/sigilum"
+  chmod +x "${tmp_runtime}/sigilum"
+  cp -R "$SIGILUM_SCRIPTS_SRC" "${tmp_runtime}/scripts"
+
+  install_tree "${tmp_runtime}" "$dest" "skills"
+  chmod -R u+rwX,go+rX "$dest" 2>/dev/null || true
+  rm -rf "$tmp_runtime"
+}
+
 run_cmd() {
   local cmd="$1"
   echo "Running: $cmd"
   sh -c "$cmd"
+}
+
+dashboard_origin_from_url() {
+  local raw="$1"
+  node - "$raw" <<'NODE'
+const raw = (process.argv[2] || "").trim();
+if (!raw) process.exit(0);
+try {
+  const url = new URL(raw);
+  process.stdout.write(`${url.protocol}//${url.host}`.replace(/\/+$/g, ""));
+} catch {
+  process.stdout.write(raw.replace(/\/+$/g, ""));
+}
+NODE
+}
+
+build_passkey_setup_url() {
+  local dashboard_url="$1"
+  local namespace="$2"
+  node - "$dashboard_url" "$namespace" <<'NODE'
+const dashboardRaw = (process.argv[2] || "").trim();
+const namespace = (process.argv[3] || "").trim();
+if (!dashboardRaw) process.exit(0);
+let origin = dashboardRaw;
+try {
+  const url = new URL(dashboardRaw);
+  origin = `${url.protocol}//${url.host}`;
+} catch {
+  // fall through with original string
+}
+process.stdout.write(`${origin.replace(/\/+$/g, "")}/bootstrap/passkey?namespace=${encodeURIComponent(namespace)}`);
+NODE
+}
+
+detect_default_runtime_root() {
+  local config_path="$1"
+  local fallback="$2"
+  node - "$config_path" "$fallback" <<'NODE'
+const fs = require("fs");
+const configPath = process.argv[2];
+const fallback = process.argv[3];
+
+const asObject = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value;
+};
+
+const asString = (value) => (typeof value === "string" ? value.trim() : "");
+
+let parsed = {};
+try {
+  const raw = fs.readFileSync(configPath, "utf8");
+  if (raw.trim()) {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      try {
+        const json5 = require("json5");
+        parsed = json5.parse(raw);
+      } catch {
+        parsed = Function(`"use strict"; return (${raw});`)();
+      }
+    }
+  }
+} catch {
+  process.stdout.write(fallback);
+  process.exit(0);
+}
+
+const cfg = asObject(parsed);
+const agents = asObject(cfg.agents);
+const agentDefaults = asObject(agents.defaults);
+const rootDefaults = asObject(cfg.defaults);
+const workspace = asString(agentDefaults.workspace) || asString(rootDefaults.workspace);
+if (!workspace) {
+  process.stdout.write(fallback);
+  process.exit(0);
+}
+process.stdout.write(`${workspace.replace(/\/+$/g, "")}/.sigilum/runtime`);
+NODE
+}
+
+detect_agent_workspace() {
+  local config_path="$1"
+  node - "$config_path" <<'NODE'
+const fs = require("fs");
+const configPath = process.argv[2];
+
+const asObject = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value;
+};
+
+const asString = (value) => (typeof value === "string" ? value.trim() : "");
+
+let parsed = {};
+try {
+  const raw = fs.readFileSync(configPath, "utf8");
+  if (raw.trim()) {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      try {
+        const json5 = require("json5");
+        parsed = json5.parse(raw);
+      } catch {
+        parsed = Function(`"use strict"; return (${raw});`)();
+      }
+    }
+  }
+} catch {
+  process.exit(0);
+}
+
+const cfg = asObject(parsed);
+const agents = asObject(cfg.agents);
+const agentDefaults = asObject(agents.defaults);
+const rootDefaults = asObject(cfg.defaults);
+const workspace = asString(agentDefaults.workspace) || asString(rootDefaults.workspace);
+if (workspace) process.stdout.write(workspace);
+NODE
 }
 
 while [[ $# -gt 0 ]]; do
@@ -162,6 +308,10 @@ while [[ $# -gt 0 ]]; do
       KEY_ROOT="${2:-}"
       shift 2
       ;;
+    --runtime-root)
+      RUNTIME_ROOT="${2:-}"
+      shift 2
+      ;;
     --enable-authz-notify)
       ENABLE_AUTHZ_NOTIFY="${2:-}"
       shift 2
@@ -180,10 +330,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --dashboard-url)
       DASHBOARD_URL="${2:-}"
-      shift 2
-      ;;
-    --install-linear-skill)
-      INSTALL_LINEAR_SKILL="${2:-}"
       shift 2
       ;;
     --restart)
@@ -237,12 +383,19 @@ if [[ -z "$API_URL" ]]; then
     API_URL="https://api.sigilum.id"
   fi
 fi
+if [[ -z "$DASHBOARD_URL" ]]; then
+  DASHBOARD_URL="https://sigilum.id/dashboard"
+fi
 if [[ -z "$KEY_ROOT" ]]; then
   KEY_ROOT="${OPENCLAW_HOME}/.sigilum/keys"
 fi
 if [[ -z "$OWNER_EMAIL" ]]; then
   OWNER_EMAIL="${NAMESPACE}@local.sigilum"
 fi
+
+DASHBOARD_BASE_URL="$(dashboard_origin_from_url "$DASHBOARD_URL")"
+PASSKEY_SETUP_URL="$(build_passkey_setup_url "$DASHBOARD_URL" "$NAMESPACE")"
+OWNER_TOKEN_FILE_HINT="${OPENCLAW_HOME}/.sigilum/owner-token-${NAMESPACE}.jwt"
 if [[ -z "$AUTO_OWNER_TOKEN" ]]; then
   if [[ "$MODE" == "oss-local" && -z "$OWNER_TOKEN" ]]; then
     AUTO_OWNER_TOKEN="true"
@@ -259,14 +412,8 @@ if ! is_bool "$AUTO_OWNER_TOKEN"; then
   echo "--auto-owner-token must be true or false" >&2
   exit 1
 fi
-if ! is_bool "$INSTALL_LINEAR_SKILL"; then
-  echo "--install-linear-skill must be true or false" >&2
-  exit 1
-fi
-
 ENABLE_AUTHZ_NOTIFY="$(normalize_bool "$ENABLE_AUTHZ_NOTIFY")"
 AUTO_OWNER_TOKEN="$(normalize_bool "$AUTO_OWNER_TOKEN")"
-INSTALL_LINEAR_SKILL="$(normalize_bool "$INSTALL_LINEAR_SKILL")"
 
 if [[ "$AUTO_OWNER_TOKEN" == "true" && -z "$OWNER_TOKEN" ]]; then
   if [[ "$MODE" != "oss-local" ]]; then
@@ -302,9 +449,8 @@ fi
 require_dir "$HOOK_PLUGIN_SRC"
 require_dir "$HOOK_AUTHZ_NOTIFY_SRC"
 require_dir "$SKILL_SIGILUM_SRC"
-if [[ "$INSTALL_LINEAR_SKILL" == "true" ]]; then
-  require_dir "$SKILL_LINEAR_SRC"
-fi
+require_file "$SIGILUM_LAUNCHER_SRC"
+require_dir "$SIGILUM_SCRIPTS_SRC"
 
 HOOKS_DIR="${OPENCLAW_HOME}/hooks"
 SKILLS_DIR="${OPENCLAW_HOME}/skills"
@@ -325,16 +471,31 @@ install_tree "$HOOK_AUTHZ_NOTIFY_SRC" "${HOOKS_DIR}/sigilum-authz-notify" "hooks
 
 echo "Installing skills..."
 install_tree "$SKILL_SIGILUM_SRC" "${SKILLS_DIR}/sigilum" "skills"
-if [[ "$INSTALL_LINEAR_SKILL" == "true" ]]; then
-  install_tree "$SKILL_LINEAR_SRC" "${SKILLS_DIR}/sigilum-linear" "skills"
+
+AGENT_WORKSPACE="$(detect_agent_workspace "$CONFIG_PATH")"
+if [[ -n "$AGENT_WORKSPACE" ]]; then
+  WORKSPACE_SKILLS_DIR="${AGENT_WORKSPACE%/}/skills"
+  echo "Installing workspace skill mirror..."
+  install_tree "$SKILL_SIGILUM_SRC" "${WORKSPACE_SKILLS_DIR}/sigilum" "skills"
 fi
 
-SIGILUM_CLI_PATH=""
-if [[ -x "$SIGILUM_CLI_PATH_DEFAULT" ]]; then
-  SIGILUM_CLI_PATH="$SIGILUM_CLI_PATH_DEFAULT"
+DEFAULT_RUNTIME_ROOT="${SKILLS_DIR}/sigilum/runtime"
+if [[ -z "$RUNTIME_ROOT" ]]; then
+  RUNTIME_ROOT="$(detect_default_runtime_root "$CONFIG_PATH" "$DEFAULT_RUNTIME_ROOT")"
+fi
+if [[ -z "$RUNTIME_ROOT" ]]; then
+  RUNTIME_ROOT="$DEFAULT_RUNTIME_ROOT"
 fi
 
-node - "$CONFIG_PATH" "$MODE" "$NAMESPACE" "$GATEWAY_URL" "$API_URL" "$KEY_ROOT" "$ENABLE_AUTHZ_NOTIFY" "$OWNER_TOKEN" "$DASHBOARD_URL" "$INSTALL_LINEAR_SKILL" "$SIGILUM_CLI_PATH" "$ROOT_DIR" <<'NODE'
+SKILL_HELPER_BIN="${SKILLS_DIR}/sigilum/bin/gateway-admin.sh"
+if [[ -n "$AGENT_WORKSPACE" ]]; then
+  SKILL_HELPER_BIN="${AGENT_WORKSPACE%/}/skills/sigilum/bin/gateway-admin.sh"
+fi
+
+echo "Installing bundled Sigilum runtime..."
+build_runtime_bundle "$RUNTIME_ROOT"
+
+node - "$CONFIG_PATH" "$MODE" "$NAMESPACE" "$GATEWAY_URL" "$API_URL" "$KEY_ROOT" "$ENABLE_AUTHZ_NOTIFY" "$OWNER_TOKEN" "$DASHBOARD_URL" "$RUNTIME_ROOT" "$SKILL_HELPER_BIN" <<'NODE'
 const fs = require("fs");
 
 const [
@@ -347,14 +508,29 @@ const [
   enableAuthzNotify,
   ownerToken,
   dashboardUrl,
-  installLinearSkill,
-  sigilumCliPath,
-  sigilumRepoRoot,
+  sigilumRuntimeRoot,
+  sigilumGatewayHelperBin,
 ] = process.argv.slice(2);
 
 const asObject = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
+  }
+  return value;
+};
+const asString = (value) => (typeof value === "string" ? value.trim() : "");
+const asArray = (value) => (Array.isArray(value) ? value : []);
+const mapLocalhostToDockerHost = (rawUrl) => {
+  const value = asString(rawUrl);
+  if (!value) return value;
+  try {
+    const url = new URL(value);
+    if (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1") {
+      url.hostname = "host.docker.internal";
+      return String(url).replace(/\/+$/g, "");
+    }
+  } catch {
+    // keep original value if it is not a valid URL
   }
   return value;
 };
@@ -379,6 +555,47 @@ if (raw.trim()) {
 }
 
 const config = asObject(parsed);
+const runtimeBin = `${String(sigilumRuntimeRoot || "").replace(/\/+$/g, "")}/sigilum`;
+const gatewayHelperBin = String(sigilumGatewayHelperBin || "").trim();
+
+config.agents = asObject(config.agents);
+config.agents.defaults = asObject(config.agents.defaults);
+config.agents.defaults.sandbox = asObject(config.agents.defaults.sandbox);
+config.agents.defaults.sandbox.docker = asObject(config.agents.defaults.sandbox.docker);
+const defaultAgentID = asString(config.agents.defaults.id) || "main";
+
+const sandboxMode = asString(config.agents.defaults.sandbox.mode);
+const sandboxed = sandboxMode !== "" && sandboxMode !== "off";
+let skillGatewayUrl = gatewayUrl;
+
+if (sandboxed) {
+  skillGatewayUrl = mapLocalhostToDockerHost(gatewayUrl);
+
+  const dockerCfg = asObject(config.agents.defaults.sandbox.docker);
+  const network = asString(dockerCfg.network).toLowerCase();
+  if (!network || network === "none") {
+    dockerCfg.network = "bridge";
+  }
+
+  const extraHosts = asArray(dockerCfg.extraHosts).filter((value) => typeof value === "string" && value.trim());
+  if (!extraHosts.includes("host.docker.internal:host-gateway")) {
+    extraHosts.push("host.docker.internal:host-gateway");
+  }
+  dockerCfg.extraHosts = extraHosts;
+  config.agents.defaults.sandbox.docker = dockerCfg;
+}
+
+config.env = asObject(config.env);
+const existingGlobalEnv = asObject(config.env.vars);
+delete existingGlobalEnv.SIGILUM_SKILL_DIR;
+config.env.vars = {
+  ...existingGlobalEnv,
+  SIGILUM_GATEWAY_URL: skillGatewayUrl,
+  SIGILUM_AGENT_ID: defaultAgentID,
+  SIGILUM_RUNTIME_ROOT: sigilumRuntimeRoot,
+  SIGILUM_RUNTIME_BIN: runtimeBin,
+  SIGILUM_GATEWAY_HELPER_BIN: gatewayHelperBin,
+};
 
 config.hooks = asObject(config.hooks);
 config.hooks.internal = asObject(config.hooks.internal);
@@ -393,6 +610,7 @@ pluginEntry.env = {
   SIGILUM_NAMESPACE: namespace,
   SIGILUM_GATEWAY_URL: gatewayUrl,
   SIGILUM_API_URL: apiUrl,
+  SIGILUM_DASHBOARD_URL: dashboardUrl,
   SIGILUM_KEY_ROOT: keyRoot,
   SIGILUM_AUTO_BOOTSTRAP_AGENTS: "true",
 };
@@ -417,30 +635,23 @@ config.skills.entries = asObject(config.skills.entries);
 
 const sigilumSkill = asObject(config.skills.entries.sigilum);
 sigilumSkill.enabled = true;
+const existingSkillEnv = asObject(sigilumSkill.env);
+delete existingSkillEnv.SIGILUM_CLI_PATH;
+delete existingSkillEnv.SIGILUM_REPO_ROOT;
+delete existingSkillEnv.SIGILUM_SKILL_DIR;
 sigilumSkill.env = {
-  ...asObject(sigilumSkill.env),
+  ...existingSkillEnv,
   SIGILUM_MODE: mode,
   SIGILUM_NAMESPACE: namespace,
-  SIGILUM_GATEWAY_URL: gatewayUrl,
+  SIGILUM_AGENT_ID: defaultAgentID,
+  SIGILUM_GATEWAY_URL: skillGatewayUrl,
   SIGILUM_API_URL: apiUrl,
   SIGILUM_KEY_ROOT: keyRoot,
-  ...(sigilumCliPath ? { SIGILUM_CLI_PATH: sigilumCliPath } : {}),
-  ...(sigilumRepoRoot ? { SIGILUM_REPO_ROOT: sigilumRepoRoot } : {}),
+  SIGILUM_RUNTIME_ROOT: sigilumRuntimeRoot,
+  SIGILUM_RUNTIME_BIN: runtimeBin,
+  SIGILUM_GATEWAY_HELPER_BIN: gatewayHelperBin,
 };
 config.skills.entries.sigilum = sigilumSkill;
-
-if (installLinearSkill === "true") {
-  const linearSkill = asObject(config.skills.entries["sigilum-linear"]);
-  linearSkill.enabled = true;
-  linearSkill.env = {
-    ...asObject(linearSkill.env),
-    SIGILUM_MODE: mode,
-    SIGILUM_NAMESPACE: namespace,
-    SIGILUM_GATEWAY_URL: gatewayUrl,
-    SIGILUM_API_URL: apiUrl,
-  };
-  config.skills.entries["sigilum-linear"] = linearSkill;
-}
 
 fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
 NODE
@@ -461,15 +672,29 @@ printf 'Installed hooks:\n  %s\n  %s (enabled=%s)\n\n' \
   "${HOOKS_DIR}/sigilum-authz-notify" \
   "$ENABLE_AUTHZ_NOTIFY"
 printf 'Installed skills:\n  %s\n' "${SKILLS_DIR}/sigilum"
-if [[ "$INSTALL_LINEAR_SKILL" == "true" ]]; then
-  printf '  %s\n' "${SKILLS_DIR}/sigilum-linear"
+if [[ -n "$AGENT_WORKSPACE" ]]; then
+  printf '  %s\n' "${AGENT_WORKSPACE%/}/skills/sigilum"
 fi
+printf 'Bundled runtime:\n  %s\n' "$RUNTIME_ROOT"
 printf '\nSigilum settings:\n  mode=%s\n  namespace=%s\n  gateway=%s\n  api=%s\n  key_root=%s\n\n' \
   "$MODE" "$NAMESPACE" "$GATEWAY_URL" "$API_URL" "$KEY_ROOT"
+printf 'Dashboard:\n  claims=%s\n  passkey_setup=%s\n\n' \
+  "$DASHBOARD_URL" "$PASSKEY_SETUP_URL"
+
+if [[ "$MODE" == "oss-local" ]]; then
+  printf 'Seeded namespace passkey setup:\n'
+  printf '  1) Open: %s\n' "$PASSKEY_SETUP_URL"
+  if [[ -f "$OWNER_TOKEN_FILE_HINT" ]]; then
+    printf '  2) Paste JWT from: %s\n' "$OWNER_TOKEN_FILE_HINT"
+  else
+    printf '  2) Paste JWT from: sigilum auth show --namespace %s\n' "$NAMESPACE"
+  fi
+  printf '  3) Register passkey, then sign in at: %s/login\n\n' "$DASHBOARD_BASE_URL"
+fi
 
 if [[ "$MODE" == "managed" ]]; then
   printf 'Managed onboarding:\n'
-  printf '  1) Open https://sigilum.id\n'
+  printf '  1) Open %s\n' "$DASHBOARD_BASE_URL"
   printf '  2) Sign in and reserve namespace "%s"\n' "$NAMESPACE"
   if [[ -n "$OWNER_TOKEN" ]]; then
     printf '  3) Namespace-owner token already configured for OpenClaw hooks\n\n'
