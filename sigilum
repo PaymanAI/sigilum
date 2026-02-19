@@ -27,20 +27,25 @@ Commands:
   auth <args>                    Manage namespace-owner auth token bootstrap (login/refresh)
   login [options]                Alias for: sigilum auth login
   gateway <args>                 Gateway pairing helpers (local bridge for managed dashboard)
-  openclaw <args>                Manage OpenClaw integration (hooks/skills installer)
+  openclaw <args>                Manage OpenClaw integration (install/status; managed|oss-local)
   service <args>                 Manage local services (delegates to scripts/sigilum-service.sh)
   doctor                         Validate local setup, security posture, and runtime readiness
   up                             Start local API + gateway (scripts/run-local-api-gateway.sh)
   down                           Stop local API/gateway/demo listeners on known ports
   e2e-tests                      Start demo services and run end-to-end tests
   agent-simulator                Run agent auth simulator against running services
+  help [command]                 Show top-level or command-specific help
 
 Examples:
   sigilum install
   sigilum auth login --mode oss-local --namespace johndee
   sigilum auth refresh --mode oss-local --namespace johndee
   sigilum gateway pair --session-id <id> --pair-code <code> --namespace johndee
-  sigilum openclaw install --namespace johndee
+  sigilum openclaw --help
+  sigilum openclaw install --help
+  sigilum openclaw install --namespace johndee --mode oss-local
+  sigilum openclaw install --namespace johndee --mode managed
+  sigilum help openclaw
   sigilum doctor
   sigilum up
   sigilum down
@@ -213,7 +218,42 @@ case "$command" in
     exec "$ROOT_DIR/scripts/sigilum-service.sh" "$@"
     ;;
   help|-h|--help)
-    usage
+    if [[ "$command" == "help" ]] && [[ $# -gt 0 ]]; then
+      topic="$1"
+      shift || true
+      case "$topic" in
+        install)
+          ensure_script "$ROOT_DIR/scripts/install-sigilum.sh"
+          exec "$ROOT_DIR/scripts/install-sigilum.sh" --help "$@"
+          ;;
+        openclaw)
+          ensure_script "$ROOT_DIR/scripts/sigilum-openclaw.sh"
+          exec "$ROOT_DIR/scripts/sigilum-openclaw.sh" --help "$@"
+          ;;
+        auth|login)
+          ensure_script "$ROOT_DIR/scripts/sigilum-auth.sh"
+          exec "$ROOT_DIR/scripts/sigilum-auth.sh" --help "$@"
+          ;;
+        gateway)
+          ensure_script "$ROOT_DIR/scripts/sigilum-gateway.sh"
+          exec "$ROOT_DIR/scripts/sigilum-gateway.sh" --help "$@"
+          ;;
+        service)
+          ensure_script "$ROOT_DIR/scripts/sigilum-service.sh"
+          exec "$ROOT_DIR/scripts/sigilum-service.sh" help "$@"
+          ;;
+        doctor|up|down|e2e-tests|agent-simulator)
+          usage
+          ;;
+        *)
+          echo "Unknown help topic: $topic" >&2
+          usage
+          exit 1
+          ;;
+      esac
+    else
+      usage
+    fi
     ;;
   *)
     echo "Unknown command: $command" >&2

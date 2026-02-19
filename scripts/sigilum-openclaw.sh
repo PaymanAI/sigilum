@@ -12,10 +12,23 @@ Usage:
   sigilum openclaw <command> [options]
 
 Commands:
-  install [installer options]   Install Sigilum hooks/skills into OpenClaw
+  install [options]             Install Sigilum hooks/skills into OpenClaw
+                                Use: sigilum openclaw install --help
   status                        Show current OpenClaw Sigilum install status
 
+Common install options:
+  --mode <managed|oss-local>    Sigilum mode (default: managed)
+  --namespace <value>           Target namespace
+  --gateway-url <url>           Gateway URL
+  --api-url <url>               API URL
+  --dashboard-url <url>         Dashboard claims URL
+  --enable-authz-notify <bool>  Enable notification hook
+  --owner-token <jwt>           Owner JWT (required if notify enabled)
+  --restart                     Restart OpenClaw after install
+
 Examples:
+  sigilum openclaw --help
+  sigilum openclaw install --help
   sigilum openclaw install --namespace johndee --mode managed --restart
   sigilum openclaw install --namespace johndee --mode oss-local
   sigilum openclaw status
@@ -32,6 +45,10 @@ shift || true
 
 case "$command" in
   install)
+    if [[ "${1:-}" == "help" ]]; then
+      shift || true
+      exec "${ROOT_DIR}/openclaw/install-openclaw-sigilum.sh" --help "$@"
+    fi
     exec "${ROOT_DIR}/openclaw/install-openclaw-sigilum.sh" "$@"
     ;;
   status)
@@ -41,8 +58,7 @@ case "$command" in
     for path in \
       "${OPENCLAW_HOME}/hooks/sigilum-plugin" \
       "${OPENCLAW_HOME}/hooks/sigilum-authz-notify" \
-      "${OPENCLAW_HOME}/skills/sigilum" \
-      "${OPENCLAW_HOME}/skills/sigilum-linear"; do
+      "${OPENCLAW_HOME}/skills/sigilum"; do
       if [[ -d "$path" ]]; then
         echo "[ok]  ${path}"
       else
@@ -63,8 +79,24 @@ const plugin = cfg?.hooks?.internal?.entries?.["sigilum-plugin"];
 const notify = cfg?.hooks?.internal?.entries?.["sigilum-authz-notify"];
 const skill = cfg?.skills?.entries?.sigilum;
 const mode = plugin?.env?.SIGILUM_MODE ?? skill?.env?.SIGILUM_MODE ?? "unknown";
+const namespace = plugin?.env?.SIGILUM_NAMESPACE ?? skill?.env?.SIGILUM_NAMESPACE ?? "unknown";
+const dashboardUrl = plugin?.env?.SIGILUM_DASHBOARD_URL ?? notify?.env?.SIGILUM_DASHBOARD_URL ?? "unset";
+const dashboardOrigin = (() => {
+  if (typeof dashboardUrl !== "string" || !dashboardUrl || dashboardUrl === "unset") return "";
+  try {
+    const parsed = new URL(dashboardUrl);
+    return `${parsed.protocol}//${parsed.host}`.replace(/\/+$/g, "");
+  } catch {
+    return dashboardUrl.replace(/\/+$/g, "");
+  }
+})();
 console.log("Config summary:");
 console.log(`  mode: ${mode}`);
+console.log(`  namespace: ${namespace}`);
+console.log(`  dashboard: ${dashboardUrl}`);
+if (dashboardOrigin && namespace !== "unknown") {
+  console.log(`  passkey setup: ${dashboardOrigin}/bootstrap/passkey?namespace=${encodeURIComponent(namespace)}`);
+}
 console.log(`  hook sigilum-plugin enabled: ${plugin?.enabled === true}`);
 console.log(`  hook sigilum-authz-notify enabled: ${notify?.enabled === true}`);
 console.log(`  skill sigilum enabled: ${skill?.enabled === true}`);
@@ -72,6 +104,10 @@ NODE
     fi
     ;;
   -h|--help|help)
+    if [[ "${1:-}" == "install" ]]; then
+      shift || true
+      exec "${ROOT_DIR}/openclaw/install-openclaw-sigilum.sh" --help "$@"
+    fi
     usage
     ;;
   *)

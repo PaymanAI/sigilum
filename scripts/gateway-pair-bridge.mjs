@@ -10,12 +10,14 @@ function usage() {
     --namespace <namespace> \\
     [--api-url <url>] \\
     [--gateway-admin-url <url>] \\
-    [--reconnect-ms <ms>]
+    [--reconnect-ms <ms>] \\
+    [--heartbeat-ms <ms>]
 
 Defaults:
   --api-url           $SIGILUM_API_URL or $SIGILUM_REGISTRY_URL or http://127.0.0.1:8787
   --gateway-admin-url $GATEWAY_ADMIN_URL or http://127.0.0.1:38100
   --reconnect-ms      2000
+  --heartbeat-ms      25000
 `);
 }
 
@@ -27,6 +29,7 @@ function parseArgs(argv) {
     apiUrl: process.env.SIGILUM_API_URL || process.env.SIGILUM_REGISTRY_URL || "http://127.0.0.1:8787",
     gatewayAdminUrl: process.env.GATEWAY_ADMIN_URL || "http://127.0.0.1:38100",
     reconnectMs: 2000,
+    heartbeatMs: 25000,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -57,6 +60,10 @@ function parseArgs(argv) {
         out.reconnectMs = Number.parseInt(next || "", 10);
         i += 1;
         break;
+      case "--heartbeat-ms":
+        out.heartbeatMs = Number.parseInt(next || "", 10);
+        i += 1;
+        break;
       case "-h":
       case "--help":
         usage();
@@ -74,6 +81,9 @@ function parseArgs(argv) {
   }
   if (!Number.isFinite(out.reconnectMs) || out.reconnectMs < 100) {
     out.reconnectMs = 2000;
+  }
+  if (!Number.isFinite(out.heartbeatMs) || out.heartbeatMs < 1000) {
+    out.heartbeatMs = 25000;
   }
   return out;
 }
@@ -186,9 +196,18 @@ async function run() {
     try {
       await new Promise((resolve, reject) => {
         const ws = new WebSocket(wsUrl);
+        let heartbeatTimer = null;
 
         ws.onopen = () => {
           console.log("[sigilum] gateway pairing websocket connected");
+          heartbeatTimer = setInterval(() => {
+            if (ws.readyState !== 1) return;
+            try {
+              ws.send(JSON.stringify({ type: "ping", ts: Date.now() }));
+            } catch {
+              // close handler will reconnect
+            }
+          }, cfg.heartbeatMs);
         };
 
         ws.onmessage = async (event) => {
@@ -196,6 +215,20 @@ async function run() {
           try {
             payload = JSON.parse(String(event.data));
           } catch {
+            return;
+          }
+          if (!payload || typeof payload !== "object") {
+            return;
+          }
+          if (payload.type === "pong") {
+            return;
+          }
+          if (payload.type === "ping") {
+            try {
+              ws.send(JSON.stringify({ type: "pong", ts: Date.now() }));
+            } catch {
+              // ignore, close handler will reconnect
+            }
             return;
           }
           if (!payload || payload.type !== "command" || !payload.request_id) {
@@ -215,6 +248,10 @@ async function run() {
         };
 
         ws.onclose = (event) => {
+          if (heartbeatTimer) {
+            clearInterval(heartbeatTimer);
+            heartbeatTimer = null;
+          }
           console.log(`[sigilum] websocket closed (${event.code}) ${event.reason || ""}`);
           resolve();
         };
