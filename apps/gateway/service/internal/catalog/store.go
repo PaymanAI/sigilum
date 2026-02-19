@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -124,6 +125,13 @@ func normalizeCatalog(catalog ServiceCatalog) (ServiceCatalog, error) {
 		if service.BaseURL == "" {
 			return ServiceCatalog{}, fmt.Errorf("services[%d].base_url is required", index)
 		}
+		service.MCPBaseURL = strings.TrimSpace(service.MCPBaseURL)
+		if service.MCPBaseURL != "" {
+			parsedMCPBaseURL, err := url.Parse(service.MCPBaseURL)
+			if err != nil || parsedMCPBaseURL.Scheme == "" || parsedMCPBaseURL.Host == "" {
+				return ServiceCatalog{}, fmt.Errorf("services[%d].mcp_base_url must be a valid absolute URL", index)
+			}
+		}
 		service.PathPrefix = strings.TrimSpace(service.PathPrefix)
 		service.AuthMode = strings.TrimSpace(service.AuthMode)
 		if service.AuthMode == "" {
@@ -192,6 +200,9 @@ func normalizeCatalog(catalog ServiceCatalog) (ServiceCatalog, error) {
 			return ServiceCatalog{}, fmt.Errorf("services[%d].mcp_max_tools_exposed must be >= 0", index)
 		}
 		if service.Protocol == "mcp" {
+			if service.MCPBaseURL == "" {
+				service.MCPBaseURL = service.BaseURL
+			}
 			if service.MCPTransport == "" {
 				service.MCPTransport = "streamable_http"
 			}
@@ -205,8 +216,13 @@ func normalizeCatalog(catalog ServiceCatalog) (ServiceCatalog, error) {
 				service.MCPEndpoint = "/" + service.MCPEndpoint
 			}
 		} else {
-			service.MCPTransport = ""
-			service.MCPEndpoint = ""
+			// Keep mcp_transport and mcp_endpoint as optional MCP defaults/hints for HTTP templates.
+			if service.MCPTransport != "" && service.MCPTransport != "streamable_http" {
+				return ServiceCatalog{}, fmt.Errorf("services[%d].mcp_transport must be streamable_http when provided", index)
+			}
+			if service.MCPEndpoint != "" && !strings.HasPrefix(service.MCPEndpoint, "http://") && !strings.HasPrefix(service.MCPEndpoint, "https://") && !strings.HasPrefix(service.MCPEndpoint, "/") {
+				service.MCPEndpoint = "/" + service.MCPEndpoint
+			}
 			service.MCPToolAllowlist = nil
 			service.MCPToolDenylist = nil
 			service.MCPMaxToolsExposed = 0

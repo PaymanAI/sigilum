@@ -12,6 +12,7 @@ type ServiceTemplate struct {
 	ConnectionID           string                   `json:"connection_id"`
 	Protocol               string                   `json:"protocol,omitempty"`
 	BaseURL                string                   `json:"base_url"`
+	MCPBaseURL             string                   `json:"mcp_base_url,omitempty"`
 	PathPrefix             string                   `json:"path_prefix"`
 	AuthMode               string                   `json:"auth_mode"`
 	AuthHeaderName         string                   `json:"auth_header_name"`

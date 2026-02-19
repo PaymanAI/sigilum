@@ -44,7 +44,7 @@ Gateway service code is organized under `apps/gateway/service`:
 Service catalog templates now support both HTTP and MCP provider definitions:
 
 - `protocol`: `http` (default) or `mcp`
-- MCP template fields: `mcp_transport`, `mcp_endpoint`, `mcp_tool_allowlist`, `mcp_tool_denylist`, `mcp_max_tools_exposed`, `mcp_subject_tool_policies`
+- MCP template fields: `mcp_base_url`, `mcp_transport`, `mcp_endpoint`, `mcp_tool_allowlist`, `mcp_tool_denylist`, `mcp_max_tools_exposed`, `mcp_subject_tool_policies`
 - Credential fields can include `env_var` hints for dashboard UX (display-only hint; secrets still stored in gateway)
 - Shared credential variables can be defined once and reused across multiple connections via secret references like `{{var:OPENAI_API_KEY}}`.
 - Shared variable metadata includes `created_by_subject` for audit traceability.
