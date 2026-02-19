@@ -150,6 +150,38 @@ func TestEnforceAdminRequestAccessRejectsNonLoopback(t *testing.T) {
 	}
 }
 
+func TestEnforceAdminRequestAccessAllowsAdminTokenBearer(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/connections", nil)
+	req.RemoteAddr = "203.0.113.10:2345"
+	req.Header.Set("Authorization", "Bearer test-admin-token")
+	recorder := httptest.NewRecorder()
+
+	ok := enforceAdminRequestAccess(recorder, req, config.Config{
+		RequireSignedAdminChecks: true,
+		AdminToken:               "test-admin-token",
+		LogProxyRequests:         false,
+	})
+	if !ok {
+		t.Fatal("expected token-authenticated admin request to be allowed")
+	}
+}
+
+func TestEnforceAdminRequestAccessAllowsAdminTokenHeader(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/connections", nil)
+	req.RemoteAddr = "203.0.113.10:2345"
+	req.Header.Set("X-Sigilum-Admin-Token", "test-admin-token")
+	recorder := httptest.NewRecorder()
+
+	ok := enforceAdminRequestAccess(recorder, req, config.Config{
+		RequireSignedAdminChecks: true,
+		AdminToken:               "test-admin-token",
+		LogProxyRequests:         false,
+	})
+	if !ok {
+		t.Fatal("expected header-authenticated admin request to be allowed")
+	}
+}
+
 func TestResolveServiceAPIKeyPrefersScopedEnv(t *testing.T) {
 	t.Setenv("SIGILUM_SERVICE_API_KEY_DEMO_SERVICE_GATEWAY", "scoped-key")
 	t.Setenv("SIGILUM_HOME", "")
@@ -377,5 +409,40 @@ func TestSetCORSHeadersSetsHeadersForAllowedOrigin(t *testing.T) {
 	}
 	if got := headers.Get("Access-Control-Allow-Methods"); got == "" {
 		t.Fatalf("expected allow-methods header for allowed origin")
+	}
+}
+
+func TestWithRequestIDSetsGeneratedHeader(t *testing.T) {
+	handler := withRequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requestID := requestIDFromContext(r.Context()); requestID == "" {
+			t.Fatalf("expected request id in context")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+
+	if got := recorder.Header().Get(requestIDHeader); got == "" {
+		t.Fatalf("expected %s header to be set", requestIDHeader)
+	}
+}
+
+func TestWithRequestIDPreservesIncomingHeader(t *testing.T) {
+	handler := withRequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requestID := requestIDFromContext(r.Context()); requestID != "req-from-client" {
+			t.Fatalf("expected context request id to preserve incoming value, got %q", requestID)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req.Header.Set(requestIDHeader, "req-from-client")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+
+	if got := recorder.Header().Get(requestIDHeader); got != "req-from-client" {
+		t.Fatalf("expected response header to preserve incoming request id, got %q", got)
 	}
 }

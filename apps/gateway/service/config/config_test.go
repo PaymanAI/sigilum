@@ -109,3 +109,16 @@ func TestLoadParsesShutdownTimeoutSeconds(t *testing.T) {
 		t.Fatalf("expected shutdown timeout 25s, got %s", cfg.ShutdownTimeout)
 	}
 }
+
+func TestLoadParsesClaimsCacheMaxApproved(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_CLAIMS_CACHE_MAX_APPROVED", "321")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.ClaimsCacheMaxApproved != 321 {
+		t.Fatalf("expected claims cache max approved 321, got %d", cfg.ClaimsCacheMaxApproved)
+	}
+}

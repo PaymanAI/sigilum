@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	defaultCacheTTL         = 30 * time.Second
-	defaultRefreshInterval  = 10 * time.Second
-	defaultRequestTimeout   = 30 * time.Second
-	maxInactiveRefreshSkips = 2
+	defaultCacheTTL          = 30 * time.Second
+	defaultRefreshInterval   = 10 * time.Second
+	defaultRequestTimeout    = 30 * time.Second
+	defaultMaxApprovedClaims = 10_000
+	maxInactiveRefreshSkips  = 2
 )
 
 type CacheConfig struct {
@@ -31,6 +32,7 @@ type CacheConfig struct {
 	RefreshInterval      time.Duration
 	ResolveServiceAPIKey func(service string) string
 	Logger               func(format string, args ...any)
+	MaxApprovedClaims    int
 }
 
 type approvalSnapshot struct {
@@ -52,6 +54,7 @@ type Cache struct {
 	cacheTTL             time.Duration
 	refreshInterval      time.Duration
 	requestTimeout       time.Duration
+	maxApprovedClaims    int
 
 	once      sync.Once
 	closeOnce sync.Once
@@ -93,6 +96,11 @@ func NewCache(cfg CacheConfig) (*Cache, error) {
 
 	httpClient := &http.Client{Timeout: requestTimeout}
 
+	maxApprovedClaims := cfg.MaxApprovedClaims
+	if maxApprovedClaims <= 0 {
+		maxApprovedClaims = defaultMaxApprovedClaims
+	}
+
 	bindings, err := sigilum.Certify(sigilum.CertifyOptions{
 		Namespace:  cfg.SignerNamespace,
 		HomeDir:    cfg.SignerHomeDir,
@@ -111,6 +119,7 @@ func NewCache(cfg CacheConfig) (*Cache, error) {
 		cacheTTL:             cacheTTL,
 		refreshInterval:      refreshInterval,
 		requestTimeout:       requestTimeout,
+		maxApprovedClaims:    maxApprovedClaims,
 		stopCh:               make(chan struct{}),
 		snapshots:            make(map[string]approvalSnapshot, 8),
 		inflight:             make(map[string]*refreshState, 8),
@@ -325,6 +334,14 @@ func (c *Cache) loadApprovedClaims(ctx context.Context, service string) (map[str
 		}
 
 		for _, claim := range payload.Claims {
+			if c.maxApprovedClaims > 0 && len(approved) >= c.maxApprovedClaims {
+				c.logger(
+					"claims cache truncated service=%s max_approved_claims=%d",
+					service,
+					c.maxApprovedClaims,
+				)
+				return approved, nil
+			}
 			namespace := strings.TrimSpace(claim.Namespace)
 			publicKey := strings.TrimSpace(claim.PublicKey)
 			if namespace == "" || publicKey == "" {

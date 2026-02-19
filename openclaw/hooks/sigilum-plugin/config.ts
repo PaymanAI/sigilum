@@ -5,6 +5,7 @@ export interface SigilumPluginConfig {
   namespace: string;
   apiUrl: string;
   gatewayUrl: string;
+  gatewayAdminToken: string;
   dashboardUrl: string;
   keyRoot: string;
   autoBootstrapAgents: boolean;
@@ -102,6 +103,10 @@ export function resolveSigilumPluginConfig(event: HookEvent): SigilumPluginConfi
     asString(hookEnv.SIGILUM_DASHBOARD_URL) ||
     DEFAULT_DASHBOARD_URL;
 
+  const gatewayAdminToken =
+    asString(process.env.SIGILUM_GATEWAY_ADMIN_TOKEN) ||
+    asString(hookEnv.SIGILUM_GATEWAY_ADMIN_TOKEN);
+
   const keyRoot =
     asString(process.env.SIGILUM_KEY_ROOT) ||
     asString(hookEnv.SIGILUM_KEY_ROOT) ||
@@ -117,6 +122,7 @@ export function resolveSigilumPluginConfig(event: HookEvent): SigilumPluginConfi
     namespace,
     apiUrl,
     gatewayUrl,
+    gatewayAdminToken,
     dashboardUrl,
     keyRoot,
     autoBootstrapAgents,

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -16,11 +17,14 @@ import (
 	"time"
 
 	"sigilum.local/gateway/internal/connectors"
+	"sigilum.local/gateway/internal/util"
 )
 
 const (
-	maxResponseBodySize = 2 << 20
-	defaultTimeout      = 20 * time.Second
+	maxResponseBodySize        = 2 << 20
+	defaultTimeout             = 20 * time.Second
+	defaultMaxIdleConns        = 100
+	defaultMaxIdleConnsPerHost = 20
 )
 
 type Client struct {
@@ -82,9 +86,22 @@ func NewClient(timeout time.Duration) *Client {
 	if timeout <= 0 {
 		timeout = defaultTimeout
 	}
+	transport := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          defaultMaxIdleConns,
+		MaxIdleConnsPerHost:   defaultMaxIdleConnsPerHost,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: time.Second,
+	}
 	return &Client{
-		httpClient: &http.Client{Timeout: timeout},
-		sessions:   make(map[string]string),
+		httpClient: &http.Client{
+			Timeout:   timeout,
+			Transport: transport,
+		},
+		sessions: make(map[string]string),
 	}
 }
 
@@ -189,26 +206,24 @@ func (c *Client) listTools(ctx context.Context, endpoint string, cfg connectors.
 
 func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.ProxyConfig, method string, params any) (json.RawMessage, error) {
 	sessionCacheKey := cacheKeyForConnection(endpoint, cfg)
-	// Per MCP spec, initialize requests must not carry a prior session id.
 	if method == "initialize" {
 		c.clearSessionID(sessionCacheKey)
 	}
-	// Bootstrap a session opportunistically for non-initialize requests.
-	if method != "initialize" && strings.TrimSpace(c.getSessionID(sessionCacheKey)) == "" {
-		_, _ = c.call(ctx, endpoint, cfg, "initialize", initializeParams())
+
+	buildRPCPayload := func(rpcMethod string, rpcParams any) ([]byte, error) {
+		payload, err := json.Marshal(rpcRequest{
+			JSONRPC: "2.0",
+			ID:      "sigilum-gateway",
+			Method:  rpcMethod,
+			Params:  rpcParams,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("marshal mcp request: %w", err)
+		}
+		return payload, nil
 	}
 
-	requestPayload, err := json.Marshal(rpcRequest{
-		JSONRPC: "2.0",
-		ID:      "sigilum-gateway",
-		Method:  method,
-		Params:  params,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("marshal mcp request: %w", err)
-	}
-
-	doRPC := func(forceBearerAuthorization bool) (int, string, []byte, error) {
+	doRPC := func(rpcMethod string, requestPayload []byte, forceBearerAuthorization bool) (int, string, []byte, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(requestPayload))
 		if err != nil {
 			return 0, "", nil, fmt.Errorf("build mcp request: %w", err)
@@ -238,7 +253,7 @@ func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.Proxy
 				req.Header.Add(key, value)
 			}
 		}
-		if sessionID := c.getSessionID(sessionCacheKey); method != "initialize" && sessionID != "" {
+		if sessionID := c.getSessionID(sessionCacheKey); rpcMethod != "initialize" && sessionID != "" {
 			req.Header.Set("Mcp-Session-Id", sessionID)
 		}
 
@@ -258,61 +273,83 @@ func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.Proxy
 		return resp.StatusCode, strings.TrimSpace(resp.Header.Get("Content-Type")), responseBody, nil
 	}
 
-	statusCode, contentType, responseBody, err := doRPC(false)
+	callWithAuthFallback := func(rpcMethod string, requestPayload []byte) (int, string, []byte, error) {
+		statusCode, contentType, responseBody, err := doRPC(rpcMethod, requestPayload, false)
+		if err != nil {
+			return 0, "", nil, err
+		}
+
+		if shouldRetryWithBearer(statusCode, cfg) {
+			retryStatusCode, retryContentType, retryResponseBody, retryErr := doRPC(rpcMethod, requestPayload, true)
+			if retryErr == nil {
+				return retryStatusCode, retryContentType, retryResponseBody, nil
+			}
+		}
+
+		return statusCode, contentType, responseBody, nil
+	}
+
+	validateRPCResult := func(rpcMethod string, contentType string, responseBody []byte) error {
+		rpcPayload, err := extractRPCPayload(contentType, responseBody)
+		if err != nil {
+			return fmt.Errorf("decode mcp response: %w", err)
+		}
+		var rpcResp rpcResponse
+		if err := json.Unmarshal(rpcPayload, &rpcResp); err != nil {
+			return fmt.Errorf("decode mcp response: %w", err)
+		}
+		if rpcResp.Error != nil {
+			return fmt.Errorf("mcp method %s failed (%d): %s", rpcMethod, rpcResp.Error.Code, strings.TrimSpace(rpcResp.Error.Message))
+		}
+		return nil
+	}
+
+	initializeSession := func() error {
+		c.clearSessionID(sessionCacheKey)
+		initPayload, err := buildRPCPayload("initialize", initializeParams())
+		if err != nil {
+			return err
+		}
+		statusCode, contentType, responseBody, err := callWithAuthFallback("initialize", initPayload)
+		if err != nil {
+			return err
+		}
+		if statusCode < 200 || statusCode >= 300 {
+			return fmt.Errorf("mcp server http %d: %s", statusCode, util.CompactMessage(string(responseBody), 240))
+		}
+		if err := validateRPCResult("initialize", contentType, responseBody); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if method != "initialize" && strings.TrimSpace(c.getSessionID(sessionCacheKey)) == "" {
+		if err := initializeSession(); err != nil {
+			return nil, err
+		}
+	}
+
+	requestPayload, err := buildRPCPayload(method, params)
 	if err != nil {
 		return nil, err
 	}
 
-	shouldRetryWithBearer := statusCode == http.StatusUnauthorized &&
-		cfg.Connection.Protocol == connectors.ConnectionProtocolMCP &&
-		cfg.Connection.AuthMode == connectors.AuthModeHeaderKey &&
-		strings.EqualFold(strings.TrimSpace(cfg.Connection.AuthHeaderName), "Authorization") &&
-		strings.TrimSpace(cfg.Connection.AuthPrefix) == "" &&
-		strings.TrimSpace(cfg.Secret) != "" &&
-		!strings.HasPrefix(strings.TrimSpace(cfg.Secret), "Bearer ")
-
-	if shouldRetryWithBearer {
-		retryStatusCode, retryContentType, retryResponseBody, retryErr := doRPC(true)
-		if retryErr == nil {
-			statusCode = retryStatusCode
-			contentType = retryContentType
-			responseBody = retryResponseBody
-		}
+	statusCode, contentType, responseBody, err := callWithAuthFallback(method, requestPayload)
+	if err != nil {
+		return nil, err
 	}
 
 	if method != "initialize" && isSessionRequiredResponse(statusCode, responseBody) {
-		c.clearSessionID(sessionCacheKey)
-		if _, initErr := c.call(ctx, endpoint, cfg, "initialize", initializeParams()); initErr == nil {
-			retryStatusCode, retryContentType, retryResponseBody, retryErr := doRPC(false)
-			if retryErr != nil {
-				return nil, retryErr
-			}
-			statusCode = retryStatusCode
-			contentType = retryContentType
-			responseBody = retryResponseBody
-
-			shouldRetryWithBearerAfterReinit := statusCode == http.StatusUnauthorized &&
-				cfg.Connection.Protocol == connectors.ConnectionProtocolMCP &&
-				cfg.Connection.AuthMode == connectors.AuthModeHeaderKey &&
-				strings.EqualFold(strings.TrimSpace(cfg.Connection.AuthHeaderName), "Authorization") &&
-				strings.TrimSpace(cfg.Connection.AuthPrefix) == "" &&
-				strings.TrimSpace(cfg.Secret) != "" &&
-				!strings.HasPrefix(strings.TrimSpace(cfg.Secret), "Bearer ")
-
-			if shouldRetryWithBearerAfterReinit {
-				retryStatusCode, retryContentType, retryResponseBody, retryErr = doRPC(true)
-				if retryErr != nil {
-					return nil, retryErr
-				}
-				statusCode = retryStatusCode
-				contentType = retryContentType
-				responseBody = retryResponseBody
+		if initErr := initializeSession(); initErr == nil {
+			statusCode, contentType, responseBody, err = callWithAuthFallback(method, requestPayload)
+			if err != nil {
+				return nil, err
 			}
 		}
 	}
 
 	if statusCode < 200 || statusCode >= 300 {
-		return nil, fmt.Errorf("mcp server http %d: %s", statusCode, compactMessage(string(responseBody)))
+		return nil, fmt.Errorf("mcp server http %d: %s", statusCode, util.CompactMessage(string(responseBody), 240))
 	}
 
 	rpcPayload, err := extractRPCPayload(contentType, responseBody)
@@ -337,7 +374,7 @@ func isSessionRequiredResponse(statusCode int, body []byte) bool {
 	if statusCode < 400 || statusCode >= 500 {
 		return false
 	}
-	message := strings.ToLower(compactMessage(string(body)))
+	message := strings.ToLower(util.CompactMessage(string(body), 240))
 	if message == "" {
 		return false
 	}
@@ -366,18 +403,19 @@ func extractRPCPayload(contentType string, body []byte) ([]byte, error) {
 
 	looksLikeSSE := strings.Contains(strings.ToLower(contentType), "text/event-stream") ||
 		bytes.HasPrefix(trimmed, []byte("event:")) ||
-		bytes.HasPrefix(trimmed, []byte("data:"))
+		bytes.HasPrefix(trimmed, []byte("data:")) ||
+		bytes.HasPrefix(trimmed, []byte("id:"))
 	if !looksLikeSSE {
 		return trimmed, nil
 	}
 
-	events := parseSSEDataEvents(string(trimmed))
+	events := parseSSEEvents(string(trimmed))
 	if len(events) == 0 {
 		return nil, errors.New("stream response missing data payload")
 	}
 	// Prefer the last JSON-ish payload because MCP servers can emit multiple events.
 	for i := len(events) - 1; i >= 0; i-- {
-		candidate := strings.TrimSpace(events[i])
+		candidate := strings.TrimSpace(strings.Join(events[i].Data, "\n"))
 		if candidate == "" || candidate == "[DONE]" {
 			continue
 		}
@@ -385,20 +423,27 @@ func extractRPCPayload(contentType string, body []byte) ([]byte, error) {
 			return []byte(candidate), nil
 		}
 	}
-	return nil, fmt.Errorf("stream response did not contain JSON payload: %s", compactMessage(events[len(events)-1]))
+	return nil, fmt.Errorf("stream response did not contain JSON payload: %s", util.CompactMessage(strings.Join(events[len(events)-1].Data, "\n"), 240))
 }
 
-func parseSSEDataEvents(payload string) []string {
+type sseEvent struct {
+	Event string
+	ID    string
+	Retry string
+	Data  []string
+}
+
+func parseSSEEvents(payload string) []sseEvent {
 	lines := strings.Split(payload, "\n")
-	events := make([]string, 0, 4)
-	currentData := make([]string, 0, 2)
+	events := make([]sseEvent, 0, 4)
+	current := sseEvent{Data: make([]string, 0, 2)}
 
 	flush := func() {
-		if len(currentData) == 0 {
+		if len(current.Data) == 0 && current.Event == "" && current.ID == "" && current.Retry == "" {
 			return
 		}
-		events = append(events, strings.Join(currentData, "\n"))
-		currentData = currentData[:0]
+		events = append(events, current)
+		current = sseEvent{Data: make([]string, 0, 2)}
 	}
 
 	for _, raw := range lines {
@@ -410,8 +455,21 @@ func parseSSEDataEvents(payload string) []string {
 		if strings.HasPrefix(line, ":") {
 			continue
 		}
-		if strings.HasPrefix(line, "data:") {
-			currentData = append(currentData, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+		field := line
+		value := ""
+		if idx := strings.Index(line, ":"); idx >= 0 {
+			field = line[:idx]
+			value = strings.TrimPrefix(line[idx+1:], " ")
+		}
+		switch strings.TrimSpace(field) {
+		case "event":
+			current.Event = strings.TrimSpace(value)
+		case "data":
+			current.Data = append(current.Data, value)
+		case "id":
+			current.ID = strings.TrimSpace(value)
+		case "retry":
+			current.Retry = strings.TrimSpace(value)
 		}
 	}
 	flush()
@@ -450,7 +508,7 @@ func resolveEndpoint(conn connectors.Connection) (string, error) {
 		return ref.String(), nil
 	}
 
-	base.Path = joinPath(base.Path, ref.Path)
+	base.Path = util.JoinPath(base.Path, ref.Path)
 	base.RawPath = base.Path
 	if ref.RawQuery != "" {
 		query := base.Query()
@@ -469,25 +527,6 @@ func resolveEndpoint(conn connectors.Connection) (string, error) {
 	return base.String(), nil
 }
 
-func joinPath(parts ...string) string {
-	filtered := make([]string, 0, len(parts))
-	for _, part := range parts {
-		trimmed := strings.TrimSpace(part)
-		if trimmed == "" {
-			continue
-		}
-		cleaned := strings.Trim(trimmed, "/")
-		if cleaned == "" {
-			continue
-		}
-		filtered = append(filtered, cleaned)
-	}
-	if len(filtered) == 0 {
-		return "/"
-	}
-	return "/" + strings.Join(filtered, "/")
-}
-
 func compactJSON(raw json.RawMessage) string {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return ""
@@ -497,18 +536,6 @@ func compactJSON(raw json.RawMessage) string {
 		return ""
 	}
 	return compact.String()
-}
-
-func compactMessage(value string) string {
-	compact := strings.Join(strings.Fields(value), " ")
-	if compact == "" {
-		return ""
-	}
-	const maxLen = 220
-	if len(compact) <= maxLen {
-		return compact
-	}
-	return compact[:maxLen] + "..."
 }
 
 func trimBearerPrefix(value string) string {
@@ -537,6 +564,16 @@ func cacheKeyForConnection(endpoint string, cfg connectors.ProxyConfig) string {
 		strings.TrimSpace(cfg.Secret),
 	}, "\x00")))
 	return "anon:" + endpoint + "\x00" + hex.EncodeToString(identityHash[:])
+}
+
+func shouldRetryWithBearer(statusCode int, cfg connectors.ProxyConfig) bool {
+	return statusCode == http.StatusUnauthorized &&
+		cfg.Connection.Protocol == connectors.ConnectionProtocolMCP &&
+		cfg.Connection.AuthMode == connectors.AuthModeHeaderKey &&
+		strings.EqualFold(strings.TrimSpace(cfg.Connection.AuthHeaderName), "Authorization") &&
+		strings.TrimSpace(cfg.Connection.AuthPrefix) == "" &&
+		strings.TrimSpace(cfg.Secret) != "" &&
+		!strings.HasPrefix(strings.TrimSpace(cfg.Secret), "Bearer ")
 }
 
 func (c *Client) getSessionID(endpoint string) string {

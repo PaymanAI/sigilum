@@ -22,18 +22,6 @@ import (
 
 var errRequestBodyTooLarge = errors.New("request body exceeds configured limit")
 
-func compactMessage(value string) string {
-	compact := strings.Join(strings.Fields(value), " ")
-	if compact == "" {
-		return ""
-	}
-	const maxLen = 240
-	if len(compact) <= maxLen {
-		return compact
-	}
-	return compact[:maxLen] + "..."
-}
-
 func evaluateRotationPolicy(conn connectors.Connection, mode string, gracePeriod time.Duration, now time.Time) (bool, string) {
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	if mode == "" || mode == "off" {
@@ -247,15 +235,12 @@ func writeVerificationFailure(
 	logEnabled bool,
 	connectionID string,
 	remoteIP string,
+	requestID string,
 ) {
 	if logEnabled {
-		log.Printf("proxy request verify failed connection=%s remote_ip=%s reason=%s", connectionID, remoteIP, result.Reason)
+		log.Printf("proxy request verify failed request_id=%s connection=%s remote_ip=%s reason=%s", requestID, connectionID, remoteIP, result.Reason)
 	}
 	writeProxyAuthFailure(w)
-}
-
-func isMCPConnection(conn connectors.Connection) bool {
-	return conn.Protocol == connectors.ConnectionProtocolMCP
 }
 
 func shouldAutoDiscoverMCPTools(conn connectors.Connection) bool {
@@ -558,20 +543,6 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
-}
-
-func joinPath(paths ...string) string {
-	parts := make([]string, 0, len(paths))
-	for _, p := range paths {
-		if strings.TrimSpace(p) == "" {
-			continue
-		}
-		parts = append(parts, strings.Trim(p, "/"))
-	}
-	if len(parts) == 0 {
-		return "/"
-	}
-	return "/" + strings.Join(parts, "/")
 }
 
 func setCORSHeaders(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}) {

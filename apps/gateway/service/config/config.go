@@ -19,6 +19,7 @@ type Config struct {
 	RegistryRequestTimeout     time.Duration
 	ClaimsCacheTTL             time.Duration
 	ClaimsCacheRefreshInterval time.Duration
+	ClaimsCacheMaxApproved     int
 	SigilumNamespace           string
 	SigilumHomeDir             string
 	ServiceAPIKey              string
@@ -28,6 +29,7 @@ type Config struct {
 	AllowUnsignedProxy         bool
 	AllowUnsignedFor           map[string]struct{}
 	RequireSignedAdminChecks   bool
+	AdminToken                 string
 	MaxRequestBodyBytes        int64
 	RotationEnforcement        string
 	RotationGracePeriod        time.Duration
@@ -52,11 +54,13 @@ func Load() (Config, error) {
 		)),
 		ClaimsCacheTTL:             30 * time.Second,
 		ClaimsCacheRefreshInterval: 10 * time.Second,
+		ClaimsCacheMaxApproved:     10_000,
 		TrustedProxyCIDRs:          []*net.IPNet{},
 		LogProxyRequests:           true,
 		AllowUnsignedProxy:         false,
 		AllowUnsignedFor:           map[string]struct{}{},
 		RequireSignedAdminChecks:   true,
+		AdminToken:                 getEnv("GATEWAY_ADMIN_TOKEN", ""),
 		MaxRequestBodyBytes:        2 << 20,
 		RotationEnforcement:        "warn",
 		RotationGracePeriod:        0,
@@ -137,6 +141,11 @@ func Load() (Config, error) {
 		return Config{}, err
 	} else {
 		cfg.ClaimsCacheRefreshInterval = time.Duration(seconds) * time.Second
+	}
+	if value, err := getEnvInt("GATEWAY_CLAIMS_CACHE_MAX_APPROVED", cfg.ClaimsCacheMaxApproved); err != nil {
+		return Config{}, err
+	} else {
+		cfg.ClaimsCacheMaxApproved = value
 	}
 	if cfg.ClaimsCacheRefreshInterval > cfg.ClaimsCacheTTL {
 		cfg.ClaimsCacheRefreshInterval = cfg.ClaimsCacheTTL

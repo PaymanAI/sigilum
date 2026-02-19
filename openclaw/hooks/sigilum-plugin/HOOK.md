@@ -36,6 +36,7 @@ What it does:
           "env": {
             "SIGILUM_NAMESPACE": "your-namespace",
             "SIGILUM_GATEWAY_URL": "http://localhost:38100",
+            "SIGILUM_GATEWAY_ADMIN_TOKEN": "<optional-admin-token>",
             "SIGILUM_API_URL": "http://localhost:8787",
             "SIGILUM_DASHBOARD_URL": "https://sigilum.id/dashboard",
             "SIGILUM_KEY_ROOT": "/Users/you/.openclaw/.sigilum/keys",
@@ -52,6 +53,7 @@ What it does:
 
 - `SIGILUM_NAMESPACE` (required)
 - `SIGILUM_GATEWAY_URL` (optional)
+- `SIGILUM_GATEWAY_ADMIN_TOKEN` (optional; sent as `Authorization: Bearer ...` for admin inventory calls)
 - `SIGILUM_API_URL` (optional)
 - `SIGILUM_DASHBOARD_URL` (optional)
 - `SIGILUM_KEY_ROOT` (optional)

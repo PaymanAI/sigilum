@@ -307,13 +307,13 @@ func (s *Service) UpdateConnection(id string, input UpdateConnectionInput) (Conn
 			}
 		}
 		if input.MCPEndpoint != "" {
-			if !isMCPConnection(conn) {
+			if !IsMCPConnection(conn) {
 				return errors.New("mcp fields can only be updated when protocol is mcp")
 			}
 			conn.MCPEndpoint = normalizeMCPEndpoint(input.MCPEndpoint)
 		}
 		if strings.TrimSpace(input.MCPTransport) != "" {
-			if !isMCPConnection(conn) {
+			if !IsMCPConnection(conn) {
 				return errors.New("mcp fields can only be updated when protocol is mcp")
 			}
 			transport, err := parseMCPTransport(input.MCPTransport)
@@ -323,7 +323,7 @@ func (s *Service) UpdateConnection(id string, input UpdateConnectionInput) (Conn
 			conn.MCPTransport = transport
 		}
 		if input.MCPToolAllowlist != nil || input.MCPToolDenylist != nil || input.MCPMaxToolsExposed != nil {
-			if !isMCPConnection(conn) {
+			if !IsMCPConnection(conn) {
 				return errors.New("mcp fields can only be updated when protocol is mcp")
 			}
 			policy := conn.MCPToolPolicy
@@ -342,7 +342,7 @@ func (s *Service) UpdateConnection(id string, input UpdateConnectionInput) (Conn
 			conn.MCPToolPolicy = policy
 		}
 		if input.MCPSubjectToolPolicies != nil {
-			if !isMCPConnection(conn) {
+			if !IsMCPConnection(conn) {
 				return errors.New("mcp fields can only be updated when protocol is mcp")
 			}
 			normalized, err := normalizeSubjectToolPolicies(input.MCPSubjectToolPolicies)
@@ -390,7 +390,7 @@ func (s *Service) SaveMCPDiscovery(id string, discovery MCPDiscovery) (Connectio
 			return err
 		}
 		normalizeStoredConnection(&conn)
-		if !isMCPConnection(conn) {
+		if !IsMCPConnection(conn) {
 			return fmt.Errorf("connection %q is not an mcp connection", id)
 		}
 
@@ -1276,7 +1276,7 @@ func normalizeStoredConnection(conn *Connection) {
 	if conn.Status == "" {
 		conn.Status = ConnectionStatusActive
 	}
-	if isMCPConnection(*conn) {
+	if IsMCPConnection(*conn) {
 		if conn.MCPTransport == "" {
 			conn.MCPTransport = MCPTransportStreamableHTTP
 		}
@@ -1287,7 +1287,7 @@ func normalizeStoredConnection(conn *Connection) {
 	}
 }
 
-func isMCPConnection(conn Connection) bool {
+func IsMCPConnection(conn Connection) bool {
 	return conn.Protocol == ConnectionProtocolMCP
 }
 

@@ -17,6 +17,7 @@ import (
 	claimcache "sigilum.local/gateway/internal/claims"
 	"sigilum.local/gateway/internal/connectors"
 	mcpruntime "sigilum.local/gateway/internal/mcp"
+	"sigilum.local/gateway/internal/util"
 )
 
 func handleProxyRequest(
@@ -41,9 +42,11 @@ func handleProxyRequest(
 	}
 	start := time.Now()
 	remoteIP := clientIP(r, cfg.TrustedProxyCIDRs)
+	requestID := requestIDFromContext(r.Context())
 	if cfg.LogProxyRequests {
 		log.Printf(
-			"proxy request start method=%s connection=%s path=%s query=%q remote_ip=%s signed_headers=%t",
+			"proxy request start request_id=%s method=%s connection=%s path=%s query=%q remote_ip=%s signed_headers=%t",
+			requestID,
 			r.Method,
 			connectionID,
 			upstreamPath,
@@ -69,7 +72,7 @@ func handleProxyRequest(
 		writeConnectionError(w, err)
 		return
 	}
-	if isMCPConnection(proxyCfg.Connection) {
+	if connectors.IsMCPConnection(proxyCfg.Connection) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{
 			Error: "connection protocol is mcp; use /mcp/{connection_id}/...",
 		})
@@ -83,7 +86,7 @@ func handleProxyRequest(
 		return
 	} else if warning != "" {
 		w.Header().Set("X-Sigilum-Rotation-Warning", warning)
-		log.Printf("rotation warning: connection=%s detail=%s", connectionID, warning)
+		log.Printf("rotation warning request_id=%s connection=%s detail=%s", requestID, connectionID, warning)
 	}
 
 	r.Body = io.NopCloser(bytes.NewReader(body))
@@ -100,14 +103,15 @@ func handleProxyRequest(
 			Error: "upstream request failed",
 			Code:  "UPSTREAM_ERROR",
 		})
-		log.Printf("upstream request failed: connection=%s err=%v", connectionID, proxyErr)
+		log.Printf("upstream request failed request_id=%s connection=%s err=%v", requestID, connectionID, proxyErr)
 	}
 
 	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	proxy.ServeHTTP(recorder, r)
 	if cfg.LogProxyRequests {
 		log.Printf(
-			"proxy request end method=%s connection=%s status=%d duration=%s response_bytes=%d",
+			"proxy request end request_id=%s method=%s connection=%s status=%d duration=%s response_bytes=%d",
+			requestID,
 			r.Method,
 			connectionID,
 			recorder.status,
@@ -141,9 +145,11 @@ func handleMCPRequest(
 
 	start := time.Now()
 	remoteIP := clientIP(r, cfg.TrustedProxyCIDRs)
+	requestID := requestIDFromContext(r.Context())
 	if cfg.LogProxyRequests {
 		log.Printf(
-			"mcp request start method=%s connection=%s action=%s tool=%s query=%q remote_ip=%s signed_headers=%t",
+			"mcp request start request_id=%s method=%s connection=%s action=%s tool=%s query=%q remote_ip=%s signed_headers=%t",
+			requestID,
 			r.Method,
 			connectionID,
 			action,
@@ -171,7 +177,7 @@ func handleMCPRequest(
 		writeConnectionError(w, err)
 		return
 	}
-	if !isMCPConnection(proxyCfg.Connection) {
+	if !connectors.IsMCPConnection(proxyCfg.Connection) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "connection protocol is not mcp"})
 		return
 	}
@@ -183,7 +189,7 @@ func handleMCPRequest(
 		return
 	} else if warning != "" {
 		w.Header().Set("X-Sigilum-Rotation-Warning", warning)
-		log.Printf("rotation warning: connection=%s detail=%s", connectionID, warning)
+		log.Printf("rotation warning request_id=%s connection=%s detail=%s", requestID, connectionID, warning)
 	}
 
 	tools := proxyCfg.Connection.MCPDiscovery.Tools
@@ -263,7 +269,8 @@ func handleMCPRequest(
 
 	if cfg.LogProxyRequests {
 		log.Printf(
-			"mcp request end method=%s connection=%s action=%s duration=%s",
+			"mcp request end request_id=%s method=%s connection=%s action=%s duration=%s",
+			requestID,
 			r.Method,
 			connectionID,
 			action,
@@ -303,7 +310,7 @@ func runConnectionTest(
 	if err != nil {
 		return "fail", 0, err.Error()
 	}
-	if isMCPConnection(proxyCfg.Connection) {
+	if connectors.IsMCPConnection(proxyCfg.Connection) {
 		if _, err := mcpClient.Discover(ctx, proxyCfg); err != nil {
 			return "fail", 0, err.Error()
 		}
@@ -330,7 +337,7 @@ func runConnectionTest(
 	if err != nil {
 		return "fail", 0, err.Error()
 	}
-	target.Path = joinPath(target.Path, proxyCfg.Connection.PathPrefix, parsedTestPath.Path)
+	target.Path = util.JoinPath(target.Path, proxyCfg.Connection.PathPrefix, parsedTestPath.Path)
 	target.RawQuery = parsedTestPath.RawQuery
 
 	body := strings.TrimSpace(input.Body)
@@ -366,7 +373,7 @@ func runConnectionTest(
 	if readErr != nil || len(bodyPreview) == 0 {
 		return "fail", resp.StatusCode, fmt.Sprintf("http %d", resp.StatusCode)
 	}
-	message := compactMessage(string(bodyPreview))
+	message := util.CompactMessage(string(bodyPreview), 240)
 	if message == "" {
 		return "fail", resp.StatusCode, fmt.Sprintf("http %d", resp.StatusCode)
 	}

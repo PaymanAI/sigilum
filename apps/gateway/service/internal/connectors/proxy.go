@@ -4,7 +4,8 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"strings"
+
+	"sigilum.local/gateway/internal/util"
 )
 
 func NewReverseProxy(cfg ProxyConfig, upstreamPath string, rawQuery string) (*httputil.ReverseProxy, error) {
@@ -13,7 +14,7 @@ func NewReverseProxy(cfg ProxyConfig, upstreamPath string, rawQuery string) (*ht
 		return nil, err
 	}
 
-	joinedPath := joinURLPath(target.Path, cfg.Connection.PathPrefix, upstreamPath)
+	joinedPath := util.JoinPath(target.Path, cfg.Connection.PathPrefix, upstreamPath)
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.Director = func(req *http.Request) {
@@ -32,20 +33,6 @@ func NewReverseProxy(cfg ProxyConfig, upstreamPath string, rawQuery string) (*ht
 	}
 
 	return proxy, nil
-}
-
-func joinURLPath(paths ...string) string {
-	parts := make([]string, 0, len(paths))
-	for _, p := range paths {
-		if strings.TrimSpace(p) == "" {
-			continue
-		}
-		parts = append(parts, strings.Trim(p, "/"))
-	}
-	if len(parts) == 0 {
-		return "/"
-	}
-	return "/" + strings.Join(parts, "/")
 }
 
 func stripSigilumHeaders(headers http.Header) {

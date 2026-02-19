@@ -63,10 +63,19 @@ function normalizeGatewayBaseURL(value: string): string {
   return String(value || "").trim().replace(/\/+$/g, "");
 }
 
-async function listGatewayConnections(gatewayURL: string): Promise<GatewayConnection[]> {
+async function listGatewayConnections(
+  gatewayURL: string,
+  gatewayAdminToken: string,
+): Promise<GatewayConnection[]> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  const token = String(gatewayAdminToken || "").trim();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
   const response = await fetch(`${normalizeGatewayBaseURL(gatewayURL)}/api/admin/connections`, {
     method: "GET",
-    headers: { Accept: "application/json" },
+    headers,
   });
   if (!response.ok) {
     throw new Error(`list connections failed (${response.status})`);
@@ -92,8 +101,11 @@ function selectActiveSecureMCPConnections(connections: GatewayConnection[]): str
   return [...new Set(ids)].sort();
 }
 
-async function listActiveSigilumMCPConnections(gatewayURL: string): Promise<string[]> {
-  const connections = await listGatewayConnections(gatewayURL);
+async function listActiveSigilumMCPConnections(
+  gatewayURL: string,
+  gatewayAdminToken: string,
+): Promise<string[]> {
+  const connections = await listGatewayConnections(gatewayURL, gatewayAdminToken);
   return selectActiveSecureMCPConnections(connections);
 }
 
@@ -167,7 +179,7 @@ const handler: HookHandler = async (event) => {
 
     let mcpConnections: string[] = [];
     try {
-      mcpConnections = await listActiveSigilumMCPConnections(cfg.gatewayUrl);
+      mcpConnections = await listActiveSigilumMCPConnections(cfg.gatewayUrl, cfg.gatewayAdminToken);
     } catch (err) {
       console.error(
         "[sigilum-plugin] mcp discovery inventory failed:",

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -511,5 +512,45 @@ func TestCacheKeyForConnectionIsolatedByConnectionID(t *testing.T) {
 	keyB := cacheKeyForConnection(endpoint, cfgB)
 	if keyA == keyB {
 		t.Fatalf("expected distinct cache keys for distinct connections, got %q", keyA)
+	}
+}
+
+func TestNewClientConfiguresConnectionPooling(t *testing.T) {
+	client := NewClient(5 * time.Second)
+	transport, ok := client.httpClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected http.Transport, got %T", client.httpClient.Transport)
+	}
+	if transport.MaxIdleConnsPerHost != defaultMaxIdleConnsPerHost {
+		t.Fatalf("expected MaxIdleConnsPerHost=%d, got %d", defaultMaxIdleConnsPerHost, transport.MaxIdleConnsPerHost)
+	}
+	if transport.MaxIdleConns != defaultMaxIdleConns {
+		t.Fatalf("expected MaxIdleConns=%d, got %d", defaultMaxIdleConns, transport.MaxIdleConns)
+	}
+}
+
+func TestExtractRPCPayloadParsesSSEEventData(t *testing.T) {
+	payload := strings.Join([]string{
+		"event: message",
+		"id: 1",
+		"retry: 5000",
+		`data: {"jsonrpc":"2.0","id":"sigilum-gateway","result":{"ok":true}}`,
+		"",
+		"event: done",
+		"data: [DONE]",
+		"",
+	}, "\n")
+
+	rpcPayload, err := extractRPCPayload("text/event-stream", []byte(payload))
+	if err != nil {
+		t.Fatalf("extractRPCPayload failed: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(rpcPayload, &parsed); err != nil {
+		t.Fatalf("expected JSON payload, got %v", err)
+	}
+	if parsed["jsonrpc"] != "2.0" {
+		t.Fatalf("unexpected payload: %#v", parsed)
 	}
 }

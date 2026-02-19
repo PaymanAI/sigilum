@@ -144,7 +144,8 @@ func main() {
 		ResolveServiceAPIKey: func(service string) string {
 			return resolveServiceAPIKey(service, cfg.ServiceAPIKey, cfg.SigilumHomeDir)
 		},
-		Logger: log.Printf,
+		Logger:            log.Printf,
+		MaxApprovedClaims: cfg.ClaimsCacheMaxApproved,
 	})
 	if err != nil {
 		log.Fatalf("failed to initialize claims cache: %v", err)
@@ -201,6 +202,7 @@ func main() {
 				writeJSON(w, status, errorResponse{Error: err.Error()})
 				return
 			}
+			maybePrewarmMCPDiscovery(conn.ID, conn, connectorService, mcpClient)
 			writeJSON(w, http.StatusCreated, conn)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -250,6 +252,7 @@ func main() {
 					writeConnectionError(w, err)
 					return
 				}
+				maybePrewarmMCPDiscovery(connectionID, conn, connectorService, mcpClient)
 				writeJSON(w, http.StatusOK, conn)
 			default:
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -319,7 +322,7 @@ func main() {
 				writeConnectionError(w, err)
 				return
 			}
-			if !isMCPConnection(conn) {
+			if !connectors.IsMCPConnection(conn) {
 				writeJSON(w, http.StatusBadRequest, errorResponse{Error: "connection protocol is not mcp"})
 				return
 			}
@@ -539,7 +542,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           mux,
+		Handler:           withRequestID(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      180 * time.Second,
@@ -548,11 +551,12 @@ func main() {
 
 	log.Printf("gateway listening addr=%s", cfg.Addr)
 	log.Printf(
-		"gateway security registry=%s timestamp_tolerance=%s nonce_ttl=%s require_signed_admin_checks=%t allow_unsigned_proxy=%t allow_unsigned_connections=%s trusted_proxy_cidrs=%s",
+		"gateway security registry=%s timestamp_tolerance=%s nonce_ttl=%s require_signed_admin_checks=%t admin_token_configured=%t allow_unsigned_proxy=%t allow_unsigned_connections=%s trusted_proxy_cidrs=%s",
 		cfg.RegistryURL,
 		cfg.TimestampTolerance,
 		cfg.NonceTTL,
 		cfg.RequireSignedAdminChecks,
+		strings.TrimSpace(cfg.AdminToken) != "",
 		cfg.AllowUnsignedProxy,
 		joinAllowedConnections(cfg.AllowUnsignedFor),
 		joinTrustedProxyCIDRs(cfg.TrustedProxyCIDRs),

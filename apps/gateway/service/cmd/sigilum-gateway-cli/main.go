@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"sigilum.local/gateway/internal/connectors"
+	"sigilum.local/gateway/internal/util"
 )
 
 type kvPairs map[string]string
@@ -471,7 +472,7 @@ func runConnectionTest(service *connectors.Service, connectionID string, input c
 	if err != nil {
 		return "fail", 0, err.Error()
 	}
-	target.Path = joinPath(target.Path, proxyCfg.Connection.PathPrefix, parsedTestPath.Path)
+	target.Path = util.JoinPath(target.Path, proxyCfg.Connection.PathPrefix, parsedTestPath.Path)
 	target.RawQuery = parsedTestPath.RawQuery
 
 	body := strings.TrimSpace(input.Body)
@@ -507,35 +508,9 @@ func runConnectionTest(service *connectors.Service, connectionID string, input c
 	if readErr != nil || len(bodyPreview) == 0 {
 		return "fail", resp.StatusCode, fmt.Sprintf("http %d", resp.StatusCode)
 	}
-	message := compactMessage(string(bodyPreview))
+	message := util.CompactMessage(string(bodyPreview), 240)
 	if message == "" {
 		return "fail", resp.StatusCode, fmt.Sprintf("http %d", resp.StatusCode)
 	}
 	return "fail", resp.StatusCode, fmt.Sprintf("http %d: %s", resp.StatusCode, message)
-}
-
-func compactMessage(value string) string {
-	compact := strings.Join(strings.Fields(value), " ")
-	if compact == "" {
-		return ""
-	}
-	const maxLen = 240
-	if len(compact) <= maxLen {
-		return compact
-	}
-	return compact[:maxLen] + "..."
-}
-
-func joinPath(paths ...string) string {
-	parts := make([]string, 0, len(paths))
-	for _, p := range paths {
-		if strings.TrimSpace(p) == "" {
-			continue
-		}
-		parts = append(parts, strings.Trim(p, "/"))
-	}
-	if len(parts) == 0 {
-		return "/"
-	}
-	return "/" + strings.Join(parts, "/")
 }
