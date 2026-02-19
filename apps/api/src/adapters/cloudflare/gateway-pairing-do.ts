@@ -39,6 +39,11 @@ type GatewayResponseMessage = {
   error?: string;
 };
 
+type GatewayPingMessage = {
+  type: "ping" | "pong";
+  ts?: number;
+};
+
 type PendingCommand = {
   resolve: (value: GatewayResponseMessage) => void;
   reject: (reason?: unknown) => void;
@@ -48,6 +53,8 @@ type PendingCommand = {
 const STORAGE_SESSION_KEY = "session";
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_TIMEOUT_MS = 60_000;
+const SESSION_EXTENSION_MS = 5 * 60_000;
+const SESSION_RENEW_WINDOW_MS = 2 * 60_000;
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -100,14 +107,33 @@ export class GatewayPairingDurableObject {
         ? message
         : new TextDecoder().decode(new Uint8Array(message));
 
-    let parsed: GatewayResponseMessage | null = null;
+    let parsed: GatewayResponseMessage | GatewayPingMessage | null = null;
     try {
-      parsed = JSON.parse(text) as GatewayResponseMessage;
+      parsed = JSON.parse(text) as GatewayResponseMessage | GatewayPingMessage;
     } catch {
       return;
     }
 
-    if (!parsed || parsed.type !== "response" || !parsed.request_id) {
+    if (!parsed || typeof parsed !== "object" || !("type" in parsed)) {
+      return;
+    }
+
+    if (parsed.type === "ping") {
+      await this.refreshSessionLeaseOnHeartbeat();
+      try {
+        _ws.send(JSON.stringify({ type: "pong", ts: Date.now() }));
+      } catch {
+        // close handler will update state
+      }
+      return;
+    }
+
+    if (parsed.type === "pong") {
+      await this.refreshSessionLeaseOnHeartbeat();
+      return;
+    }
+
+    if (parsed.type !== "response" || !parsed.request_id) {
       return;
     }
 
@@ -311,6 +337,36 @@ export class GatewayPairingDurableObject {
     if (!record.connected) return;
     record.connected = false;
     await this.state.storage.put(STORAGE_SESSION_KEY, record);
+  }
+
+  private async refreshSessionLeaseOnHeartbeat(): Promise<void> {
+    const record = await this.getSessionRecord();
+    if (!record) return;
+
+    const now = Date.now();
+    let changed = false;
+    let renewedLease = false;
+    if (!record.connected) {
+      record.connected = true;
+      if (!record.last_connected_at) {
+        record.last_connected_at = now;
+      }
+      changed = true;
+    }
+    if ((record.expires_at - now) <= SESSION_RENEW_WINDOW_MS) {
+      record.expires_at = now + SESSION_EXTENSION_MS;
+      changed = true;
+      renewedLease = true;
+    }
+
+    if (changed) {
+      await this.state.storage.put(STORAGE_SESSION_KEY, record);
+      if (renewedLease) {
+        console.log("[gateway-pairing] heartbeat lease renewed", {
+          expires_at: new Date(record.expires_at).toISOString(),
+        });
+      }
+    }
   }
 
   private rejectAllPending(error: Error): void {
