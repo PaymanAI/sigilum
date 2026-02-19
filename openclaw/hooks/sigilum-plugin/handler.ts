@@ -3,6 +3,10 @@ import { ensureAgentKeypair } from "./keys.ts";
 
 type HookHandler = (event: HookEvent) => Promise<void>;
 
+function isGatewayStartupEvent(event: HookEvent): boolean {
+  return event.type === "gateway" && event.action === "startup";
+}
+
 function isReloadEvent(event: HookEvent): boolean {
   const type = String(event.type || "").toLowerCase();
   const action = String(event.action || "").toLowerCase();
@@ -23,6 +27,24 @@ function shouldRun(event: HookEvent): boolean {
   );
 }
 
+function dashboardOrigin(url: string): string {
+  const value = String(url || "").trim();
+  if (!value) return "";
+  try {
+    const parsed = new URL(value);
+    return `${parsed.protocol}//${parsed.host}`.replace(/\/+$/g, "");
+  } catch {
+    return value.replace(/\/+$/g, "");
+  }
+}
+
+function buildPasskeySetupUrl(dashboardUrl: string, namespace: string): string {
+  const origin = dashboardOrigin(dashboardUrl);
+  const ns = String(namespace || "").trim();
+  if (!origin || !ns) return "";
+  return `${origin}/bootstrap/passkey?namespace=${encodeURIComponent(ns)}`;
+}
+
 const handler: HookHandler = async (event) => {
   if (!shouldRun(event)) {
     return;
@@ -30,6 +52,17 @@ const handler: HookHandler = async (event) => {
 
   try {
     const cfg = resolveSigilumPluginConfig(event);
+    if (isGatewayStartupEvent(event)) {
+      const passkeySetupUrl = buildPasskeySetupUrl(cfg.dashboardUrl, cfg.namespace);
+      console.log(
+        `[sigilum-plugin] namespace=${cfg.namespace || "<unset>"} api=${cfg.apiUrl} gateway=${cfg.gatewayUrl}`,
+      );
+      console.log(`[sigilum-plugin] dashboard=${cfg.dashboardUrl}`);
+      if (passkeySetupUrl) {
+        console.log(`[sigilum-plugin] passkey_setup=${passkeySetupUrl}`);
+      }
+    }
+
     if (!cfg.autoBootstrapAgents) {
       return;
     }
