@@ -9,7 +9,7 @@ export function getConfig(env: Env) {
     maxPendingRequests: parseInt(env.MAX_PENDING_AUTHORIZATIONS ?? "20", 10),
 
     // Max API keys per service
-    maxApiKeysPerService: parseInt(env.MAX_API_KEYS_PER_SERVICE ?? "5", 10),
+    maxApiKeysPerService: parseInt(env.MAX_API_KEYS_PER_SERVICE ?? "2", 10),
 
     // Max webhooks per service
     maxWebhooksPerService: parseInt(env.MAX_WEBHOOKS_PER_SERVICE ?? "5", 10),

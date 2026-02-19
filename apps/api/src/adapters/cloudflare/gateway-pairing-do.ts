@@ -345,7 +345,6 @@ export class GatewayPairingDurableObject {
 
     const now = Date.now();
     let changed = false;
-    let renewedLease = false;
     if (!record.connected) {
       record.connected = true;
       if (!record.last_connected_at) {
@@ -356,16 +355,10 @@ export class GatewayPairingDurableObject {
     if ((record.expires_at - now) <= SESSION_RENEW_WINDOW_MS) {
       record.expires_at = now + SESSION_EXTENSION_MS;
       changed = true;
-      renewedLease = true;
     }
 
     if (changed) {
       await this.state.storage.put(STORAGE_SESSION_KEY, record);
-      if (renewedLease) {
-        console.log("[gateway-pairing] heartbeat lease renewed", {
-          expires_at: new Date(record.expires_at).toISOString(),
-        });
-      }
     }
   }
 

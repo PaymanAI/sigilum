@@ -325,7 +325,7 @@ servicesRouter.get("/:serviceId/keys", async (c) => {
   const offset = parseInt(c.req.query("offset") ?? "0", 10);
 
   const keys = await c.env.DB.prepare(
-    "SELECT id, name, key_prefix, last_used_at, created_at FROM service_api_keys WHERE service_id = ? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?",
+    "SELECT id, name, key_prefix, last_used_at, created_at, gateway_registered_at FROM service_api_keys WHERE service_id = ? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?",
   )
     .bind(serviceId, limit, offset)
     .all();
@@ -432,6 +432,43 @@ servicesRouter.delete("/:serviceId/keys/:keyId", async (c) => {
     .run();
 
   return c.json({ success: true });
+});
+
+/**
+ * POST /v1/services/:serviceId/keys/:keyId/mark-gateway
+ * Mark an API key as registered with the gateway.
+ */
+servicesRouter.post("/:serviceId/keys/:keyId/mark-gateway", async (c) => {
+  const payload = await requireAuth(c);
+  if (!payload) return c.json(createErrorResponse("Not authenticated", "UNAUTHORIZED"), 401);
+
+  const serviceId = c.req.param("serviceId");
+  const keyId = c.req.param("keyId");
+
+  const svc = await c.env.DB.prepare(
+    "SELECT id FROM services WHERE id = ? AND owner_user_id = ?",
+  )
+    .bind(serviceId, payload.userId)
+    .first();
+  if (!svc) return c.json(createErrorResponse("Service not found", "NOT_FOUND"), 404);
+
+  const key = await c.env.DB.prepare(
+    "SELECT id FROM service_api_keys WHERE id = ? AND service_id = ? AND revoked_at IS NULL",
+  )
+    .bind(keyId, serviceId)
+    .first();
+  if (!key) return c.json(createErrorResponse("API key not found or already revoked", "NOT_FOUND"), 404);
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      "UPDATE service_api_keys SET gateway_registered_at = NULL WHERE service_id = ? AND id != ?",
+    ).bind(serviceId, keyId),
+    c.env.DB.prepare(
+      "UPDATE service_api_keys SET gateway_registered_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+    ).bind(keyId),
+  ]);
+
+  return c.json({ success: true, key_id: keyId });
 });
 
 // ─── Webhooks (dashboard-managed, JWT auth) ─────────────────────────────────

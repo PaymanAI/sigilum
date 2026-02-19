@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { logger } from "hono/logger";
+import { logger as honoLogger } from "hono/logger";
 import { prettyJSON } from "hono/pretty-json";
 import { namespacesRouter } from "./routes/namespaces.js";
 import { claimsRouter } from "./routes/claims.js";
@@ -41,7 +41,13 @@ app.use("*", async (c, next) => {
   });
   return middleware(c, next);
 });
-app.use("*", logger());
+const QUIET_PREFIXES = ["/v1/gateway/pairing/status", "/v1/gateway/pairing/connect"];
+app.use("*", async (c, next) => {
+  if (QUIET_PREFIXES.some((p) => c.req.path.startsWith(p))) {
+    return next();
+  }
+  return honoLogger()(c, next);
+});
 app.use("*", prettyJSON());
 
 // ─── Health Check ────────────────────────────────────────────────────────────
