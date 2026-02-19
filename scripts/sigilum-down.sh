@@ -30,7 +30,7 @@ EOF
 
 listener_pids_for_port() {
   local port="$1"
-  if command -v fuser >/dev/null 2>&1; then
+  if [[ "$(uname -s)" != "Darwin" ]] && command -v fuser >/dev/null 2>&1; then
     fuser -n tcp "${port}" 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+$/) printf "%s ", $i}' | sed -E 's/[[:space:]]+$//' || true
     return 0
   fi
@@ -48,7 +48,7 @@ kill_listeners_on_port() {
   fi
 
   echo "[info] stopping ${label} listener(s) on :${port}: ${pids}"
-  if command -v fuser >/dev/null 2>&1; then
+  if [[ "$(uname -s)" != "Darwin" ]] && command -v fuser >/dev/null 2>&1; then
     fuser -k -TERM -n tcp "${port}" >/dev/null 2>&1 || true
   else
     kill ${pids} 2>/dev/null || true
@@ -64,7 +64,7 @@ kill_listeners_on_port() {
   done
 
   echo "[warn] force-stopping lingering ${label} listener(s) on :${port}: ${pids}"
-  if command -v fuser >/dev/null 2>&1; then
+  if [[ "$(uname -s)" != "Darwin" ]] && command -v fuser >/dev/null 2>&1; then
     fuser -k -KILL -n tcp "${port}" >/dev/null 2>&1 || true
   else
     kill -9 ${pids} 2>/dev/null || true
