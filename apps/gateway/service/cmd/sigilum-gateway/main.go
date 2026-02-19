@@ -178,6 +178,7 @@ func main() {
 		joinAllowedConnections(cfg.AllowUnsignedFor),
 		joinTrustedProxyCIDRs(cfg.TrustedProxyCIDRs),
 	)
+	log.Printf("gateway replay protection storage=in-memory nonce_ttl=%s (restarts clear nonce history)", cfg.NonceTTL)
 	log.Printf(
 		"gateway runtime claims_cache_ttl=%s claims_refresh_interval=%s max_request_body_bytes=%d shutdown_timeout=%s slack_alias_connection_id=%s rotation_enforcement=%s rotation_grace=%s log_proxy_requests=%t",
 		cfg.ClaimsCacheTTL,
