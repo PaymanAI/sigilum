@@ -742,7 +742,8 @@ pluginEntry.env = {
 config.hooks.internal.entries["sigilum-plugin"] = pluginEntry;
 
 const authzEntry = asObject(config.hooks.internal.entries["sigilum-authz-notify"]);
-authzEntry.enabled = enableAuthzNotify === "true";
+const authzEnabled = enableAuthzNotify === "true";
+authzEntry.enabled = authzEnabled;
 authzEntry.env = {
   ...asObject(authzEntry.env),
   SIGILUM_MODE: mode,
@@ -750,8 +751,10 @@ authzEntry.env = {
   SIGILUM_API_URL: apiUrl,
   SIGILUM_DASHBOARD_URL: dashboardUrl,
 };
-if (ownerToken && ownerToken.trim()) {
+if (authzEnabled && ownerToken && ownerToken.trim()) {
   authzEntry.env.SIGILUM_OWNER_TOKEN = ownerToken.trim();
+} else {
+  delete authzEntry.env.SIGILUM_OWNER_TOKEN;
 }
 config.hooks.internal.entries["sigilum-authz-notify"] = authzEntry;
 
@@ -832,7 +835,11 @@ if [[ "$MODE" == "managed" ]]; then
 fi
 
 if [[ -n "$OWNER_TOKEN" ]]; then
-  printf 'Namespace-owner JWT:\n  %s\n\n' "$OWNER_TOKEN"
+  if [[ -f "$OWNER_TOKEN_FILE_HINT" ]]; then
+    printf 'Namespace-owner JWT stored at:\n  %s\n\n' "$OWNER_TOKEN_FILE_HINT"
+  else
+    printf 'Namespace-owner JWT provided (value hidden in output).\n\n'
+  fi
 fi
 if [[ "$ENABLE_AUTHZ_NOTIFY" != "true" ]]; then
   printf 'authz-notify hook is disabled by default (recommended): avoids loading namespace-owner token into OpenClaw runtime.\n'

@@ -296,12 +296,16 @@ authzEntry.env = {
   ...asObject(authzEntry.env),
   SIGILUM_NAMESPACE: namespace,
   SIGILUM_API_URL: apiUrl,
-  SIGILUM_OWNER_TOKEN: token,
 };
 if (enableAuthzNotify === "true") {
   authzEntry.enabled = true;
 } else if (enableAuthzNotify === "false") {
   authzEntry.enabled = false;
+}
+if (authzEntry.enabled === true && token && String(token).trim()) {
+  authzEntry.env.SIGILUM_OWNER_TOKEN = String(token).trim();
+} else {
+  delete authzEntry.env.SIGILUM_OWNER_TOKEN;
 }
 config.hooks.internal.entries["sigilum-authz-notify"] = authzEntry;
 
