@@ -187,7 +187,7 @@ func handleMCPRequest(
 	}
 
 	tools := proxyCfg.Connection.MCPDiscovery.Tools
-	if len(tools) == 0 {
+	if shouldAutoDiscoverMCPTools(proxyCfg.Connection) {
 		discovery, err := mcpClient.Discover(r.Context(), proxyCfg)
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, errorResponse{

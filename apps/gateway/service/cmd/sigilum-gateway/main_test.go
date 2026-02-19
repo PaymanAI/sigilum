@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"sigilum.local/gateway/config"
+	"sigilum.local/gateway/internal/connectors"
 )
 
 func TestValidateSignatureComponentsNoBody(t *testing.T) {
@@ -235,6 +236,57 @@ func TestResolveMCPRouteCall(t *testing.T) {
 	}
 	if connectionID != "linear" || action != "call" || tool != "linear.searchIssues" {
 		t.Fatalf("unexpected route parse: connection=%s action=%s tool=%s", connectionID, action, tool)
+	}
+}
+
+func TestShouldAutoDiscoverMCPTools(t *testing.T) {
+	cases := []struct {
+		name     string
+		conn     connectors.Connection
+		expected bool
+	}{
+		{
+			name: "no tools and no discovery timestamp",
+			conn: connectors.Connection{
+				Protocol: connectors.ConnectionProtocolMCP,
+				MCPDiscovery: connectors.MCPDiscovery{
+					Tools: nil,
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "no tools after prior discovery",
+			conn: connectors.Connection{
+				Protocol: connectors.ConnectionProtocolMCP,
+				MCPDiscovery: connectors.MCPDiscovery{
+					Tools:            nil,
+					LastDiscoveredAt: "2026-02-19T00:00:00Z",
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "discovered tools present",
+			conn: connectors.Connection{
+				Protocol: connectors.ConnectionProtocolMCP,
+				MCPDiscovery: connectors.MCPDiscovery{
+					Tools: []connectors.MCPTool{
+						{Name: "search"},
+					},
+					LastDiscoveredAt: "2026-02-19T00:00:00Z",
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shouldAutoDiscoverMCPTools(tc.conn); got != tc.expected {
+				t.Fatalf("expected %t, got %t", tc.expected, got)
+			}
+		})
 	}
 }
 

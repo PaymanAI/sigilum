@@ -257,6 +257,13 @@ func isMCPConnection(conn connectors.Connection) bool {
 	return conn.Protocol == connectors.ConnectionProtocolMCP
 }
 
+func shouldAutoDiscoverMCPTools(conn connectors.Connection) bool {
+	if len(conn.MCPDiscovery.Tools) > 0 {
+		return false
+	}
+	return strings.TrimSpace(conn.MCPDiscovery.LastDiscoveredAt) == ""
+}
+
 func extractSigilumIdentity(headers http.Header) (namespace string, publicKey string, subject string, err error) {
 	namespace = strings.TrimSpace(headers.Get(headerNamespace))
 	if namespace == "" {
