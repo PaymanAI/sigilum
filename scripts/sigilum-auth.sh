@@ -263,24 +263,27 @@ const asObject = (value) => {
   return value;
 };
 
-let parsed = {};
-const raw = fs.readFileSync(configPath, "utf8");
-if (raw.trim()) {
+const parseConfig = (raw, filePath) => {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return {};
   try {
-    parsed = JSON.parse(raw);
-  } catch {
+    return JSON.parse(trimmed);
+  } catch (jsonErr) {
     try {
       const json5 = require("json5");
-      parsed = json5.parse(raw);
-    } catch (err) {
-      try {
-        parsed = Function(`"use strict"; return (${raw});`)();
-      } catch (evalErr) {
-        throw new Error(`Failed to parse ${configPath}: ${String(err)} / ${String(evalErr)}`);
-      }
+      return json5.parse(trimmed);
+    } catch (json5Err) {
+      const hint =
+        json5Err && json5Err.code === "MODULE_NOT_FOUND"
+          ? "Install json5 support or use strict JSON."
+          : "Ensure the file is valid JSON/JSON5.";
+      throw new Error(`Failed to parse ${filePath}: ${String(jsonErr)}. ${hint}`);
     }
   }
-}
+};
+
+let parsed = {};
+parsed = parseConfig(fs.readFileSync(configPath, "utf8"), configPath);
 
 const config = asObject(parsed);
 config.hooks = asObject(config.hooks);

@@ -164,6 +164,7 @@ const fs = require("fs");
 const configPath = process.env.OPENCLAW_CONFIG_PATH;
 const out = {
   parse_ok: false,
+  parse_error: "",
   mode: "",
   namespace: "",
   authz_enabled: false,
@@ -175,11 +176,18 @@ try {
   if (raw.trim()) {
     try {
       parsed = JSON.parse(raw);
-    } catch {
+    } catch (jsonErr) {
       try {
-        parsed = Function(`"use strict"; return (${raw});`)();
-      } catch {
-        parsed = {};
+        const json5 = require("json5");
+        parsed = json5.parse(raw);
+      } catch (json5Err) {
+        const hint =
+          json5Err && json5Err.code === "MODULE_NOT_FOUND"
+            ? "Install json5 support or use strict JSON."
+            : "Ensure the file is valid JSON/JSON5.";
+        out.parse_error = `Failed to parse ${configPath}: ${String(jsonErr)}. ${hint}`;
+        process.stdout.write(JSON.stringify(out));
+        process.exit(0);
       }
     }
   }
@@ -198,32 +206,38 @@ process.stdout.write(JSON.stringify(out));
 NODE
     )"
 
+    parse_ok="$(printf "%s" "$summary_json" | node -e 'const fs=require("fs"); const v=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write(v.parse_ok ? "true" : "false");')"
+    parse_error="$(printf "%s" "$summary_json" | node -e 'const fs=require("fs"); const v=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write((v.parse_error || "").trim());')"
     authz_enabled="$(printf "%s" "$summary_json" | node -e 'const fs=require("fs"); const v=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write(v.authz_enabled ? "true" : "false");')"
     has_owner_token="$(printf "%s" "$summary_json" | node -e 'const fs=require("fs"); const v=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write(v.has_owner_token ? "true" : "false");')"
     config_mode="$(printf "%s" "$summary_json" | node -e 'const fs=require("fs"); const v=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write((v.mode || "").trim());')"
     config_namespace="$(printf "%s" "$summary_json" | node -e 'const fs=require("fs"); const v=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write((v.namespace || "").trim());')"
 
-    if [[ "$authz_enabled" == "true" && "$has_owner_token" != "true" ]]; then
-      log_fail "sigilum-authz-notify is enabled but SIGILUM_OWNER_TOKEN is missing."
-    elif [[ "$authz_enabled" == "true" && "$has_owner_token" == "true" ]]; then
-      log_ok "sigilum-authz-notify enabled with owner token configured."
-      log_warn "Owner token is loaded in OpenClaw runtime; disable authz-notify if not required."
-    elif [[ "$authz_enabled" != "true" && "$has_owner_token" == "true" ]]; then
-      log_warn "Owner token exists in OpenClaw config while authz-notify is disabled."
+    if [[ "$parse_ok" != "true" ]]; then
+      log_fail "OpenClaw config parse failed: ${parse_error:-unknown parse error}"
     else
-      log_ok "sigilum-authz-notify is disabled (default-safe posture)."
-    fi
-
-    if [[ "$config_mode" == "managed" && "$has_owner_token" != "true" ]]; then
-      log_warn "Managed mode detected without owner token."
-      echo "       Onboarding:"
-      echo "       1) Open https://sigilum.id"
-      if [[ -n "$config_namespace" ]]; then
-        echo "       2) Sign in and reserve namespace '${config_namespace}'"
-        echo "       3) Run: sigilum auth login --mode managed --namespace ${config_namespace} --owner-token-stdin"
+      if [[ "$authz_enabled" == "true" && "$has_owner_token" != "true" ]]; then
+        log_fail "sigilum-authz-notify is enabled but SIGILUM_OWNER_TOKEN is missing."
+      elif [[ "$authz_enabled" == "true" && "$has_owner_token" == "true" ]]; then
+        log_ok "sigilum-authz-notify enabled with owner token configured."
+        log_warn "Owner token is loaded in OpenClaw runtime; disable authz-notify if not required."
+      elif [[ "$authz_enabled" != "true" && "$has_owner_token" == "true" ]]; then
+        log_warn "Owner token exists in OpenClaw config while authz-notify is disabled."
       else
-        echo "       2) Sign in and reserve your namespace"
-        echo "       3) Run: sigilum auth login --mode managed --namespace <namespace> --owner-token-stdin"
+        log_ok "sigilum-authz-notify is disabled (default-safe posture)."
+      fi
+
+      if [[ "$config_mode" == "managed" && "$has_owner_token" != "true" ]]; then
+        log_warn "Managed mode detected without owner token."
+        echo "       Onboarding:"
+        echo "       1) Open https://sigilum.id"
+        if [[ -n "$config_namespace" ]]; then
+          echo "       2) Sign in and reserve namespace '${config_namespace}'"
+          echo "       3) Run: sigilum auth login --mode managed --namespace ${config_namespace} --owner-token-stdin"
+        else
+          echo "       2) Sign in and reserve your namespace"
+          echo "       3) Run: sigilum auth login --mode managed --namespace <namespace> --owner-token-stdin"
+        fi
       fi
     fi
   fi

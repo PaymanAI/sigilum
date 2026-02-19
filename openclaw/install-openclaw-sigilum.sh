@@ -267,21 +267,28 @@ const asObject = (value) => {
 
 const asString = (value) => (typeof value === "string" ? value.trim() : "");
 
-let parsed = {};
-try {
-  const raw = fs.readFileSync(configPath, "utf8");
-  if (raw.trim()) {
+const parseConfig = (raw, filePath) => {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return {};
+  try {
+    return JSON.parse(trimmed);
+  } catch (jsonErr) {
     try {
-      parsed = JSON.parse(raw);
-    } catch {
-      try {
-        const json5 = require("json5");
-        parsed = json5.parse(raw);
-      } catch {
-        parsed = Function(`"use strict"; return (${raw});`)();
-      }
+      const json5 = require("json5");
+      return json5.parse(trimmed);
+    } catch (json5Err) {
+      const hint =
+        json5Err && json5Err.code === "MODULE_NOT_FOUND"
+          ? "Install json5 support or use strict JSON."
+          : "Ensure the file is valid JSON/JSON5.";
+      throw new Error(`Failed to parse ${filePath}: ${String(jsonErr)}. ${hint}`);
     }
   }
+};
+
+let parsed = {};
+try {
+  parsed = parseConfig(fs.readFileSync(configPath, "utf8"), configPath);
 } catch {
   process.stdout.write(fallback);
   process.exit(0);
@@ -313,21 +320,28 @@ const asObject = (value) => {
 
 const asString = (value) => (typeof value === "string" ? value.trim() : "");
 
-let parsed = {};
-try {
-  const raw = fs.readFileSync(configPath, "utf8");
-  if (raw.trim()) {
+const parseConfig = (raw, filePath) => {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return {};
+  try {
+    return JSON.parse(trimmed);
+  } catch (jsonErr) {
     try {
-      parsed = JSON.parse(raw);
-    } catch {
-      try {
-        const json5 = require("json5");
-        parsed = json5.parse(raw);
-      } catch {
-        parsed = Function(`"use strict"; return (${raw});`)();
-      }
+      const json5 = require("json5");
+      return json5.parse(trimmed);
+    } catch (json5Err) {
+      const hint =
+        json5Err && json5Err.code === "MODULE_NOT_FOUND"
+          ? "Install json5 support or use strict JSON."
+          : "Ensure the file is valid JSON/JSON5.";
+      throw new Error(`Failed to parse ${filePath}: ${String(jsonErr)}. ${hint}`);
     }
   }
+};
+
+let parsed = {};
+try {
+  parsed = parseConfig(fs.readFileSync(configPath, "utf8"), configPath);
 } catch {
   process.exit(0);
 }
@@ -607,24 +621,27 @@ const mapLocalhostToDockerHost = (rawUrl) => {
   return value;
 };
 
-let parsed = {};
-const raw = fs.readFileSync(configPath, "utf8");
-if (raw.trim()) {
+const parseConfig = (raw, filePath) => {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return {};
   try {
-    parsed = JSON.parse(raw);
-  } catch {
+    return JSON.parse(trimmed);
+  } catch (jsonErr) {
     try {
       const json5 = require("json5");
-      parsed = json5.parse(raw);
-    } catch (err) {
-      try {
-        parsed = Function(`\"use strict\"; return (${raw});`)();
-      } catch (evalErr) {
-        throw new Error(`Failed to parse ${configPath}: ${String(err)} / ${String(evalErr)}`);
-      }
+      return json5.parse(trimmed);
+    } catch (json5Err) {
+      const hint =
+        json5Err && json5Err.code === "MODULE_NOT_FOUND"
+          ? "Install json5 support or use strict JSON."
+          : "Ensure the file is valid JSON/JSON5.";
+      throw new Error(`Failed to parse ${filePath}: ${String(jsonErr)}. ${hint}`);
     }
   }
-}
+};
+
+let parsed = {};
+parsed = parseConfig(fs.readFileSync(configPath, "utf8"), configPath);
 
 const config = asObject(parsed);
 const runtimeBin = `${String(sigilumRuntimeRoot || "").replace(/\/+$/g, "")}/sigilum`;
