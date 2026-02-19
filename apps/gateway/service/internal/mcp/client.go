@@ -65,6 +65,17 @@ type initializeResult struct {
 	ProtocolVersionAlt string `json:"protocol_version,omitempty"`
 }
 
+func initializeParams() map[string]any {
+	return map[string]any{
+		"protocolVersion": "2024-11-05",
+		"capabilities":    map[string]any{},
+		"clientInfo": map[string]any{
+			"name":    "sigilum-gateway",
+			"version": "mvp",
+		},
+	}
+}
+
 func NewClient(timeout time.Duration) *Client {
 	if timeout <= 0 {
 		timeout = defaultTimeout
@@ -81,14 +92,7 @@ func (c *Client) Discover(ctx context.Context, cfg connectors.ProxyConfig) (conn
 		return connectors.MCPDiscovery{}, err
 	}
 
-	initResultRaw, err := c.call(ctx, endpoint, cfg, "initialize", map[string]any{
-		"protocolVersion": "2024-11-05",
-		"capabilities":    map[string]any{},
-		"clientInfo": map[string]any{
-			"name":    "sigilum-gateway",
-			"version": "mvp",
-		},
-	})
+	initResultRaw, err := c.call(ctx, endpoint, cfg, "initialize", initializeParams())
 	if err != nil {
 		return connectors.MCPDiscovery{}, err
 	}
@@ -186,6 +190,10 @@ func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.Proxy
 	if method == "initialize" {
 		c.clearSessionID(endpoint)
 	}
+	// Bootstrap a session opportunistically for non-initialize requests.
+	if method != "initialize" && strings.TrimSpace(c.getSessionID(endpoint)) == "" {
+		_, _ = c.call(ctx, endpoint, cfg, "initialize", initializeParams())
+	}
 
 	requestPayload, err := json.Marshal(rpcRequest{
 		JSONRPC: "2.0",
@@ -269,6 +277,37 @@ func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.Proxy
 		}
 	}
 
+	if method != "initialize" && isSessionRequiredResponse(statusCode, responseBody) {
+		c.clearSessionID(endpoint)
+		if _, initErr := c.call(ctx, endpoint, cfg, "initialize", initializeParams()); initErr == nil {
+			retryStatusCode, retryContentType, retryResponseBody, retryErr := doRPC(false)
+			if retryErr != nil {
+				return nil, retryErr
+			}
+			statusCode = retryStatusCode
+			contentType = retryContentType
+			responseBody = retryResponseBody
+
+			shouldRetryWithBearerAfterReinit := statusCode == http.StatusUnauthorized &&
+				cfg.Connection.Protocol == connectors.ConnectionProtocolMCP &&
+				cfg.Connection.AuthMode == connectors.AuthModeHeaderKey &&
+				strings.EqualFold(strings.TrimSpace(cfg.Connection.AuthHeaderName), "Authorization") &&
+				strings.TrimSpace(cfg.Connection.AuthPrefix) == "" &&
+				strings.TrimSpace(cfg.Secret) != "" &&
+				!strings.HasPrefix(strings.TrimSpace(cfg.Secret), "Bearer ")
+
+			if shouldRetryWithBearerAfterReinit {
+				retryStatusCode, retryContentType, retryResponseBody, retryErr = doRPC(true)
+				if retryErr != nil {
+					return nil, retryErr
+				}
+				statusCode = retryStatusCode
+				contentType = retryContentType
+				responseBody = retryResponseBody
+			}
+		}
+	}
+
 	if statusCode < 200 || statusCode >= 300 {
 		return nil, fmt.Errorf("mcp server http %d: %s", statusCode, compactMessage(string(responseBody)))
 	}
@@ -289,6 +328,31 @@ func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.Proxy
 		return nil, fmt.Errorf("mcp method %s returned empty result", method)
 	}
 	return rpcResp.Result, nil
+}
+
+func isSessionRequiredResponse(statusCode int, body []byte) bool {
+	if statusCode < 400 || statusCode >= 500 {
+		return false
+	}
+	message := strings.ToLower(compactMessage(string(body)))
+	if message == "" {
+		return false
+	}
+	if strings.Contains(message, "mcp-session-id") {
+		return true
+	}
+	sessionNeedles := []string{
+		"session required",
+		"missing session",
+		"invalid session",
+		"unknown session",
+	}
+	for _, needle := range sessionNeedles {
+		if strings.Contains(message, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func extractRPCPayload(contentType string, body []byte) ([]byte, error) {
