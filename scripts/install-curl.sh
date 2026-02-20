@@ -11,6 +11,11 @@ INSTALL_DIR=""
 VERSION=""
 TARBALL_URL=""
 TARBALL_FILE=""
+CHECKSUM=""
+CHECKSUM_URL=""
+CHECKSUM_FILE=""
+RELEASE_PUBKEY_FILE="${SIGILUM_RELEASE_PUBKEY_FILE:-}"
+REQUIRE_SIGNATURE="false"
 
 print_banner() {
   cat <<BANNER
@@ -38,7 +43,16 @@ Options:
   --version <tag>       Install a specific version (default: latest)
   --tarball-url <url>   Install from explicit tarball URL (skip GitHub release lookup)
   --tarball-file <path> Install from local tarball file (skip network download)
+  --checksum <sha256>   Expected SHA-256 for tarball
+  --checksum-url <url>  URL to checksum file (`sha256 [file]` format)
+  --checksum-file <path> Local checksum file (`sha256 [file]` format)
+  --release-pubkey-file <path>
+                        PEM public key for release checksum signature verification
+  --require-signature   Require release checksum signature verification
   -h, --help            Show help
+
+Environment:
+  SIGILUM_RELEASE_PUBKEY_FILE  Default path for --release-pubkey-file
 EOF
 }
 
@@ -64,6 +78,20 @@ resolve_latest_version() {
   printf '%s' "$tag"
 }
 
+download_to_file() {
+  local source_url="$1"
+  local dest="$2"
+
+  if command -v curl &>/dev/null; then
+    curl -fSL --progress-bar "$source_url" -o "$dest"
+  elif command -v wget &>/dev/null; then
+    wget -q --show-progress "$source_url" -O "$dest"
+  else
+    log_error "Neither curl nor wget found."
+    exit 1
+  fi
+}
+
 download_tarball() {
   local version="$1"
   local dest="$2"
@@ -72,14 +100,7 @@ download_tarball() {
   log_step "Downloading sigilum ${version}..."
   printf '  %s%s%s\n' "${CLR_DIM}" "$url" "${CLR_RESET}"
 
-  if command -v curl &>/dev/null; then
-    curl -fSL --progress-bar "$url" -o "$dest"
-  elif command -v wget &>/dev/null; then
-    wget -q --show-progress "$url" -O "$dest"
-  else
-    log_error "Neither curl nor wget found."
-    exit 1
-  fi
+  download_to_file "$url" "$dest"
 }
 
 download_explicit_tarball() {
@@ -96,19 +117,100 @@ download_explicit_tarball() {
   if [[ "$source" =~ ^https?:// ]]; then
     log_step "Downloading tarball from explicit URL..."
     printf '  %s%s%s\n' "${CLR_DIM}" "$source" "${CLR_RESET}"
-    if command -v curl &>/dev/null; then
-      curl -fSL --progress-bar "$source" -o "$dest"
-    elif command -v wget &>/dev/null; then
-      wget -q --show-progress "$source" -O "$dest"
-    else
-      log_error "Neither curl nor wget found."
-      exit 1
-    fi
+    download_to_file "$source" "$dest"
     return 0
   fi
 
   log_error "Invalid --tarball-file/--tarball-url source: ${source}"
   exit 1
+}
+
+download_release_checksum() {
+  local version="$1"
+  local dest="$2"
+  local url="https://github.com/${GITHUB_REPO}/releases/download/${version}/sigilum-${version}.tar.gz.sha256"
+
+  log_step "Downloading release checksum..."
+  printf '  %s%s%s\n' "${CLR_DIM}" "$url" "${CLR_RESET}"
+  download_to_file "$url" "$dest"
+}
+
+download_release_checksum_signature() {
+  local version="$1"
+  local dest="$2"
+  local url="https://github.com/${GITHUB_REPO}/releases/download/${version}/sigilum-${version}.tar.gz.sha256.sig"
+
+  log_step "Downloading release checksum signature..."
+  printf '  %s%s%s\n' "${CLR_DIM}" "$url" "${CLR_RESET}"
+
+  if command -v curl &>/dev/null; then
+    curl -fSL --progress-bar "$url" -o "$dest" >/dev/null 2>&1
+    return $?
+  fi
+  if command -v wget &>/dev/null; then
+    wget -q "$url" -O "$dest" >/dev/null 2>&1
+    return $?
+  fi
+  log_error "Neither curl nor wget found."
+  exit 1
+}
+
+sha256_file() {
+  local target_file="$1"
+  if command -v sha256sum &>/dev/null; then
+    sha256sum "$target_file" | awk '{print tolower($1)}'
+    return 0
+  fi
+  if command -v shasum &>/dev/null; then
+    shasum -a 256 "$target_file" | awk '{print tolower($1)}'
+    return 0
+  fi
+  if command -v openssl &>/dev/null; then
+    openssl dgst -sha256 "$target_file" | awk '{print tolower($2)}'
+    return 0
+  fi
+  log_error "No SHA-256 tool found. Install sha256sum, shasum, or openssl."
+  exit 1
+}
+
+extract_checksum_value() {
+  local checksum_file="$1"
+  local checksum
+  checksum="$(awk 'NF > 0 {print tolower($1); exit}' "$checksum_file" | tr -d '[:space:]')"
+  if [[ ! "$checksum" =~ ^[0-9a-f]{64}$ ]]; then
+    log_error "Invalid checksum format in ${checksum_file}. Expected SHA-256 in first column."
+    exit 1
+  fi
+  printf '%s' "$checksum"
+}
+
+verify_tarball_checksum() {
+  local tarball="$1"
+  local expected_checksum="$2"
+  local actual_checksum
+  actual_checksum="$(sha256_file "$tarball")"
+  if [[ "$actual_checksum" != "$expected_checksum" ]]; then
+    log_error "Checksum mismatch for downloaded tarball."
+    log_error "Expected: ${expected_checksum}"
+    log_error "Actual:   ${actual_checksum}"
+    exit 1
+  fi
+  log_ok "Checksum verified (sha256)."
+}
+
+verify_checksum_signature() {
+  local checksum_file="$1"
+  local signature_file="$2"
+  local pubkey_file="$3"
+  if ! command -v openssl &>/dev/null; then
+    log_error "openssl is required for signature verification."
+    exit 1
+  fi
+  if ! openssl dgst -sha256 -verify "$pubkey_file" -signature "$signature_file" "$checksum_file" >/dev/null 2>&1; then
+    log_error "Release checksum signature verification failed."
+    exit 1
+  fi
+  log_ok "Release checksum signature verified."
 }
 
 setup_colors
@@ -135,6 +237,26 @@ while [[ $# -gt 0 ]]; do
       TARBALL_FILE="${2:-}"
       shift 2
       ;;
+    --checksum)
+      CHECKSUM="${2:-}"
+      shift 2
+      ;;
+    --checksum-url)
+      CHECKSUM_URL="${2:-}"
+      shift 2
+      ;;
+    --checksum-file)
+      CHECKSUM_FILE="${2:-}"
+      shift 2
+      ;;
+    --release-pubkey-file)
+      RELEASE_PUBKEY_FILE="${2:-}"
+      shift 2
+      ;;
+    --require-signature)
+      REQUIRE_SIGNATURE="true"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -155,11 +277,35 @@ if [[ -n "$TARBALL_URL" && -n "$TARBALL_FILE" ]]; then
   exit 1
 fi
 
+if [[ -n "$CHECKSUM" && ( -n "$CHECKSUM_URL" || -n "$CHECKSUM_FILE" ) ]]; then
+  log_error "Use only one checksum source: --checksum, --checksum-url, or --checksum-file."
+  exit 1
+fi
+if [[ -n "$CHECKSUM_URL" && -n "$CHECKSUM_FILE" ]]; then
+  log_error "Use only one checksum source: --checksum-url or --checksum-file."
+  exit 1
+fi
+
 if [[ -n "$TARBALL_FILE" ]]; then
   if [[ ! -f "$TARBALL_FILE" ]]; then
     log_error "--tarball-file not found: ${TARBALL_FILE}"
     exit 1
   fi
+fi
+
+if [[ -n "$CHECKSUM_FILE" && ! -f "$CHECKSUM_FILE" ]]; then
+  log_error "--checksum-file not found: ${CHECKSUM_FILE}"
+  exit 1
+fi
+
+if [[ -n "$RELEASE_PUBKEY_FILE" && ! -f "$RELEASE_PUBKEY_FILE" ]]; then
+  log_error "--release-pubkey-file not found: ${RELEASE_PUBKEY_FILE}"
+  exit 1
+fi
+
+if [[ "$REQUIRE_SIGNATURE" == "true" && -z "$RELEASE_PUBKEY_FILE" ]]; then
+  log_error "--require-signature requires --release-pubkey-file (or SIGILUM_RELEASE_PUBKEY_FILE)."
+  exit 1
 fi
 
 print_banner
@@ -181,12 +327,55 @@ TMPDIR_DL="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_DL"' EXIT
 
 TARBALL="${TMPDIR_DL}/sigilum-${VERSION}.tar.gz"
+IS_RELEASE_DOWNLOAD="false"
 if [[ -n "$TARBALL_URL" ]]; then
   download_explicit_tarball "$TARBALL_URL" "$TARBALL"
 elif [[ -n "$TARBALL_FILE" ]]; then
   download_explicit_tarball "$TARBALL_FILE" "$TARBALL"
 else
+  IS_RELEASE_DOWNLOAD="true"
   download_tarball "$VERSION" "$TARBALL"
+fi
+printf '\n'
+
+CHECKSUM_PATH="${TMPDIR_DL}/sigilum-${VERSION}.tar.gz.sha256"
+CHECKSUM_EXPECTED=""
+if [[ -n "$CHECKSUM" ]]; then
+  CHECKSUM_EXPECTED="$(printf '%s' "$CHECKSUM" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+elif [[ -n "$CHECKSUM_URL" ]]; then
+  log_step "Downloading checksum file..."
+  printf '  %s%s%s\n' "${CLR_DIM}" "$CHECKSUM_URL" "${CLR_RESET}"
+  download_to_file "$CHECKSUM_URL" "$CHECKSUM_PATH"
+  CHECKSUM_EXPECTED="$(extract_checksum_value "$CHECKSUM_PATH")"
+elif [[ -n "$CHECKSUM_FILE" ]]; then
+  cp "$CHECKSUM_FILE" "$CHECKSUM_PATH"
+  CHECKSUM_EXPECTED="$(extract_checksum_value "$CHECKSUM_PATH")"
+elif [[ "$IS_RELEASE_DOWNLOAD" == "true" ]]; then
+  download_release_checksum "$VERSION" "$CHECKSUM_PATH"
+  CHECKSUM_EXPECTED="$(extract_checksum_value "$CHECKSUM_PATH")"
+fi
+
+if [[ -n "$CHECKSUM_EXPECTED" ]]; then
+  if [[ ! "$CHECKSUM_EXPECTED" =~ ^[0-9a-f]{64}$ ]]; then
+    log_error "Invalid --checksum value; expected 64 hex chars."
+    exit 1
+  fi
+  verify_tarball_checksum "$TARBALL" "$CHECKSUM_EXPECTED"
+else
+  log_warn "No checksum was provided for this install source; skipping checksum verification."
+fi
+
+if [[ -n "$RELEASE_PUBKEY_FILE" || "$REQUIRE_SIGNATURE" == "true" ]]; then
+  if [[ "$IS_RELEASE_DOWNLOAD" != "true" ]]; then
+    log_error "Signature verification is currently supported only for GitHub release downloads."
+    exit 1
+  fi
+  CHECKSUM_SIG_PATH="${CHECKSUM_PATH}.sig"
+  if ! download_release_checksum_signature "$VERSION" "$CHECKSUM_SIG_PATH"; then
+    log_error "Release checksum signature asset was not found for ${VERSION}."
+    exit 1
+  fi
+  verify_checksum_signature "$CHECKSUM_PATH" "$CHECKSUM_SIG_PATH" "$RELEASE_PUBKEY_FILE"
 fi
 printf '\n'
 

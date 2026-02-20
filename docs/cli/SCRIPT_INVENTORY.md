@@ -32,6 +32,7 @@ Design rule:
 
 | Script | Invoked as | Purpose |
 |---|---|---|
+| `scripts/shell-common.sh` | sourced by install/ops scripts | Shared shell helpers (color/log output, rc file detection, idempotent rc updates). |
 | `scripts/sigilum-service-common.sh` | sourced by service scripts | Shared helpers (D1, gateway admin/CLI, secret handling, formatting). |
 | `scripts/sigilum-service-add.sh` | `sigilum service add ...` | Register native/gateway services and persist service API keys/secrets. |
 | `scripts/sigilum-service-list.sh` | `sigilum service list ...` | List services with native vs gateway mode inference. |
@@ -41,7 +42,7 @@ Design rule:
 
 | Script | Invoked as | Purpose |
 |---|---|---|
-| `scripts/build-release.sh` | manual release build | Creates distributable release tarball from repo assets. |
+| `scripts/build-release.sh` | manual release build | Creates release tarball plus `.sha256` checksum (and optional `.sha256.sig` signature). |
 | `scripts/check-config-guards.sh` | `pnpm config:guards` | Prevents prod/staging templates from enabling unsafe local seed endpoint. |
 
 ## Removed redundant wrappers

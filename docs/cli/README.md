@@ -28,6 +28,13 @@ Install command options:
 - `--rc-file <path>`: shell rc file to update (auto-detected by default)
 - `--with-alias`: add `alias sigilum="<repo>/sigilum"` in rc file
 
+Release installer verification (`scripts/install-curl.sh`) defaults to checksum verification for GitHub releases.
+
+- `--checksum <sha256>`: explicit tarball SHA-256
+- `--checksum-url <url>` or `--checksum-file <path>`: checksum file source
+- `--release-pubkey-file <path>`: verify release checksum signature (`.sha256.sig`)
+- `--require-signature`: fail unless signature verification succeeds
+
 ## Help
 
 Top-level help:

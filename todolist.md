@@ -19,7 +19,7 @@ Reference: `world_class_review.md`
 - [ ] `GW-021` Add gateway metrics for auth, policy, MCP, and upstream latency/errors.
 - [ ] `SDK-002` Expand shared RFC9421 conformance vectors and run in all SDKs.
 - [ ] `SDK-006` Restore Java SDK source implementation or mark unsupported in matrix.
-- [ ] `SCR-005` Add checksum/signature verification to release install path.
+- [x] `SCR-005` Add checksum/signature verification to release install path.
 - [x] `SCR-006` Extract shared script library to remove duplicated shell logic.
 - [x] `SCR-009` Add shellcheck + script CI checks.
 - [ ] `PRD-001` Build one canonical onboarding checklist per deployment mode.
