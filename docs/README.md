@@ -17,6 +17,7 @@ This folder contains all long-form project documentation.
 - [`apps/api/README.md`](../apps/api/README.md) - API guide and endpoint overview.
 - [`apps/api/ENV_VARS.md`](../apps/api/ENV_VARS.md) - API environment variables and Cloudflare binding configuration.
 - [`apps/gateway/README.md`](../apps/gateway/README.md) - Gateway behavior, routes, `sigilum-subject` policy semantics, HTTP/MCP protocol support, and shared credential variable (`env_var` hint) usage.
+- [`apps/gateway/openapi.yaml`](../apps/gateway/openapi.yaml) - Gateway admin/runtime OpenAPI schema.
 - [`docs/cli/README.md`](./cli/README.md) - Local CLI install, commands, options, and examples.
 - [`docs/protocol/DID_METHOD_SIGILUM.md`](./protocol/DID_METHOD_SIGILUM.md) - DID method spec for `did:sigilum` and resolver behavior.
 

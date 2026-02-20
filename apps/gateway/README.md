@@ -107,6 +107,10 @@ Gateway returns deterministic auth failure codes so clients can react without pa
 
 ## Admin/API Surface
 
+Canonical schema:
+
+- `apps/gateway/openapi.yaml`
+
 - Health:
   - `GET /health`
   - `GET /health/live`

@@ -1,0 +1,266 @@
+openapi: 3.1.0
+info:
+  title: Sigilum Gateway API
+  version: 0.1.0
+  description: |
+    Administrative and runtime API surface for Sigilum Gateway.
+servers:
+  - url: http://127.0.0.1:38100
+paths:
+  /health:
+    get:
+      summary: Health status
+      responses:
+        "200":
+          description: Gateway health check
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthCheck"
+  /health/live:
+    get:
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Gateway process is live
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthCheck"
+  /health/ready:
+    get:
+      summary: Readiness probe
+      responses:
+        "200":
+          description: Gateway dependencies are ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthCheck"
+        "503":
+          description: Gateway dependencies are not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      responses:
+        "200":
+          description: Metrics payload
+          content:
+            text/plain:
+              schema:
+                type: string
+        "403":
+          description: Admin access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/admin/connections:
+    get:
+      summary: List configured connections
+      responses:
+        "200":
+          description: Connections list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connections:
+                    type: array
+                    items:
+                      type: object
+    post:
+      summary: Create a connection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: Connection created
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/admin/connections/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get a connection
+      responses:
+        "200":
+          description: Connection payload
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: Connection not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      summary: Update a connection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Connection updated
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      summary: Delete a connection
+      responses:
+        "204":
+          description: Connection deleted
+  /api/admin/connections/{id}/discover:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Run MCP discovery for a connection
+      responses:
+        "200":
+          description: Discovery metadata
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Invalid connection/protocol
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Upstream discovery failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /proxy/{connection_id}/{proxy_path}:
+    parameters:
+      - in: path
+        name: connection_id
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: proxy_path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Runtime proxy request (all HTTP methods supported)
+      responses:
+        "200":
+          description: Upstream proxied response
+        "4XX":
+          description: Gateway runtime/auth error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /mcp/{connection_id}/tools:
+    parameters:
+      - in: path
+        name: connection_id
+        required: true
+        schema:
+          type: string
+    get:
+      summary: List filtered MCP tools for the signed subject
+      responses:
+        "200":
+          description: Tool list
+          content:
+            application/json:
+              schema:
+                type: object
+  /mcp/{connection_id}/tools/{tool}/call:
+    parameters:
+      - in: path
+        name: connection_id
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: tool
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Call an MCP tool
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Tool call result
+          content:
+            application/json:
+              schema:
+                type: object
+        "403":
+          description: Tool not allowed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        request_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        docs_url:
+          type: string
+          format: uri
+    HealthCheck:
+      type: object
+      required: [status, check]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        check:
+          type: string

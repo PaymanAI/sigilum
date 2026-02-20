@@ -19,6 +19,7 @@ Reference: `world_class_review.md`
 - [x] `GW-020` Add structured gateway decision logs with redaction guarantees.
 - [x] `GW-021` Add gateway metrics for auth, policy, MCP, and upstream latency/errors.
 - [x] `GW-022` Add health/readiness/liveness split endpoints.
+- [x] `GW-019` Publish gateway API schema (OpenAPI) for admin/runtime endpoints.
 - [x] `SDK-002` Expand shared RFC9421 conformance vectors and run in all SDKs.
 - [x] `SDK-006` Restore Java SDK source implementation or mark unsupported in matrix.
 - [x] `SCR-005` Add checksum/signature verification to release install path.
