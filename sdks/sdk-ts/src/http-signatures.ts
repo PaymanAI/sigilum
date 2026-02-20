@@ -19,6 +19,25 @@ type SignatureInputParts = {
   nonce: string;
 };
 
+const REQUIRED_COMPONENTS_NO_BODY = [
+  "@method",
+  "@target-uri",
+  "sigilum-namespace",
+  "sigilum-subject",
+  "sigilum-agent-key",
+  "sigilum-agent-cert",
+] as const;
+
+const REQUIRED_COMPONENTS_WITH_BODY = [
+  "@method",
+  "@target-uri",
+  "content-digest",
+  "sigilum-namespace",
+  "sigilum-subject",
+  "sigilum-agent-key",
+  "sigilum-agent-cert",
+] as const;
+
 function normalizeUrl(input: string | URL): URL {
   const url = input instanceof URL ? new URL(input.toString()) : new URL(input);
   url.hash = "";
@@ -105,6 +124,24 @@ function parsePublicKey(publicKey: string): Uint8Array {
 
 function hasComponent(components: string[], expected: string): boolean {
   return components.some((component) => component.trim() === expected);
+}
+
+function hasValidSignedComponentSet(
+  components: string[],
+  hasBody: boolean,
+): boolean {
+  const expected = hasBody
+    ? REQUIRED_COMPONENTS_WITH_BODY
+    : REQUIRED_COMPONENTS_NO_BODY;
+  if (components.length !== expected.length) {
+    return false;
+  }
+  for (let index = 0; index < expected.length; index += 1) {
+    if (components[index] !== expected[index]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function encodeCertificateHeader(certificate: SigilumCertificate): string {
@@ -322,6 +359,12 @@ export function verifyHttpSignature(
       return { valid: false, reason: "Missing sigilum-subject in signed components" };
     }
 
+    const bodyBytes = normalizeBody(request.body);
+    const hasBody = Boolean(bodyBytes && bodyBytes.length > 0);
+    if (!hasValidSignedComponentSet(parsedInput.components, hasBody)) {
+      return { valid: false, reason: "Invalid signed component set" };
+    }
+
     if (request.expectedNamespace && request.expectedNamespace !== namespaceHeader) {
       return {
         valid: false,
@@ -339,7 +382,6 @@ export function verifyHttpSignature(
       return { valid: false, reason: "keyid mismatch" };
     }
 
-    const bodyBytes = normalizeBody(request.body);
     if (bodyBytes && bodyBytes.length > 0) {
       const expectedDigest = computeContentDigest(bodyBytes);
       if (headers.get("content-digest") !== expectedDigest) {

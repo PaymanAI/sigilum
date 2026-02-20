@@ -18,6 +18,25 @@ import (
 var signatureInputPattern = regexp.MustCompile(`^sig1=\(([^)]*)\);created=(\d+);keyid="([^"]+)";alg="([^"]+)";nonce="([^"]+)"$`)
 var signaturePattern = regexp.MustCompile(`^sig1=:([^:]+):$`)
 
+var requiredComponentsNoBody = []string{
+	"@method",
+	"@target-uri",
+	"sigilum-namespace",
+	"sigilum-subject",
+	"sigilum-agent-key",
+	"sigilum-agent-cert",
+}
+
+var requiredComponentsWithBody = []string{
+	"@method",
+	"@target-uri",
+	"content-digest",
+	"sigilum-namespace",
+	"sigilum-subject",
+	"sigilum-agent-key",
+	"sigilum-agent-cert",
+}
+
 type parsedSignatureInput struct {
 	Components []string
 	Created    int64
@@ -292,6 +311,10 @@ func VerifyHTTPSignature(input VerifySignatureInput) VerifySignatureResult {
 	if !containsComponent(parsed.Components, "sigilum-subject") {
 		return VerifySignatureResult{Valid: false, Reason: "Missing sigilum-subject in signed components"}
 	}
+	hasBody := len(input.Body) > 0
+	if !hasValidSignedComponentSet(parsed.Components, hasBody) {
+		return VerifySignatureResult{Valid: false, Reason: "Invalid signed component set"}
+	}
 
 	keyHeader := headers["sigilum-agent-key"]
 	if keyHeader == "" {
@@ -340,6 +363,22 @@ func containsComponent(components []string, value string) bool {
 		}
 	}
 	return false
+}
+
+func hasValidSignedComponentSet(components []string, hasBody bool) bool {
+	expected := requiredComponentsNoBody
+	if hasBody {
+		expected = requiredComponentsWithBody
+	}
+	if len(components) != len(expected) {
+		return false
+	}
+	for idx := range expected {
+		if components[idx] != expected[idx] {
+			return false
+		}
+	}
+	return true
 }
 
 func randomUUIDV4() (string, error) {

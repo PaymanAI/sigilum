@@ -114,4 +114,34 @@ describe("RFC 9421 signing", () => {
     expect(verified.valid).toBe(false);
     expect(verified.reason).toMatch(/subject mismatch/i);
   });
+
+  it("fails verification when signed component profile is invalid", () => {
+    const homeDir = makeHomeDir();
+    initIdentity({ namespace: "alice", homeDir });
+    const identity = loadIdentity({ namespace: "alice", homeDir });
+
+    const signed = signHttpRequest(identity, {
+      url: "https://api.sigilum.local/v1/namespaces/alice/claims",
+      method: "GET",
+    });
+    const signatureInput = signed.headers.get("signature-input");
+    expect(signatureInput).toBeTruthy();
+    if (!signatureInput) {
+      throw new Error("expected signature-input header");
+    }
+    signed.headers.set(
+      "signature-input",
+      signatureInput.replace(`"sigilum-agent-cert"`, ""),
+    );
+
+    const verified = verifyHttpSignature({
+      url: signed.url,
+      method: signed.method,
+      headers: signed.headers,
+      expectedNamespace: "alice",
+    });
+
+    expect(verified.valid).toBe(false);
+    expect(verified.reason).toMatch(/component set/i);
+  });
 });

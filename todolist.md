@@ -4,7 +4,7 @@ Reference: `world_class_review.md`
 
 ## In Progress Queue
 
-- [ ] `SDK-001` Enforce identical strict signature verification profile across TS/Go/Python SDKs.
+- [x] `SDK-001` Enforce identical strict signature verification profile across TS/Go/Python SDKs.
 - [ ] `GW-016` Normalize gateway method-not-allowed and route failures to stable JSON errors.
 - [ ] `GW-018` Harden gateway CORS contract for admin and signed request headers.
 - [ ] `SCR-001` Harden gateway pairing bridge shutdown/retry/relay-safety behavior.
@@ -23,4 +23,3 @@ Reference: `world_class_review.md`
 - [ ] `SCR-009` Add shellcheck + script CI checks.
 - [ ] `PRD-001` Build one canonical onboarding checklist per deployment mode.
 - [ ] `PRD-007` Publish product-wide error/success message style guide.
-

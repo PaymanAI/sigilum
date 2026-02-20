@@ -80,3 +80,29 @@ def test_verify_fails_on_subject_mismatch() -> None:
         assert result.valid is False
         assert result.reason is not None
         assert "subject mismatch" in result.reason.lower()
+
+
+def test_verify_fails_on_invalid_signed_component_set() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        init_identity(namespace="alice", home_dir=tmp)
+        identity = load_identity(namespace="alice", home_dir=tmp)
+
+        signed = sign_http_request(
+            identity,
+            url="https://api.sigilum.local/v1/namespaces/alice/claims",
+            method="GET",
+        )
+        signature_input = signed.headers.get("signature-input")
+        assert signature_input is not None
+        signed.headers["signature-input"] = signature_input.replace('"sigilum-agent-cert"', "")
+
+        result = verify_http_signature(
+            url=signed.url,
+            method=signed.method,
+            headers=signed.headers,
+            expected_namespace="alice",
+        )
+
+        assert result.valid is False
+        assert result.reason is not None
+        assert "component set" in result.reason.lower()

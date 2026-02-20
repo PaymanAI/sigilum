@@ -207,6 +207,30 @@ _SIGNATURE_INPUT_PATTERN = re.compile(
 
 _SIGNATURE_PATTERN = re.compile(r"^sig1=:([^:]+):$")
 
+_REQUIRED_COMPONENTS_NO_BODY = [
+    "@method",
+    "@target-uri",
+    "sigilum-namespace",
+    "sigilum-subject",
+    "sigilum-agent-key",
+    "sigilum-agent-cert",
+]
+
+_REQUIRED_COMPONENTS_WITH_BODY = [
+    "@method",
+    "@target-uri",
+    "content-digest",
+    "sigilum-namespace",
+    "sigilum-subject",
+    "sigilum-agent-key",
+    "sigilum-agent-cert",
+]
+
+
+def _valid_signed_component_set(components: list[str], has_body: bool) -> bool:
+    expected = _REQUIRED_COMPONENTS_WITH_BODY if has_body else _REQUIRED_COMPONENTS_NO_BODY
+    return components == expected
+
 
 def verify_http_signature(
     *,
@@ -295,6 +319,9 @@ def verify_http_signature(
             return VerifySignatureResult(valid=False, reason="keyid mismatch")
 
         body_bytes = _normalize_body(body)
+        has_body = bool(body_bytes and len(body_bytes) > 0)
+        if not _valid_signed_component_set(components, has_body):
+            return VerifySignatureResult(valid=False, reason="Invalid signed component set")
         if body_bytes:
             digest = _content_digest(body_bytes)
             if normalized_headers.get("content-digest") != digest:
