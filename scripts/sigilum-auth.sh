@@ -4,11 +4,49 @@ set -euo pipefail
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_DIR_CANDIDATE="${SIGILUM_SOURCE_HOME:-$SCRIPT_ROOT}"
 if [[ ! -d "$ROOT_DIR_CANDIDATE" ]]; then
-  echo "SIGILUM_SOURCE_HOME directory not found: ${ROOT_DIR_CANDIDATE}" >&2
+  printf '[ERROR] SIGILUM_SOURCE_HOME directory not found: %s\n' "${ROOT_DIR_CANDIDATE}" >&2
   exit 1
 fi
 ROOT_DIR="$(cd "$ROOT_DIR_CANDIDATE" && pwd)"
 cd "$ROOT_DIR"
+
+CLR_RESET=""
+CLR_BOLD=""
+CLR_DIM=""
+CLR_RED=""
+CLR_GREEN=""
+CLR_YELLOW=""
+CLR_BLUE=""
+CLR_CYAN=""
+
+setup_colors() {
+  if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" ]]; then
+    CLR_RESET=$'\033[0m'
+    CLR_BOLD=$'\033[1m'
+    CLR_DIM=$'\033[2m'
+    CLR_RED=$'\033[31m'
+    CLR_GREEN=$'\033[32m'
+    CLR_YELLOW=$'\033[33m'
+    CLR_BLUE=$'\033[34m'
+    CLR_CYAN=$'\033[36m'
+  fi
+}
+
+log_ok() {
+  printf '%s[ok]%s %s\n' "${CLR_BOLD}${CLR_GREEN}" "${CLR_RESET}" "$1"
+}
+
+log_info() {
+  printf '%s[i]%s %s\n' "${CLR_BOLD}${CLR_BLUE}" "${CLR_RESET}" "$1"
+}
+
+log_error() {
+  printf '%s[ERROR]%s %s\n' "${CLR_BOLD}${CLR_RED}" "${CLR_RESET}" "$1" >&2
+}
+
+print_kv() {
+  printf '  %s%-20s%s %s\n' "${CLR_BOLD}" "$1" "${CLR_RESET}" "$2"
+}
 
 usage() {
   cat <<'USAGE'
@@ -55,7 +93,7 @@ USAGE
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
-    echo "Missing required command: $1" >&2
+    log_error "Missing required command: $1"
     exit 1
   fi
 }
@@ -67,20 +105,20 @@ ensure_local_oss_source_layout() {
     return 0
   fi
 
-  echo "oss-local mode requires a full Sigilum source checkout." >&2
-  echo "Current runtime root does not include local API sources:" >&2
-  echo "  expected directory: ${api_dir}" >&2
-  echo "  expected file:      ${wrangler_template}" >&2
-  echo "" >&2
-  echo "Use one of these paths:" >&2
-  echo "  1) managed mode from this install:" >&2
-  echo "     sigilum openclaw install --mode managed" >&2
-  echo "  2) oss-local from a source checkout:" >&2
-  echo "     git clone https://github.com/PaymanAI/sigilum.git" >&2
-  echo "     cd sigilum" >&2
-  echo "     ./sigilum openclaw install --mode oss-local --api-url http://127.0.0.1:8787" >&2
-  echo "  3) point global CLI to source checkout:" >&2
-  echo "     SIGILUM_SOURCE_HOME=/path/to/sigilum sigilum openclaw install --mode oss-local --source-home /path/to/sigilum --api-url http://127.0.0.1:8787" >&2
+  log_error "oss-local mode requires a full Sigilum source checkout."
+  log_error "Current runtime root does not include local API sources:"
+  log_error "  expected directory: ${api_dir}"
+  log_error "  expected file:      ${wrangler_template}"
+  log_error ""
+  log_error "Use one of these paths:"
+  log_error "  1) managed mode from this install:"
+  log_error "     sigilum openclaw install --mode managed"
+  log_error "  2) oss-local from a source checkout:"
+  log_error "     git clone https://github.com/PaymanAI/sigilum.git"
+  log_error "     cd sigilum"
+  log_error "     ./sigilum openclaw install --mode oss-local --api-url http://127.0.0.1:8787"
+  log_error "  3) point global CLI to source checkout:"
+  log_error "     SIGILUM_SOURCE_HOME=/path/to/sigilum sigilum openclaw install --mode oss-local --source-home /path/to/sigilum --api-url http://127.0.0.1:8787"
   exit 1
 }
 
@@ -132,12 +170,12 @@ ensure_api_wrangler_config() {
     return 0
   fi
   if [[ ! -f "$template_path" ]]; then
-    echo "Missing Wrangler config template: ${template_path}" >&2
+    log_error "Missing Wrangler config template: ${template_path}"
     exit 1
   fi
 
   cp "$template_path" "$config_path"
-  echo "Created ${config_path} from template."
+  log_ok "Created ${config_path} from template."
 }
 
 sql_escape() {
@@ -194,8 +232,8 @@ resolve_local_jwt_secret() {
     return 0
   fi
 
-  echo "Unable to resolve JWT_SECRET for local token issuance." >&2
-  echo "Set JWT_SECRET env var or configure apps/api/.dev.vars with JWT_SECRET." >&2
+  log_error "Unable to resolve JWT_SECRET for local token issuance."
+  log_error "Set JWT_SECRET env var or configure apps/api/.dev.vars with JWT_SECRET."
   exit 1
 }
 
@@ -354,11 +392,13 @@ NODE
 validate_namespace() {
   local namespace="$1"
   if [[ ! "$namespace" =~ ^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$ ]]; then
-    echo "Invalid namespace: ${namespace}" >&2
-    echo "Namespace must match ^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$" >&2
+    log_error "Invalid namespace: ${namespace}"
+    log_error "Namespace must match ^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$"
     exit 1
   fi
 }
+
+setup_colors
 
 if [[ $# -lt 1 ]]; then
   usage
@@ -448,7 +488,7 @@ case "$command" in
           exit 0
           ;;
         *)
-          echo "Unknown option: $1" >&2
+          log_error "Unknown option: $1"
           usage >&2
           exit 1
           ;;
@@ -459,21 +499,21 @@ case "$command" in
       managed|oss-local)
         ;;
       *)
-        echo "--mode must be managed or oss-local" >&2
+        log_error "--mode must be managed or oss-local"
         exit 1
         ;;
     esac
 
     if ! is_bool "$WRITE_OPENCLAW"; then
-      echo "--write-openclaw must be true or false" >&2
+      log_error "--write-openclaw must be true or false"
       exit 1
     fi
     if ! is_bool "$PRINT_TOKEN"; then
-      echo "--print-token must be true or false" >&2
+      log_error "--print-token must be true or false"
       exit 1
     fi
     if ! is_bool_or_preserve "$ENABLE_AUTHZ_NOTIFY"; then
-      echo "--enable-authz-notify must be true, false, or preserve" >&2
+      log_error "--enable-authz-notify must be true, false, or preserve"
       exit 1
     fi
 
@@ -514,14 +554,14 @@ case "$command" in
       fi
     else
       if [[ -z "$OWNER_TOKEN" ]]; then
-        echo "Managed mode requires an explicit owner JWT." >&2
-        echo "Run browser/passkey login first, then pass token via --owner-token or --owner-token-stdin." >&2
+        log_error "Managed mode requires an explicit owner JWT."
+        log_error "Run browser/passkey login first, then pass token via --owner-token or --owner-token-stdin."
         exit 1
       fi
     fi
 
     if [[ -z "$OWNER_TOKEN" ]]; then
-      echo "Owner token is empty." >&2
+      log_error "Owner token is empty."
       exit 1
     fi
 
@@ -536,18 +576,18 @@ case "$command" in
       exit 0
     fi
 
-    echo "Namespace-owner token ready."
-    echo "  mode: ${MODE}"
-    echo "  namespace: ${NAMESPACE}"
-    echo "  api: ${API_URL}"
-    echo "  token_file: ${TOKEN_FILE}"
+    log_ok "Namespace-owner token ready."
+    print_kv "mode:" "${MODE}"
+    print_kv "namespace:" "${NAMESPACE}"
+    print_kv "api:" "${API_URL}"
+    print_kv "token_file:" "${TOKEN_FILE}"
     if [[ "$WRITE_OPENCLAW" == "true" ]]; then
-      echo "  openclaw_config: ${CONFIG_PATH}"
-      echo "  authz_notify_enabled: ${ENABLE_AUTHZ_NOTIFY}"
+      print_kv "openclaw_config:" "${CONFIG_PATH}"
+      print_kv "authz_notify_enabled:" "${ENABLE_AUTHZ_NOTIFY}"
     fi
     if [[ "$PRINT_TOKEN" == "true" ]]; then
-      echo
-      echo "JWT:"
+      printf '\n'
+      log_info "JWT:"
       printf '%s\n' "$OWNER_TOKEN"
     fi
     ;;
@@ -575,7 +615,7 @@ case "$command" in
           exit 0
           ;;
         *)
-          echo "Unknown option: $1" >&2
+          log_error "Unknown option: $1"
           usage >&2
           exit 1
           ;;
@@ -586,7 +626,7 @@ case "$command" in
       TOKEN_FILE="${OPENCLAW_HOME}/.sigilum/owner-token-${NAMESPACE}.jwt"
     fi
     if [[ ! -f "$TOKEN_FILE" ]]; then
-      echo "Token file not found: ${TOKEN_FILE}" >&2
+      log_error "Token file not found: ${TOKEN_FILE}"
       exit 1
     fi
     cat "$TOKEN_FILE"
@@ -595,7 +635,7 @@ case "$command" in
     usage
     ;;
   *)
-    echo "Unknown auth command: ${command}" >&2
+    log_error "Unknown auth command: ${command}"
     usage >&2
     exit 1
     ;;
