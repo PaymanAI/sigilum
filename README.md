@@ -184,6 +184,12 @@ Machine-readable diagnostics for automation:
 ./sigilum doctor --json
 ```
 
+Safe automated remediations for common local issues:
+
+```bash
+./sigilum doctor --fix
+```
+
 Run full local e2e flow (recommended smoke test):
 
 ```bash

@@ -156,6 +156,7 @@ Runs local diagnostics:
 - API/gateway health checks
 - OpenClaw config permissions and authz-notify token posture checks
 - machine-readable JSON report mode for automation (`--json`)
+- safe auto-remediation mode for selected checks (`--fix`)
 
 Example:
 
@@ -165,6 +166,10 @@ sigilum doctor
 
 ```bash
 sigilum doctor --json
+```
+
+```bash
+sigilum doctor --fix
 ```
 
 ### `sigilum gateway pair ...`

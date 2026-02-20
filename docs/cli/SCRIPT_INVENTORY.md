@@ -21,7 +21,7 @@ Design rule:
 |---|---|---|
 | `scripts/sigilum-auth.sh` | `sigilum auth ...` | Namespace-owner JWT login/refresh/show (managed and oss-local flows). |
 | `scripts/sigilum-openclaw.sh` | `sigilum openclaw ...` | OpenClaw command surface (`install`, `uninstall`, `status`). |
-| `scripts/sigilum-doctor.sh` | `sigilum doctor` | Local diagnostics: tools, runtime status, OpenClaw posture, health checks, and machine-readable output via `--json`. |
+| `scripts/sigilum-doctor.sh` | `sigilum doctor` | Local diagnostics: tools, runtime status, OpenClaw posture, health checks, machine-readable output via `--json`, and safe remediations via `--fix`. |
 | `scripts/sigilum-down.sh` | `sigilum down` | Stops local listeners on known Sigilum development ports. |
 | `scripts/run-local-api-gateway.sh` | `sigilum up` | Starts local API + gateway stack and bootstraps local defaults. |
 | `scripts/run-demo-e2e.sh` | `sigilum e2e-tests` | Full local e2e bring-up, seeding, simulator validation. |

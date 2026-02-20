@@ -20,12 +20,14 @@ warn_count=0
 fail_count=0
 
 declare -a action_items=()
+declare -a applied_fixes=()
 declare -a check_statuses=()
 declare -a check_labels=()
 declare -a check_details=()
 
 NO_COLOR_FLAG="false"
 JSON_OUTPUT_FLAG="false"
+FIX_MODE_FLAG="false"
 COLOR_ENABLED="false"
 TERM_COLS=120
 LABEL_WIDTH=30
@@ -50,6 +52,7 @@ Checks local prerequisites, runtime status, token posture, and common misconfigu
 
 Options:
   --json      Emit machine-readable JSON report
+  --fix       Apply safe automated remediations where available
   --no-color  Disable ANSI colors
   -h, --help  Show help
 EOF
@@ -178,6 +181,14 @@ print_json_report() {
       "$(json_escape "${check_details[$i]}")"
   done
   printf '],'
+  printf '"applied_fixes":['
+  for ((i = 0; i < ${#applied_fixes[@]}; i += 1)); do
+    if (( i > 0 )); then
+      printf ','
+    fi
+    printf '"%s"' "$(json_escape "${applied_fixes[$i]}")"
+  done
+  printf '],'
   printf '"actions":['
   for ((i = 0; i < ${#action_items[@]}; i += 1)); do
     if (( i > 0 )); then
@@ -287,6 +298,15 @@ add_action() {
   action_items+=("$item")
 }
 
+add_fix() {
+  local item
+  item="$(normalize_text "$1")"
+  if [[ -z "$item" ]]; then
+    return 0
+  fi
+  applied_fixes+=("$item")
+}
+
 check_cmd() {
   local cmd="$1"
   local label="$2"
@@ -354,6 +374,10 @@ while [[ $# -gt 0 ]]; do
       JSON_OUTPUT_FLAG="true"
       shift
       ;;
+    --fix)
+      FIX_MODE_FLAG="true"
+      shift
+      ;;
     --no-color)
       NO_COLOR_FLAG="true"
       shift
@@ -376,6 +400,9 @@ detect_terminal_width
 if [[ "$JSON_OUTPUT_FLAG" != "true" ]]; then
   printf '%sSigilum Doctor%s\n' "${CLR_BOLD}" "${CLR_RESET}"
   printf '%sLocal readiness report for API, gateway, keys, and OpenClaw config.%s\n' "${CLR_DIM}" "${CLR_RESET}"
+  if [[ "$FIX_MODE_FLAG" == "true" ]]; then
+    printf '%sAuto-remediation mode enabled (--fix).%s\n' "${CLR_DIM}" "${CLR_RESET}"
+  fi
   rule
 fi
 
@@ -391,8 +418,18 @@ section "Sigilum Workspace"
 if [[ -f "${ROOT_DIR}/apps/api/wrangler.toml" ]]; then
   record_ok "Wrangler config" "${ROOT_DIR}/apps/api/wrangler.toml"
 elif [[ -f "${ROOT_DIR}/apps/api/wrangler.toml.example" ]]; then
-  record_warn "Wrangler config" "Missing wrangler.toml; template exists at ${ROOT_DIR}/apps/api/wrangler.toml.example"
-  add_action "Create local API config: cp apps/api/wrangler.toml.example apps/api/wrangler.toml"
+  if [[ "$FIX_MODE_FLAG" == "true" ]]; then
+    if cp "${ROOT_DIR}/apps/api/wrangler.toml.example" "${ROOT_DIR}/apps/api/wrangler.toml" 2>/dev/null; then
+      record_ok "Wrangler config" "${ROOT_DIR}/apps/api/wrangler.toml (created from template)"
+      add_fix "Created apps/api/wrangler.toml from wrangler.toml.example"
+    else
+      record_fail "Wrangler config" "Failed to create wrangler.toml from template"
+      add_action "Create local API config manually: cp apps/api/wrangler.toml.example apps/api/wrangler.toml"
+    fi
+  else
+    record_warn "Wrangler config" "Missing wrangler.toml; template exists at ${ROOT_DIR}/apps/api/wrangler.toml.example"
+    add_action "Create local API config: cp apps/api/wrangler.toml.example apps/api/wrangler.toml"
+  fi
 else
   record_fail "Wrangler config" "Missing wrangler.toml and wrangler.toml.example under ${ROOT_DIR}/apps/api"
 fi
@@ -434,7 +471,16 @@ if [[ -f "$OPENCLAW_CONFIG_PATH" ]]; then
   if [[ -n "$local_mode" ]] && [[ "$local_mode" == "600" ]]; then
     record_ok "Config permissions" "${OPENCLAW_CONFIG_PATH} (600)"
   elif [[ -n "$local_mode" ]]; then
-    record_warn "Config permissions" "${OPENCLAW_CONFIG_PATH} (${local_mode}; recommended 600)"
+    if [[ "$FIX_MODE_FLAG" == "true" ]]; then
+      if chmod 600 "$OPENCLAW_CONFIG_PATH" 2>/dev/null; then
+        record_ok "Config permissions" "${OPENCLAW_CONFIG_PATH} (normalized to 600)"
+        add_fix "Normalized OpenClaw config permissions to 600 (${OPENCLAW_CONFIG_PATH})"
+      else
+        record_warn "Config permissions" "${OPENCLAW_CONFIG_PATH} (${local_mode}; chmod 600 failed)"
+      fi
+    else
+      record_warn "Config permissions" "${OPENCLAW_CONFIG_PATH} (${local_mode}; recommended 600)"
+    fi
   else
     record_warn "Config permissions" "Unable to read permissions for ${OPENCLAW_CONFIG_PATH}"
   fi
@@ -538,6 +584,13 @@ else
     printf '%sSummary:%s %d ok, %d warnings, %d failures\n' "${CLR_BOLD}${CLR_YELLOW}" "${CLR_RESET}" "$ok_count" "$warn_count" "$fail_count"
   else
     printf '%sSummary:%s %d ok, %d warnings, %d failures\n' "${CLR_BOLD}${CLR_GREEN}" "${CLR_RESET}" "$ok_count" "$warn_count" "$fail_count"
+  fi
+
+  if (( ${#applied_fixes[@]} > 0 )); then
+    section "Applied Fixes"
+    for i in "${!applied_fixes[@]}"; do
+      printf '  %d) %s\n' "$((i + 1))" "${applied_fixes[$i]}"
+    done
   fi
 
   if (( ${#action_items[@]} > 0 )); then
