@@ -36,6 +36,10 @@ function isDashboardSessionRoute(pathname: string): boolean {
   return false;
 }
 
+function isPublicDidRoute(pathname: string): boolean {
+  return pathname === "/.well-known/did" || pathname.startsWith("/.well-known/did/");
+}
+
 function extractNamespaceFromPath(pathname: string): string | undefined {
   if (!pathname.startsWith("/v1/namespaces/")) return undefined;
   const rest = pathname.slice("/v1/namespaces/".length);
@@ -104,7 +108,7 @@ function claimsNamespaceOnlyBinding(request: Request, pathname: string, method: 
 export async function requireSignedHeaders(c: Context<{ Bindings: Env }>, next: Next) {
   const request = c.req.raw;
   const url = new URL(request.url);
-  if (isDashboardSessionRoute(url.pathname)) {
+  if (isDashboardSessionRoute(url.pathname) || isPublicDidRoute(url.pathname)) {
     await next();
     return;
   }

@@ -6,6 +6,7 @@ import { namespacesRouter } from "./routes/namespaces.js";
 import { claimsRouter } from "./routes/claims.js";
 import { verifyRouter } from "./routes/verify.js";
 import { didRouter } from "./routes/did.js";
+import { didResolutionRouter } from "./routes/did-resolution.js";
 import { dispatchWebhookEvent } from "./routes/webhooks.js";
 import { authRouter } from "./routes/auth.js";
 import { servicesRouter } from "./routes/services.js";
@@ -70,6 +71,7 @@ app.route("/v1/services", servicesRouter);
 app.route("/v1/gateway/pairing", gatewayPairingRouter);
 app.route("/v1/test", testSeedRouter);
 app.route("/.well-known/did", didRouter);
+app.route("/1.0", didResolutionRouter);
 
 // ─── 404 ─────────────────────────────────────────────────────────────────────
 

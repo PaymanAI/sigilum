@@ -71,6 +71,7 @@ Local-only exception: `POST /v1/test/seed` is available only when `ENABLE_TEST_S
 - `GET /v1/namespaces/{namespace}/claims` (namespace-owner auth)
 - `GET /v1/namespaces/claims` (service API key)
 - `GET /.well-known/did/{did}`
+- `GET /1.0/identifiers/{did}` (DID Resolution envelope)
 - `GET /v1/verify`
 
 ### Authorizations
@@ -92,6 +93,17 @@ Local-only exception: `POST /v1/test/seed` is available only when `ENABLE_TEST_S
 - `GET /v1/services/{serviceId}/webhooks`
 - `POST /v1/services/{serviceId}/webhooks`
 - `DELETE /v1/services/{serviceId}/webhooks/{webhookId}`
+
+## DID Resolver Notes
+
+- DID documents are exposed at `/.well-known/did/{did}` as `application/did+ld+json`.
+- DID resolution results are exposed at `/1.0/identifiers/{did}` as
+  `application/ld+json;profile="https://w3id.org/did-resolution"`.
+- Resolver emits:
+  - `verificationMethod` entries (`Ed25519VerificationKey2020`) with `publicKeyMultibase`
+  - `authentication` and `assertionMethod` relationships
+  - `service` entries (`AgentEndpoint`) per approved service authorization
+- Resolver marks `didDocumentMetadata.deactivated=true` when historical authorization state exists but the namespace owner record is no longer active.
 
 ## Local Development
 

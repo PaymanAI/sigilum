@@ -121,6 +121,12 @@ class MockD1Database {
         : null) as T | null;
     }
 
+    if (sql.includes("SELECT claim_id FROM authorizations WHERE namespace = ? LIMIT 1")) {
+      const [namespace] = params as [string];
+      const claim = this.authorizations.find((row) => row.namespace === namespace);
+      return (claim ? { claim_id: claim.claim_id } : null) as T | null;
+    }
+
     if (sql.includes("COUNT(*) as cnt") && sql.includes("FROM authorizations") && sql.includes("namespace = ?")) {
       const [namespace] = params as [string];
       const cnt = this.authorizations.filter(
@@ -719,6 +725,50 @@ describe("DID resolution", () => {
     expect(data.id).toBe("did:sigilum:alice");
     expect(data.controller).toBe("did:sigilum:alice");
     expect(Array.isArray(data.verificationMethod)).toBe(true);
+    expect(Array.isArray(data.authentication)).toBe(true);
+  });
+
+  it("allows public DID document resolution without signed headers", async () => {
+    const res = await app.request("/.well-known/did/did:sigilum:alice", {}, testEnv());
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as Record<string, unknown>;
+    expect(data.id).toBe("did:sigilum:alice");
+  });
+
+  it("returns DID Resolution result from /1.0/identifiers/:did", async () => {
+    const res = await app.request("/1.0/identifiers/did:sigilum:alice", {}, testEnv());
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as {
+      didDocument: { id?: string } | null;
+      didDocumentMetadata?: { deactivated?: boolean };
+      didResolutionMetadata?: { contentType?: string };
+    };
+    expect(data.didDocument?.id).toBe("did:sigilum:alice");
+    expect(data.didDocumentMetadata?.deactivated).toBe(false);
+    expect(data.didResolutionMetadata?.contentType).toBe("application/did+ld+json");
+  });
+
+  it("returns invalidDid error for malformed DID Resolution input", async () => {
+    const res = await app.request("/1.0/identifiers/not-a-did", {}, testEnv());
+    expect(res.status).toBe(400);
+    const data = (await res.json()) as {
+      didDocument: unknown;
+      didResolutionMetadata?: { error?: string };
+    };
+    expect(data.didDocument).toBeNull();
+    expect(data.didResolutionMetadata?.error).toBe("invalidDid");
+  });
+
+  it("marks DID as deactivated when namespace owner record is removed", async () => {
+    db.users = db.users.filter((row) => row.namespace !== "alice");
+    const res = await app.request("/1.0/identifiers/did:sigilum:alice", {}, testEnv());
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as {
+      didDocument: { id?: string } | null;
+      didDocumentMetadata?: { deactivated?: boolean };
+    };
+    expect(data.didDocument?.id).toBe("did:sigilum:alice");
+    expect(data.didDocumentMetadata?.deactivated).toBe(true);
   });
 });
 
