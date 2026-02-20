@@ -10,6 +10,7 @@ This folder contains all long-form project documentation.
 - `governance/` - trust registries, issuer policy, and operational governance.
 - `compliance/` - regulatory mapping and audit requirements.
 - `roadmap/` - milestones, phases, and delivery plan.
+- `product/` - onboarding, UX, and product communication standards.
 
 ## API Docs
 
@@ -26,3 +27,8 @@ This folder contains all long-form project documentation.
 - [`sdks/sdk-python/README.md`](../sdks/sdk-python/README.md) - Python SDK.
 - [`sdks/sdk-go/README.md`](../sdks/sdk-go/README.md) - Go SDK.
 - [`sdks/sdk-java/README.md`](../sdks/sdk-java/README.md) - Java SDK placeholder status.
+
+## Product Docs
+
+- [`docs/product/ONBOARDING_CHECKLISTS.md`](./product/ONBOARDING_CHECKLISTS.md) - canonical onboarding checklists by deployment mode.
+- [`docs/product/MESSAGE_STYLE_GUIDE.md`](./product/MESSAGE_STYLE_GUIDE.md) - product-wide error/success message standards.
