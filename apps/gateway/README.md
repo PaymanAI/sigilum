@@ -80,6 +80,16 @@ Service catalog templates now support both HTTP and MCP provider definitions:
 
 If any auth step fails, gateway returns a structured error without forwarding upstream.
 
+## Error Envelope
+
+JSON error responses use a stable envelope:
+
+- `error`: human-readable summary
+- `code`: stable machine-readable code
+- `request_id`: correlation id for logs/traces
+- `timestamp`: RFC3339 UTC timestamp
+- `docs_url`: remediation reference
+
 ## Auth Failure Code Taxonomy
 
 Gateway returns deterministic auth failure codes so clients can react without parsing free-form text.

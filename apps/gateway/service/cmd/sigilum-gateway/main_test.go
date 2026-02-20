@@ -624,6 +624,59 @@ func TestWriteVerificationFailureUsesSignatureInvalidCode(t *testing.T) {
 	}
 }
 
+func TestWriteJSONErrorResponseHydratesMetadata(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	writeJSON(recorder, http.StatusBadRequest, errorResponse{
+		Error: "bad request",
+		Code:  "METHOD_NOT_ALLOWED",
+	})
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected HTTP 400, got %d", recorder.Code)
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response, got decode error: %v", err)
+	}
+	if strings.TrimSpace(payload.RequestID) == "" {
+		t.Fatal("expected request_id to be populated")
+	}
+	if headerValue := strings.TrimSpace(recorder.Header().Get(requestIDHeader)); headerValue == "" || headerValue != payload.RequestID {
+		t.Fatalf("expected response %s header to match payload request_id, header=%q payload=%q", requestIDHeader, recorder.Header().Get(requestIDHeader), payload.RequestID)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, payload.Timestamp); err != nil {
+		t.Fatalf("expected RFC3339 timestamp, got %q (%v)", payload.Timestamp, err)
+	}
+	if !strings.Contains(payload.DocsURL, "apps/gateway/README.md") {
+		t.Fatalf("expected docs_url to target gateway docs, got %q", payload.DocsURL)
+	}
+}
+
+func TestWriteJSONErrorResponsePreservesExplicitMetadata(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	writeJSON(recorder, http.StatusForbidden, errorResponse{
+		Error:     "forbidden",
+		Code:      "AUTH_FORBIDDEN",
+		RequestID: "req-explicit",
+		Timestamp: "2026-02-20T00:00:00Z",
+		DocsURL:   "https://docs.example/errors#auth_forbidden",
+	})
+
+	var payload errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response, got decode error: %v", err)
+	}
+	if payload.RequestID != "req-explicit" {
+		t.Fatalf("expected explicit request_id to be preserved, got %q", payload.RequestID)
+	}
+	if payload.Timestamp != "2026-02-20T00:00:00Z" {
+		t.Fatalf("expected explicit timestamp to be preserved, got %q", payload.Timestamp)
+	}
+	if payload.DocsURL != "https://docs.example/errors#auth_forbidden" {
+		t.Fatalf("expected explicit docs_url to be preserved, got %q", payload.DocsURL)
+	}
+}
+
 func TestVerifySignedRequestHeaderFailureUsesHeadersInvalidCode(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "http://gateway.local/proxy/demo", nil)

@@ -40,8 +40,11 @@ type healthResponse struct {
 }
 
 type errorResponse struct {
-	Error string `json:"error"`
-	Code  string `json:"code,omitempty"`
+	Error     string `json:"error"`
+	Code      string `json:"code,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+	Timestamp string `json:"timestamp,omitempty"`
+	DocsURL   string `json:"docs_url,omitempty"`
 }
 
 type testResponse struct {

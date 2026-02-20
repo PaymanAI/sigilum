@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"sigilum.local/gateway/internal/connectors"
 )
@@ -35,6 +36,8 @@ const (
 	codeAuthClaimsLookupFailed = "AUTH_CLAIMS_LOOKUP_FAILED"
 	codeAuthClaimRequired      = "AUTH_CLAIM_REQUIRED"
 )
+
+const defaultGatewayDocsURL = "https://github.com/PaymanAI/sigilum/blob/main/apps/gateway/README.md"
 
 type statusRecorder struct {
 	http.ResponseWriter
@@ -142,8 +145,60 @@ func writeJSONBodyError(w http.ResponseWriter, err error) {
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
+	payload = enrichErrorPayload(w, status, payload)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func enrichErrorPayload(w http.ResponseWriter, status int, payload any) any {
+	switch typed := payload.(type) {
+	case errorResponse:
+		return hydrateErrorResponse(w, status, typed)
+	case *errorResponse:
+		if typed == nil {
+			return payload
+		}
+		clone := *typed
+		return hydrateErrorResponse(w, status, clone)
+	default:
+		return payload
+	}
+}
+
+func hydrateErrorResponse(w http.ResponseWriter, status int, payload errorResponse) errorResponse {
+	if strings.TrimSpace(payload.RequestID) == "" {
+		requestID := strings.TrimSpace(w.Header().Get(requestIDHeader))
+		if requestID == "" {
+			requestID = newRequestID()
+			w.Header().Set(requestIDHeader, requestID)
+		}
+		payload.RequestID = requestID
+	}
+	if strings.TrimSpace(payload.Timestamp) == "" {
+		payload.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	if strings.TrimSpace(payload.DocsURL) == "" {
+		payload.DocsURL = docsURLForError(status, payload.Code)
+	}
+	return payload
+}
+
+func docsURLForError(status int, code string) string {
+	normalized := strings.ToUpper(strings.TrimSpace(code))
+	switch {
+	case strings.HasPrefix(normalized, "AUTH_"):
+		return defaultGatewayDocsURL + "#auth-failure-code-taxonomy"
+	case strings.HasPrefix(normalized, "MCP_"):
+		return defaultGatewayDocsURL + "#what-gateway-does"
+	case strings.HasPrefix(normalized, "ADMIN_"):
+		return defaultGatewayDocsURL + "#adminapi-surface"
+	case normalized == "METHOD_NOT_ALLOWED" || status == http.StatusMethodNotAllowed:
+		return defaultGatewayDocsURL + "#adminapi-surface"
+	case normalized == "NOT_FOUND" || status == http.StatusNotFound:
+		return defaultGatewayDocsURL + "#adminapi-surface"
+	default:
+		return defaultGatewayDocsURL
+	}
 }
 
 func writeMethodNotAllowed(w http.ResponseWriter) {
