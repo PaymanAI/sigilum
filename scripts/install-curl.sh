@@ -36,7 +36,7 @@ usage() {
 Install Sigilum CLI from GitHub Releases.
 
 Usage:
-  curl -fsSL https://raw.githubusercontent.com/PaymanAI/sigilum/main/scripts/install-curl.sh | bash
+  curl -fsSL https://github.com/PaymanAI/sigilum/releases/latest/download/install-curl.sh | bash
   curl -fsSL ... | bash -s -- [options]
 
 Options:
