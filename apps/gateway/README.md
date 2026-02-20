@@ -93,7 +93,7 @@ JSON error responses use a stable envelope:
 - `code`: stable machine-readable code
 - `request_id`: correlation id for logs/traces
 - `timestamp`: RFC3339 UTC timestamp
-- `docs_url`: remediation reference
+- `docs_url`: remediation reference (code-mapped to `docs/product/GATEWAY_ERROR_CODES.md`)
 
 ## Auth Failure Code Taxonomy
 

@@ -657,7 +657,7 @@ func TestWriteJSONErrorResponseHydratesMetadata(t *testing.T) {
 	if _, err := time.Parse(time.RFC3339Nano, payload.Timestamp); err != nil {
 		t.Fatalf("expected RFC3339 timestamp, got %q (%v)", payload.Timestamp, err)
 	}
-	if !strings.Contains(payload.DocsURL, "apps/gateway/README.md") {
+	if !strings.Contains(payload.DocsURL, "docs/product/GATEWAY_ERROR_CODES.md") {
 		t.Fatalf("expected docs_url to target gateway docs, got %q", payload.DocsURL)
 	}
 }
@@ -684,6 +684,55 @@ func TestWriteJSONErrorResponsePreservesExplicitMetadata(t *testing.T) {
 	}
 	if payload.DocsURL != "https://docs.example/errors#auth_forbidden" {
 		t.Fatalf("expected explicit docs_url to be preserved, got %q", payload.DocsURL)
+	}
+}
+
+func TestDocsURLForErrorMapsByCodeFamily(t *testing.T) {
+	cases := []struct {
+		name           string
+		status         int
+		code           string
+		expectedSuffix string
+	}{
+		{
+			name:           "auth code",
+			status:         http.StatusForbidden,
+			code:           codeAuthSignatureInvalid,
+			expectedSuffix: "#auth-errors",
+		},
+		{
+			name:           "admin code",
+			status:         http.StatusForbidden,
+			code:           "ADMIN_TOKEN_REQUIRED",
+			expectedSuffix: "#admin-errors",
+		},
+		{
+			name:           "mcp code",
+			status:         http.StatusBadGateway,
+			code:           "MCP_DISCOVERY_FAILED",
+			expectedSuffix: "#runtime-and-mcp-errors",
+		},
+		{
+			name:           "generic code",
+			status:         http.StatusMethodNotAllowed,
+			code:           "METHOD_NOT_ALLOWED",
+			expectedSuffix: "#generic-and-operator-errors",
+		},
+		{
+			name:           "readiness code",
+			status:         http.StatusServiceUnavailable,
+			code:           "NOT_READY",
+			expectedSuffix: "#health-and-readiness-errors",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			url := docsURLForError(tc.status, tc.code)
+			if !strings.HasSuffix(url, tc.expectedSuffix) {
+				t.Fatalf("expected docs url suffix %q, got %q", tc.expectedSuffix, url)
+			}
+		})
 	}
 }
 

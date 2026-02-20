@@ -37,7 +37,7 @@ const (
 	codeAuthClaimRequired      = "AUTH_CLAIM_REQUIRED"
 )
 
-const defaultGatewayDocsURL = "https://github.com/PaymanAI/sigilum/blob/main/apps/gateway/README.md"
+const defaultGatewayDocsURL = "https://github.com/PaymanAI/sigilum/blob/main/docs/product/GATEWAY_ERROR_CODES.md"
 
 type statusRecorder struct {
 	http.ResponseWriter
@@ -187,15 +187,23 @@ func docsURLForError(status int, code string) string {
 	normalized := strings.ToUpper(strings.TrimSpace(code))
 	switch {
 	case strings.HasPrefix(normalized, "AUTH_"):
-		return defaultGatewayDocsURL + "#auth-failure-code-taxonomy"
-	case strings.HasPrefix(normalized, "MCP_"):
-		return defaultGatewayDocsURL + "#what-gateway-does"
+		return defaultGatewayDocsURL + "#auth-errors"
 	case strings.HasPrefix(normalized, "ADMIN_"):
-		return defaultGatewayDocsURL + "#adminapi-surface"
-	case normalized == "METHOD_NOT_ALLOWED" || status == http.StatusMethodNotAllowed:
-		return defaultGatewayDocsURL + "#adminapi-surface"
-	case normalized == "NOT_FOUND" || status == http.StatusNotFound:
-		return defaultGatewayDocsURL + "#adminapi-surface"
+		return defaultGatewayDocsURL + "#admin-errors"
+	case normalized == "NOT_READY" || status == http.StatusServiceUnavailable:
+		return defaultGatewayDocsURL + "#health-and-readiness-errors"
+	case strings.HasPrefix(normalized, "MCP_") ||
+		normalized == "UPSTREAM_ERROR" ||
+		normalized == "ROTATION_REQUIRED" ||
+		normalized == "INVALID_REFRESH_MODE":
+		return defaultGatewayDocsURL + "#runtime-and-mcp-errors"
+	case normalized == "METHOD_NOT_ALLOWED" ||
+		normalized == "NOT_FOUND" ||
+		normalized == "REQUEST_BODY_TOO_LARGE" ||
+		status == http.StatusMethodNotAllowed ||
+		status == http.StatusNotFound ||
+		status == http.StatusRequestEntityTooLarge:
+		return defaultGatewayDocsURL + "#generic-and-operator-errors"
 	default:
 		return defaultGatewayDocsURL
 	}

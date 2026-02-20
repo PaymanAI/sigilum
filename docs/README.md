@@ -33,3 +33,4 @@ This folder contains all long-form project documentation.
 
 - [`docs/product/ONBOARDING_CHECKLISTS.md`](./product/ONBOARDING_CHECKLISTS.md) - canonical onboarding checklists by deployment mode.
 - [`docs/product/MESSAGE_STYLE_GUIDE.md`](./product/MESSAGE_STYLE_GUIDE.md) - product-wide error/success message standards.
+- [`docs/product/GATEWAY_ERROR_CODES.md`](./product/GATEWAY_ERROR_CODES.md) - gateway error-code to operator-action mapping.

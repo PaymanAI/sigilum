@@ -34,4 +34,5 @@ Reference: `world_class_review.md`
 - [x] `SCR-010` Make `sigilum doctor` emit machine-readable JSON and human-friendly summary.
 - [x] `SCR-011` Add `sigilum doctor --fix` for safe automated remediations.
 - [x] `PRD-001` Build one canonical onboarding checklist per deployment mode.
+- [x] `PRD-003` Add “explain failure” docs pages mapped from gateway error codes.
 - [x] `PRD-007` Publish product-wide error/success message style guide.
