@@ -34,6 +34,26 @@ func registerHealthRoute(mux *http.ServeMux, cfg config.Config) {
 	})
 }
 
+func registerMetricsRoute(mux *http.ServeMux, cfg config.Config) {
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		setCORSHeaders(w, r, cfg.AllowedOrigins)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w)
+			return
+		}
+		if !enforceAdminRequestAccess(w, r, cfg) {
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write([]byte(gatewayMetricRegistry.renderPrometheus()))
+	})
+}
+
 func registerAdminRoutes(
 	mux *http.ServeMux,
 	cfg config.Config,
@@ -203,8 +223,12 @@ func registerAdminRoutes(
 				writeConnectionError(w, err)
 				return
 			}
+			discoveryStart := time.Now()
 			discovery, err := mcpClient.Discover(r.Context(), proxyCfg)
 			if err != nil {
+				gatewayMetricRegistry.recordMCPDiscovery("error")
+				gatewayMetricRegistry.observeUpstream("mcp", "error", time.Since(discoveryStart))
+				gatewayMetricRegistry.recordUpstreamError("MCP_DISCOVERY_FAILED")
 				conn.MCPDiscovery.LastDiscoveredAt = time.Now().UTC()
 				conn.MCPDiscovery.LastDiscoveryError = err.Error()
 				if _, saveErr := connectorService.SaveMCPDiscovery(connectionID, conn.MCPDiscovery); saveErr != nil {
@@ -216,6 +240,8 @@ func registerAdminRoutes(
 				})
 				return
 			}
+			gatewayMetricRegistry.recordMCPDiscovery("success")
+			gatewayMetricRegistry.observeUpstream("mcp", "success", time.Since(discoveryStart))
 			updated, err := connectorService.SaveMCPDiscovery(connectionID, discovery)
 			if err != nil {
 				writeConnectionError(w, err)

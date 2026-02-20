@@ -43,11 +43,17 @@ func maybePrewarmMCPDiscovery(
 			return
 		}
 
+		discoverStart := time.Now()
 		discovery, err := mcpClient.Discover(ctx, proxyCfg)
 		if err != nil {
+			gatewayMetricRegistry.recordMCPDiscovery("error")
+			gatewayMetricRegistry.observeUpstream("mcp", "error", time.Since(discoverStart))
+			gatewayMetricRegistry.recordUpstreamError("MCP_DISCOVERY_FAILED")
 			log.Printf("mcp prewarm failed connection=%s err=%v", connectionID, err)
 			return
 		}
+		gatewayMetricRegistry.recordMCPDiscovery("success")
+		gatewayMetricRegistry.observeUpstream("mcp", "success", time.Since(discoverStart))
 
 		if _, err := connectorService.SaveMCPDiscovery(connectionID, discovery); err != nil {
 			log.Printf("mcp prewarm persist failed connection=%s err=%v", connectionID, err)

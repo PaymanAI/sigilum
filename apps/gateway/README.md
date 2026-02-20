@@ -98,6 +98,7 @@ Gateway returns deterministic auth failure codes so clients can react without pa
 
 - Health:
   - `GET /health`
+  - `GET /metrics` (Prometheus text format; admin access policy enforced)
 - Proxy:
   - `/{proxy routes}`
     - `/<proxy>/proxy/{connection_id}/...`
@@ -181,6 +182,18 @@ Redaction rules are enforced before serialization:
 - secret-bearing fields (`token`, `secret`, `authorization`, `signature`, `cert`, `api_key`) are replaced with `[redacted]`
 - identity fields (`namespace`, `subject`, key identifiers) are hashed to stable fingerprints
 - client IP fields are masked (`/24` for IPv4, `/64` for IPv6)
+
+## Metrics
+
+Gateway exposes Prometheus-style metrics at `GET /metrics`:
+
+- `sigilum_gateway_auth_reject_total{reason=...}`
+- `sigilum_gateway_replay_detected_total`
+- `sigilum_gateway_upstream_requests_total{protocol=...,outcome=...}`
+- `sigilum_gateway_upstream_latency_seconds_{count,sum}{protocol=...,outcome=...}`
+- `sigilum_gateway_upstream_error_total{class=...}`
+- `sigilum_gateway_mcp_discovery_total{result=...}`
+- `sigilum_gateway_mcp_tool_call_total{result=...}`
 
 ## CLI (Local Service Management)
 

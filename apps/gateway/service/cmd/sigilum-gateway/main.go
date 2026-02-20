@@ -109,6 +109,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	registerHealthRoute(mux, cfg)
+	registerMetricsRoute(mux, cfg)
 	registerAdminRoutes(mux, cfg, connectorService, catalogStore, mcpClient)
 	registerRuntimeRoutes(mux, cfg, nonceCache, claimsCache, connectorService, mcpClient)
 	registerRootRoute(mux)

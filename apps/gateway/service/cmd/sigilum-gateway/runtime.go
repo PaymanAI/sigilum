@@ -110,10 +110,18 @@ func handleProxyRequest(
 			"reason_code": "UPSTREAM_ERROR",
 			"error":       proxyErr,
 		})
+		gatewayMetricRegistry.recordUpstreamError("UPSTREAM_ERROR")
 	}
 
+	upstreamStart := time.Now()
 	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	proxy.ServeHTTP(recorder, r)
+	upstreamOutcome := "success"
+	if recorder.status >= http.StatusInternalServerError {
+		upstreamOutcome = "error"
+		gatewayMetricRegistry.recordUpstreamError(fmt.Sprintf("HTTP_%d", recorder.status))
+	}
+	gatewayMetricRegistry.observeUpstream("http", upstreamOutcome, time.Since(upstreamStart))
 	logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_request_end", map[string]any{
 		"request_id":     requestID,
 		"method":         r.Method,
@@ -198,14 +206,20 @@ func handleMCPRequest(
 
 	tools := proxyCfg.Connection.MCPDiscovery.Tools
 	if shouldAutoDiscoverMCPTools(proxyCfg.Connection) {
+		discoveryStart := time.Now()
 		discovery, err := mcpClient.Discover(r.Context(), proxyCfg)
 		if err != nil {
+			gatewayMetricRegistry.recordMCPDiscovery("error")
+			gatewayMetricRegistry.observeUpstream("mcp", "error", time.Since(discoveryStart))
+			gatewayMetricRegistry.recordUpstreamError("MCP_DISCOVERY_FAILED")
 			writeJSON(w, http.StatusBadGateway, errorResponse{
 				Error: fmt.Sprintf("mcp discovery failed: %v", err),
 				Code:  "MCP_DISCOVERY_FAILED",
 			})
 			return
 		}
+		gatewayMetricRegistry.recordMCPDiscovery("success")
+		gatewayMetricRegistry.observeUpstream("mcp", "success", time.Since(discoveryStart))
 		updated, err := connectorService.SaveMCPDiscovery(connectionID, discovery)
 		if err != nil {
 			writeConnectionError(w, err)
@@ -239,6 +253,7 @@ func handleMCPRequest(
 			return
 		}
 		if !mcpruntime.ToolAllowed(toolName, tools, effectivePolicy) {
+			gatewayMetricRegistry.recordMCPToolCall("forbidden")
 			writeJSON(w, http.StatusForbidden, errorResponse{
 				Error: fmt.Sprintf("tool %q is not allowed for subject", toolName),
 				Code:  "MCP_TOOL_FORBIDDEN",
@@ -252,14 +267,20 @@ func handleMCPRequest(
 			return
 		}
 
+		toolCallStart := time.Now()
 		result, callErr := mcpClient.CallTool(r.Context(), proxyCfg, toolName, arguments)
 		if callErr != nil {
+			gatewayMetricRegistry.recordMCPToolCall("error")
+			gatewayMetricRegistry.observeUpstream("mcp", "error", time.Since(toolCallStart))
+			gatewayMetricRegistry.recordUpstreamError("MCP_TOOL_CALL_FAILED")
 			writeJSON(w, http.StatusBadGateway, errorResponse{
 				Error: fmt.Sprintf("mcp tool call failed: %v", callErr),
 				Code:  "MCP_TOOL_CALL_FAILED",
 			})
 			return
 		}
+		gatewayMetricRegistry.recordMCPToolCall("success")
+		gatewayMetricRegistry.observeUpstream("mcp", "success", time.Since(toolCallStart))
 
 		writeJSON(w, http.StatusOK, map[string]any{
 			"connection_id": connectionID,
@@ -312,9 +333,15 @@ func runConnectionTest(
 		return "fail", 0, err.Error()
 	}
 	if connectors.IsMCPConnection(proxyCfg.Connection) {
+		discoveryStart := time.Now()
 		if _, err := mcpClient.Discover(ctx, proxyCfg); err != nil {
+			gatewayMetricRegistry.recordMCPDiscovery("error")
+			gatewayMetricRegistry.observeUpstream("mcp", "error", time.Since(discoveryStart))
+			gatewayMetricRegistry.recordUpstreamError("MCP_DISCOVERY_FAILED")
 			return "fail", 0, err.Error()
 		}
+		gatewayMetricRegistry.recordMCPDiscovery("success")
+		gatewayMetricRegistry.observeUpstream("mcp", "success", time.Since(discoveryStart))
 		return "pass", http.StatusOK, ""
 	}
 

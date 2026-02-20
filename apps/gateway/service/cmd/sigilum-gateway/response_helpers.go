@@ -276,6 +276,9 @@ func writeProxyAuthError(w http.ResponseWriter, status int, code string, message
 	if errorMessage == "" {
 		errorMessage = "request not authorized"
 	}
+	if strings.HasPrefix(strings.ToUpper(errorCode), "AUTH_") {
+		gatewayMetricRegistry.recordAuthReject(errorCode)
+	}
 	writeJSON(w, status, errorResponse{
 		Error: errorMessage,
 		Code:  errorCode,
@@ -283,6 +286,7 @@ func writeProxyAuthError(w http.ResponseWriter, status int, code string, message
 }
 
 func writeProxyAuthRequiredMarkdown(w http.ResponseWriter, input proxyAuthRequiredMarkdownInput) {
+	gatewayMetricRegistry.recordAuthReject(codeAuthClaimRequired)
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Sigilum-Code", codeAuthClaimRequired)
