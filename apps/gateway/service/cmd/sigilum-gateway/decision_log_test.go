@@ -48,6 +48,40 @@ func TestSanitizeDecisionValueMasksIP(t *testing.T) {
 	}
 }
 
+func TestSanitizeDecisionValueRecursivelySanitizesNestedFields(t *testing.T) {
+	got := sanitizeDecisionValue("context", map[string]any{
+		"authorization": "Bearer nested-token",
+		"namespace":     "alice",
+		"remote_ip":     "203.0.113.10",
+		"nested": map[string]any{
+			"api_key": "sk_live_nested",
+		},
+	})
+
+	payload, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map payload, got %#v", got)
+	}
+	if payload["authorization"] != "[redacted]" {
+		t.Fatalf("expected nested authorization to be redacted, got %#v", payload["authorization"])
+	}
+	namespace, _ := payload["namespace"].(string)
+	if !strings.HasPrefix(namespace, "sha256:") {
+		t.Fatalf("expected nested namespace to be hashed, got %#v", payload["namespace"])
+	}
+	if payload["remote_ip"] != "203.0.113.0/24" {
+		t.Fatalf("expected nested remote_ip to be masked, got %#v", payload["remote_ip"])
+	}
+
+	nested, ok := payload["nested"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected nested map payload, got %#v", payload["nested"])
+	}
+	if nested["api_key"] != "[redacted]" {
+		t.Fatalf("expected nested api_key to be redacted, got %#v", nested["api_key"])
+	}
+}
+
 func TestLogGatewayDecisionWritesJSONAndRedactsFields(t *testing.T) {
 	var buffer bytes.Buffer
 	previousWriter := log.Writer()
@@ -95,5 +129,54 @@ func TestLogGatewayDecisionWritesJSONAndRedactsFields(t *testing.T) {
 	}
 	if payload["status"] != float64(403) {
 		t.Fatalf("expected numeric status, got %#v", payload["status"])
+	}
+}
+
+func TestLogGatewayDecisionRedactsNestedMapFields(t *testing.T) {
+	var buffer bytes.Buffer
+	previousWriter := log.Writer()
+	previousFlags := log.Flags()
+	previousPrefix := log.Prefix()
+	log.SetOutput(&buffer)
+	log.SetFlags(0)
+	log.SetPrefix("")
+	t.Cleanup(func() {
+		log.SetOutput(previousWriter)
+		log.SetFlags(previousFlags)
+		log.SetPrefix(previousPrefix)
+	})
+
+	logGatewayDecision("proxy_auth_denied", map[string]any{
+		"request_id": "req-nested",
+		"context": map[string]any{
+			"authorization": "Bearer nested-secret",
+			"api_key":       "sk_live_nested",
+			"namespace":     "alice",
+		},
+	})
+
+	line := strings.TrimSpace(buffer.String())
+	if line == "" {
+		t.Fatal("expected log output")
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(line), &payload); err != nil {
+		t.Fatalf("expected JSON log output, got decode error: %v line=%q", err, line)
+	}
+
+	contextValue, ok := payload["context"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected nested context map, got %#v", payload["context"])
+	}
+	if contextValue["authorization"] != "[redacted]" {
+		t.Fatalf("expected nested authorization to be redacted, got %#v", contextValue["authorization"])
+	}
+	if contextValue["api_key"] != "[redacted]" {
+		t.Fatalf("expected nested api_key to be redacted, got %#v", contextValue["api_key"])
+	}
+	namespace, _ := contextValue["namespace"].(string)
+	if !strings.HasPrefix(namespace, "sha256:") {
+		t.Fatalf("expected nested namespace to be hashed, got %#v", contextValue["namespace"])
 	}
 }

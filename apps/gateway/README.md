@@ -204,6 +204,7 @@ Redaction rules are enforced before serialization:
 - secret-bearing fields (`token`, `secret`, `authorization`, `signature`, `cert`, `api_key`) are replaced with `[redacted]`
 - identity fields (`namespace`, `subject`, key identifiers) are hashed to stable fingerprints
 - client IP fields are masked (`/24` for IPv4, `/64` for IPv6)
+- nested map/list payloads are recursively sanitized with the same rules
 
 ## Metrics
 

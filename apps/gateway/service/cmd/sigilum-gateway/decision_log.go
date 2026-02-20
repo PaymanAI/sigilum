@@ -64,9 +64,47 @@ func logGatewayDecision(event string, fields map[string]any) {
 }
 
 func sanitizeDecisionValue(key string, value any) any {
+	return sanitizeDecisionValueDepth(key, value, 0)
+}
+
+func sanitizeDecisionValueDepth(key string, value any, depth int) any {
+	if depth > 4 {
+		return "[truncated]"
+	}
+
 	switch typed := value.(type) {
 	case nil:
 		return nil
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for childKey, childValue := range typed {
+			out[childKey] = sanitizeDecisionValueDepth(childKey, childValue, depth+1)
+		}
+		return out
+	case map[string]string:
+		out := make(map[string]any, len(typed))
+		for childKey, childValue := range typed {
+			out[childKey] = sanitizeDecisionValueDepth(childKey, childValue, depth+1)
+		}
+		return out
+	case map[string][]string:
+		out := make(map[string]any, len(typed))
+		for childKey, childValues := range typed {
+			out[childKey] = sanitizeDecisionValueDepth(childKey, childValues, depth+1)
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(typed))
+		for _, childValue := range typed {
+			out = append(out, sanitizeDecisionValueDepth(key, childValue, depth+1))
+		}
+		return out
+	case []string:
+		out := make([]any, 0, len(typed))
+		for _, childValue := range typed {
+			out = append(out, sanitizeDecisionValueDepth(key, childValue, depth+1))
+		}
+		return out
 	case string:
 		return sanitizeDecisionString(key, typed)
 	case bool:

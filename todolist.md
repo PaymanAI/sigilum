@@ -18,6 +18,7 @@ Reference: `world_class_review.md`
 - [x] `GW-011` Refactor MCP session and retry behavior into clear state machine.
 - [x] `GW-020` Add structured gateway decision logs with redaction guarantees.
 - [x] `GW-021` Add gateway metrics for auth, policy, MCP, and upstream latency/errors.
+- [x] `GW-023` Add redaction guarantees for logs and tests that enforce them.
 - [x] `GW-022` Add health/readiness/liveness split endpoints.
 - [x] `GW-019` Publish gateway API schema (OpenAPI) for admin/runtime endpoints.
 - [x] `GW-013` Add MCP discovery caching policy (TTL + stale-if-error + forced refresh API).
