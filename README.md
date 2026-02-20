@@ -310,3 +310,4 @@ find apps/api/.wrangler/state -name '*.sqlite' -print
 - [API Guide](./apps/api/README.md)
 - [Gateway Guide](./apps/gateway/README.md)
 - [OpenClaw Integration](./openclaw/README.md)
+- [Agent Runbook](./AGENT_RUNBOOK.md)

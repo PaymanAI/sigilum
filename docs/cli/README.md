@@ -66,6 +66,16 @@ Doctor help:
 sigilum doctor --help
 ```
 
+## Script Surface
+
+Canonical script responsibilities are documented in:
+
+- `docs/cli/SCRIPT_INVENTORY.md`
+
+Consolidation note:
+- CLI dispatch is centralized in `sigilum`.
+- Redundant wrapper scripts were removed (`scripts/sigilum-gateway.sh`, `scripts/sigilum-service.sh`).
+
 ## Global Options
 
 Global options are accepted before the command:
