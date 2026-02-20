@@ -72,8 +72,8 @@ func TestAdminRoutesRejectNonLoopbackRequests(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("expected JSON body, got decode error: %v", err)
 	}
-	if payload.Code != "ADMIN_ACCESS_FORBIDDEN" {
-		t.Fatalf("expected ADMIN_ACCESS_FORBIDDEN code, got %q", payload.Code)
+	if payload.Code != "ADMIN_TOKEN_OR_LOOPBACK_REQUIRED" {
+		t.Fatalf("expected ADMIN_TOKEN_OR_LOOPBACK_REQUIRED code, got %q", payload.Code)
 	}
 }
 

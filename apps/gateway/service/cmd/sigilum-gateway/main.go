@@ -124,12 +124,13 @@ func main() {
 
 	log.Printf("gateway listening addr=%s", cfg.Addr)
 	log.Printf(
-		"gateway security registry=%s timestamp_tolerance=%s nonce_ttl=%s auto_register_claims=%t require_signed_admin_checks=%t admin_token_configured=%t allow_unsigned_proxy=%t allow_unsigned_connections=%s trusted_proxy_cidrs=%s",
+		"gateway security registry=%s timestamp_tolerance=%s nonce_ttl=%s auto_register_claims=%t require_signed_admin_checks=%t admin_access_mode=%s admin_token_configured=%t allow_unsigned_proxy=%t allow_unsigned_connections=%s trusted_proxy_cidrs=%s",
 		cfg.RegistryURL,
 		cfg.TimestampTolerance,
 		cfg.NonceTTL,
 		cfg.AutoRegisterClaims,
 		cfg.RequireSignedAdminChecks,
+		cfg.AdminAccessMode,
 		strings.TrimSpace(cfg.AdminToken) != "",
 		cfg.AllowUnsignedProxy,
 		joinAllowedConnections(cfg.AllowUnsignedFor),

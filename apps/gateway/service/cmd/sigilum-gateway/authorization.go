@@ -244,45 +244,130 @@ func enforceAdminRequestAccess(w http.ResponseWriter, r *http.Request, cfg confi
 		return true
 	}
 	requestID := requestIDFromContext(r.Context())
-	adminToken := strings.TrimSpace(cfg.AdminToken)
-	if adminToken != "" && hasAdminToken(r, adminToken) {
-		if cfg.LogProxyRequests {
-			log.Printf(
-				"admin request access granted request_id=%s via token path=%s method=%s",
-				requestID,
-				r.URL.Path,
-				r.Method,
-			)
-		}
-		return true
+	mode := strings.ToLower(strings.TrimSpace(cfg.AdminAccessMode))
+	if mode == "" {
+		mode = config.AdminAccessModeHybrid
 	}
+	adminToken := strings.TrimSpace(cfg.AdminToken)
 	remoteIP := clientIP(r, cfg.TrustedProxyCIDRs)
-	if isLoopbackClient(remoteIP) {
+
+	switch mode {
+	case config.AdminAccessModeToken:
+		if adminToken == "" {
+			if cfg.LogProxyRequests {
+				log.Printf(
+					"admin request denied request_id=%s mode=%s reason=token_not_configured path=%s method=%s remote_ip=%s",
+					requestID,
+					mode,
+					r.URL.Path,
+					r.Method,
+					remoteIP,
+				)
+			}
+			writeJSON(w, http.StatusInternalServerError, errorResponse{
+				Error: "admin token mode requires GATEWAY_ADMIN_TOKEN",
+				Code:  "ADMIN_TOKEN_NOT_CONFIGURED",
+			})
+			return false
+		}
+		if hasAdminToken(r, adminToken) {
+			if cfg.LogProxyRequests {
+				log.Printf(
+					"admin request access granted request_id=%s via token mode=%s path=%s method=%s",
+					requestID,
+					mode,
+					r.URL.Path,
+					r.Method,
+				)
+			}
+			return true
+		}
 		if cfg.LogProxyRequests {
 			log.Printf(
-				"admin request access granted request_id=%s via loopback path=%s method=%s remote_ip=%s",
+				"admin request denied request_id=%s mode=%s reason=token_required path=%s method=%s remote_ip=%s",
 				requestID,
+				mode,
 				r.URL.Path,
 				r.Method,
 				remoteIP,
 			)
 		}
-		return true
+		writeJSON(w, http.StatusForbidden, errorResponse{
+			Error: "admin endpoints require a valid admin token",
+			Code:  "ADMIN_TOKEN_REQUIRED",
+		})
+		return false
+	case config.AdminAccessModeLoopback:
+		if isLoopbackClient(remoteIP) {
+			if cfg.LogProxyRequests {
+				log.Printf(
+					"admin request access granted request_id=%s via loopback mode=%s path=%s method=%s remote_ip=%s",
+					requestID,
+					mode,
+					r.URL.Path,
+					r.Method,
+					remoteIP,
+				)
+			}
+			return true
+		}
+		if cfg.LogProxyRequests {
+			log.Printf(
+				"admin request denied request_id=%s mode=%s reason=loopback_required path=%s method=%s remote_ip=%s",
+				requestID,
+				mode,
+				r.URL.Path,
+				r.Method,
+				remoteIP,
+			)
+		}
+		writeJSON(w, http.StatusForbidden, errorResponse{
+			Error: "admin endpoints require loopback client access",
+			Code:  "ADMIN_LOOPBACK_REQUIRED",
+		})
+		return false
+	default:
+		if adminToken != "" && hasAdminToken(r, adminToken) {
+			if cfg.LogProxyRequests {
+				log.Printf(
+					"admin request access granted request_id=%s via token mode=%s path=%s method=%s",
+					requestID,
+					mode,
+					r.URL.Path,
+					r.Method,
+				)
+			}
+			return true
+		}
+		if isLoopbackClient(remoteIP) {
+			if cfg.LogProxyRequests {
+				log.Printf(
+					"admin request access granted request_id=%s via loopback mode=%s path=%s method=%s remote_ip=%s",
+					requestID,
+					mode,
+					r.URL.Path,
+					r.Method,
+					remoteIP,
+				)
+			}
+			return true
+		}
+		if cfg.LogProxyRequests {
+			log.Printf(
+				"admin request denied request_id=%s mode=%s reason=token_or_loopback_required path=%s method=%s remote_ip=%s",
+				requestID,
+				mode,
+				r.URL.Path,
+				r.Method,
+				remoteIP,
+			)
+		}
+		writeJSON(w, http.StatusForbidden, errorResponse{
+			Error: "admin endpoints require loopback access or a valid admin token",
+			Code:  "ADMIN_TOKEN_OR_LOOPBACK_REQUIRED",
+		})
+		return false
 	}
-	if cfg.LogProxyRequests {
-		log.Printf(
-			"admin request denied request_id=%s for non-loopback client path=%s method=%s remote_ip=%s",
-			requestID,
-			r.URL.Path,
-			r.Method,
-			remoteIP,
-		)
-	}
-	writeJSON(w, http.StatusForbidden, errorResponse{
-		Error: "admin endpoints require loopback access when signed admin checks are enabled",
-		Code:  "ADMIN_ACCESS_FORBIDDEN",
-	})
-	return false
 }
 
 func hasAdminToken(r *http.Request, expectedToken string) bool {

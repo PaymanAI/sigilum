@@ -147,8 +147,8 @@ func TestEnforceAdminRequestAccessRejectsNonLoopback(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("expected JSON response, got error: %v", err)
 	}
-	if payload.Code != "ADMIN_ACCESS_FORBIDDEN" {
-		t.Fatalf("expected ADMIN_ACCESS_FORBIDDEN, got %q", payload.Code)
+	if payload.Code != "ADMIN_TOKEN_OR_LOOPBACK_REQUIRED" {
+		t.Fatalf("expected ADMIN_TOKEN_OR_LOOPBACK_REQUIRED, got %q", payload.Code)
 	}
 }
 
@@ -181,6 +181,84 @@ func TestEnforceAdminRequestAccessAllowsAdminTokenHeader(t *testing.T) {
 	})
 	if !ok {
 		t.Fatal("expected header-authenticated admin request to be allowed")
+	}
+}
+
+func TestEnforceAdminRequestAccessTokenModeRequiresToken(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/connections", nil)
+	req.RemoteAddr = "127.0.0.1:2345"
+	recorder := httptest.NewRecorder()
+
+	ok := enforceAdminRequestAccess(recorder, req, config.Config{
+		RequireSignedAdminChecks: true,
+		AdminAccessMode:          config.AdminAccessModeToken,
+		LogProxyRequests:         false,
+	})
+	if ok {
+		t.Fatal("expected admin token mode without token to be rejected")
+	}
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected HTTP 500, got %d", recorder.Code)
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response, got error: %v", err)
+	}
+	if payload.Code != "ADMIN_TOKEN_NOT_CONFIGURED" {
+		t.Fatalf("expected ADMIN_TOKEN_NOT_CONFIGURED, got %q", payload.Code)
+	}
+}
+
+func TestEnforceAdminRequestAccessTokenModeRejectsLoopbackWithoutToken(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/connections", nil)
+	req.RemoteAddr = "127.0.0.1:2345"
+	recorder := httptest.NewRecorder()
+
+	ok := enforceAdminRequestAccess(recorder, req, config.Config{
+		RequireSignedAdminChecks: true,
+		AdminAccessMode:          config.AdminAccessModeToken,
+		AdminToken:               "expected-token",
+		LogProxyRequests:         false,
+	})
+	if ok {
+		t.Fatal("expected token mode to reject loopback request without token")
+	}
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403, got %d", recorder.Code)
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response, got error: %v", err)
+	}
+	if payload.Code != "ADMIN_TOKEN_REQUIRED" {
+		t.Fatalf("expected ADMIN_TOKEN_REQUIRED, got %q", payload.Code)
+	}
+}
+
+func TestEnforceAdminRequestAccessLoopbackModeRejectsTokenFromNonLoopback(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/connections", nil)
+	req.RemoteAddr = "203.0.113.10:2345"
+	req.Header.Set("Authorization", "Bearer test-admin-token")
+	recorder := httptest.NewRecorder()
+
+	ok := enforceAdminRequestAccess(recorder, req, config.Config{
+		RequireSignedAdminChecks: true,
+		AdminAccessMode:          config.AdminAccessModeLoopback,
+		AdminToken:               "test-admin-token",
+		LogProxyRequests:         false,
+	})
+	if ok {
+		t.Fatal("expected loopback mode to reject non-loopback request even with token")
+	}
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403, got %d", recorder.Code)
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response, got error: %v", err)
+	}
+	if payload.Code != "ADMIN_LOOPBACK_REQUIRED" {
+		t.Fatalf("expected ADMIN_LOOPBACK_REQUIRED, got %q", payload.Code)
 	}
 }
 

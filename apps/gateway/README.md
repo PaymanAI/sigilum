@@ -254,6 +254,8 @@ Key variables:
 - `GATEWAY_ALLOWED_ORIGINS` - explicit browser origin allowlist for admin API CORS.
 - `GATEWAY_TRUSTED_PROXY_CIDRS` - trusted proxy hop CIDRs/IPs allowed to supply `X-Forwarded-*`.
 - `GATEWAY_REQUIRE_SIGNED_ADMIN_CHECKS` - require Sigilum-signed, claim-approved caller on admin `test/discover` routes (default `true`).
+- `GATEWAY_ADMIN_ACCESS_MODE` - admin API trust model: `hybrid` (default), `loopback`, or `token`.
+- `GATEWAY_ADMIN_TOKEN` - admin token used in `token`/`hybrid` admin access mode.
 - Default local port block:
   - Envoy ingress: `38000`
   - Gateway service: `38100`

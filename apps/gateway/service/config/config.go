@@ -10,6 +10,12 @@ import (
 	"time"
 )
 
+const (
+	AdminAccessModeLoopback = "loopback"
+	AdminAccessModeToken    = "token"
+	AdminAccessModeHybrid   = "hybrid"
+)
+
 type Config struct {
 	Addr                       string
 	DataDir                    string
@@ -30,6 +36,7 @@ type Config struct {
 	AllowUnsignedProxy         bool
 	AllowUnsignedFor           map[string]struct{}
 	RequireSignedAdminChecks   bool
+	AdminAccessMode            string
 	AdminToken                 string
 	MaxRequestBodyBytes        int64
 	RotationEnforcement        string
@@ -62,6 +69,7 @@ func Load() (Config, error) {
 		AllowUnsignedProxy:         false,
 		AllowUnsignedFor:           map[string]struct{}{},
 		RequireSignedAdminChecks:   true,
+		AdminAccessMode:            AdminAccessModeHybrid,
 		AdminToken:                 getEnv("GATEWAY_ADMIN_TOKEN", ""),
 		MaxRequestBodyBytes:        2 << 20,
 		RotationEnforcement:        "warn",
@@ -97,6 +105,15 @@ func Load() (Config, error) {
 		return Config{}, err
 	} else {
 		cfg.RequireSignedAdminChecks = value
+	}
+	switch value := strings.ToLower(strings.TrimSpace(getEnv("GATEWAY_ADMIN_ACCESS_MODE", cfg.AdminAccessMode))); value {
+	case AdminAccessModeLoopback, AdminAccessModeToken, AdminAccessModeHybrid:
+		cfg.AdminAccessMode = value
+	default:
+		return Config{}, fmt.Errorf("invalid GATEWAY_ADMIN_ACCESS_MODE value %q: expected loopback|token|hybrid", value)
+	}
+	if cfg.RequireSignedAdminChecks && cfg.AdminAccessMode == AdminAccessModeToken && strings.TrimSpace(cfg.AdminToken) == "" {
+		return Config{}, fmt.Errorf("GATEWAY_ADMIN_TOKEN is required when GATEWAY_ADMIN_ACCESS_MODE=token")
 	}
 	if value, err := getEnvInt("GATEWAY_MAX_REQUEST_BODY_BYTES", int(cfg.MaxRequestBodyBytes)); err != nil {
 		return Config{}, err

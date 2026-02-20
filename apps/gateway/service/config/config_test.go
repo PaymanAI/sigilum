@@ -36,6 +36,9 @@ func TestLoadDefaultsRequireSignedAdminChecks(t *testing.T) {
 	if !cfg.RequireSignedAdminChecks {
 		t.Fatalf("expected require_signed_admin_checks default to true")
 	}
+	if cfg.AdminAccessMode != AdminAccessModeHybrid {
+		t.Fatalf("expected admin access mode default to hybrid, got %q", cfg.AdminAccessMode)
+	}
 }
 
 func TestLoadDefaultsEnableAutoRegisterClaims(t *testing.T) {
@@ -74,6 +77,39 @@ func TestLoadAllowsDisablingSignedAdminChecks(t *testing.T) {
 	}
 	if cfg.RequireSignedAdminChecks {
 		t.Fatalf("expected require_signed_admin_checks to be false when overridden")
+	}
+}
+
+func TestLoadRejectsInvalidAdminAccessMode(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_ADMIN_ACCESS_MODE", "invalid-mode")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected invalid admin access mode to fail config load")
+	}
+}
+
+func TestLoadRequiresTokenForTokenMode(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_ADMIN_ACCESS_MODE", "token")
+	t.Setenv("GATEWAY_ADMIN_TOKEN", "")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected token mode without token to fail config load")
+	}
+}
+
+func TestLoadAllowsTokenModeWithToken(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_ADMIN_ACCESS_MODE", "token")
+	t.Setenv("GATEWAY_ADMIN_TOKEN", "test-token")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("expected config load success, got error: %v", err)
+	}
+	if cfg.AdminAccessMode != AdminAccessModeToken {
+		t.Fatalf("expected token admin access mode, got %q", cfg.AdminAccessMode)
 	}
 }
 
