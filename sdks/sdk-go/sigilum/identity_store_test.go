@@ -1,6 +1,17 @@
 package sigilum
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+type fixtureIdentityRecord struct {
+	Namespace string `json:"namespace"`
+	DID       string `json:"did"`
+	KeyID     string `json:"keyId"`
+}
 
 func TestInitIdentityCreatesAndReloads(t *testing.T) {
 	tmp := t.TempDir()
@@ -60,5 +71,42 @@ func TestListNamespaces(t *testing.T) {
 	}
 	if namespaces[0] != "alice" || namespaces[1] != "bob" {
 		t.Fatalf("unexpected namespaces: %#v", namespaces)
+	}
+}
+
+func TestLoadIdentitySharedV1Fixture(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "test-vectors", "identity-record-v1.json"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	var fixture fixtureIdentityRecord
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+
+	tmp := t.TempDir()
+	targetDir := filepath.Join(tmp, "identities", fixture.Namespace)
+	if err := os.MkdirAll(targetDir, 0o700); err != nil {
+		t.Fatalf("mkdir fixture dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, "identity.json"), raw, 0o600); err != nil {
+		t.Fatalf("write fixture identity: %v", err)
+	}
+
+	identity, err := LoadIdentity(LoadIdentityOptions{
+		Namespace: fixture.Namespace,
+		HomeDir:   tmp,
+	})
+	if err != nil {
+		t.Fatalf("load identity fixture: %v", err)
+	}
+	if identity.Namespace != fixture.Namespace {
+		t.Fatalf("expected namespace %q, got %q", fixture.Namespace, identity.Namespace)
+	}
+	if identity.DID != fixture.DID {
+		t.Fatalf("expected did %q, got %q", fixture.DID, identity.DID)
+	}
+	if identity.KeyID != fixture.KeyID {
+		t.Fatalf("expected key id %q, got %q", fixture.KeyID, identity.KeyID)
 	}
 }

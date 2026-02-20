@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -34,3 +35,22 @@ def test_load_identity_and_list_namespaces() -> None:
 
         assert identity.namespace == "alice"
         assert namespaces == ["alice", "bob"]
+
+
+def test_load_identity_shared_v1_fixture() -> None:
+    fixture_path = Path(__file__).resolve().parents[2] / "test-vectors" / "identity-record-v1.json"
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    namespace = str(fixture["namespace"])
+
+    with tempfile.TemporaryDirectory() as tmp:
+        identity_dir = Path(tmp) / "identities" / namespace
+        identity_dir.mkdir(parents=True, exist_ok=True)
+        (identity_dir / "identity.json").write_text(
+            json.dumps(fixture, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        identity = load_identity(namespace=namespace, home_dir=tmp)
+        assert identity.namespace == namespace
+        assert identity.did == fixture["did"]
+        assert identity.key_id == fixture["keyId"]

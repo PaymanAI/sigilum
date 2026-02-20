@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "namespace": "fixture-alice",
+  "did": "did:sigilum:fixture-alice",
+  "keyId": "did:sigilum:fixture-alice#ed25519-99fb00dc16ee555a",
+  "publicKey": "ed25519:J07dj/co4diCmQYTTQGq4adhnMKYejHazCYUQ7eBh0k=",
+  "privateKey": "ZMLKzZSCxP8QXOO1vlmejAvdFaesd3QC6JC9iCt8FfA=",
+  "certificate": {
+    "version": 1,
+    "namespace": "fixture-alice",
+    "did": "did:sigilum:fixture-alice",
+    "keyId": "did:sigilum:fixture-alice#ed25519-99fb00dc16ee555a",
+    "publicKey": "ed25519:J07dj/co4diCmQYTTQGq4adhnMKYejHazCYUQ7eBh0k=",
+    "issuedAt": "2026-02-20T18:04:26Z",
+    "expiresAt": null,
+    "proof": {
+      "alg": "ed25519",
+      "sig": "vGp-WLmSr0BWNci2lBhcJORg39ot-3Uu1aaVG2wGEKLItK_964hFaRrVd7DHf_2e3ykGpIacoM9Q5gs_tPy6Dw"
+    },
+    "issuedBy": "sigilum.local-fixture"
+  },
+  "createdAt": "2026-02-20T18:04:26Z",
+  "updatedAt": "2026-02-20T18:04:26Z",
+  "migrationHint": "v1-compatible"
+}

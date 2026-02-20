@@ -39,7 +39,9 @@ Supported SDKs implement the same signed-header profile for API requests:
 Shared conformance vectors are stored in:
 
 - `sdks/test-vectors/http-signatures-rfc9421.json`
+- `sdks/test-vectors/identity-record-v1.json`
 - Coverage includes fragment stripping, method/body component profile checks, replay/timestamp strictness, and tamper failures (method/header/body).
+- Identity compatibility fixture coverage ensures TS/Go/Python loaders remain compatible with persisted v1 identity records (including unknown forward-compatible fields).
 
 Cross-SDK onboarding quickstarts:
 

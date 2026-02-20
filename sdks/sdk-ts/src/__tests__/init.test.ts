@@ -1,8 +1,12 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { initIdentity, loadIdentity, listNamespaces } from "../identity-store.js";
+
+const testDir = path.dirname(fileURLToPath(import.meta.url));
+const identityFixturePath = path.resolve(testDir, "../../../test-vectors/identity-record-v1.json");
 
 describe("identity init", () => {
   const tempDirs: string[] = [];
@@ -65,5 +69,27 @@ describe("identity init", () => {
 
     expect(identity.namespace).toBe("alice");
     expect(namespaces).toEqual(["alice", "bob"]);
+  });
+
+  it("loads shared identity fixture for v1 format compatibility", () => {
+    const homeDir = makeHomeDir();
+    const fixture = JSON.parse(fs.readFileSync(identityFixturePath, "utf8")) as {
+      namespace: string;
+      did: string;
+      keyId: string;
+    };
+
+    const fixtureDir = path.join(homeDir, "identities", fixture.namespace);
+    fs.mkdirSync(fixtureDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(fixtureDir, "identity.json"),
+      `${JSON.stringify(fixture, null, 2)}\n`,
+      { mode: 0o600 },
+    );
+
+    const loaded = loadIdentity({ namespace: fixture.namespace, homeDir });
+    expect(loaded.namespace).toBe(fixture.namespace);
+    expect(loaded.did).toBe(fixture.did);
+    expect(loaded.keyId).toBe(fixture.keyId);
   });
 });
