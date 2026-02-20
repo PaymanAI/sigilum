@@ -40,6 +40,12 @@ Shared conformance vectors are stored in:
 - `sdks/test-vectors/http-signatures-rfc9421.json`
 - Coverage includes fragment stripping, method/body component profile checks, replay/timestamp strictness, and tamper failures (method/header/body).
 
+Cross-SDK onboarding quickstarts:
+
+- `sdks/sdk-ts/README.md`
+- `sdks/sdk-python/README.md`
+- `sdks/sdk-go/README.md`
+
 ## API Enforcement
 
 The API now enforces signed headers on all protected endpoints (`/v1/*` and `/.well-known/*`), so unsigned requests are rejected.

@@ -26,20 +26,57 @@ import (
 )
 
 func main() {
-result, _ := sigilum.InitIdentity(sigilum.InitIdentityOptions{Namespace: "alice"})
-_ = result
+	result, _ := sigilum.InitIdentity(sigilum.InitIdentityOptions{Namespace: "alice"})
+	_ = result
 
-bindings, _ := sigilum.Certify(sigilum.CertifyOptions{Namespace: "alice"})
-resp, err := bindings.Do(context.Background(), sigilum.SignRequestInput{
-	URL:    "/v1/namespaces/" + bindings.Namespace,
-	Method: "GET",
-})
-if err != nil {
-	log.Fatal(err)
-}
-defer resp.Body.Close()
+	bindings, _ := sigilum.Certify(sigilum.CertifyOptions{Namespace: "alice"})
+	resp, err := bindings.Do(context.Background(), sigilum.SignRequestInput{
+		URL:    "/v1/namespaces/" + bindings.Namespace,
+		Method: "GET",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
 }
 ```
+
+## Hello Signed Request
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+
+	"sigilum.local/sdk-go/sigilum"
+)
+
+func main() {
+	namespace := "alice"
+	bindings, err := sigilum.Certify(sigilum.CertifyOptions{Namespace: namespace})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	resp, err := bindings.Do(context.Background(), sigilum.SignRequestInput{
+		URL:    "/v1/namespaces/" + namespace,
+		Method: "GET",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	log.Printf("status=%d", resp.StatusCode)
+}
+```
+
+Expected outcome:
+
+- request includes Sigilum signed headers
+- API returns namespace metadata when auth/approval is satisfied
 
 All protected API endpoints require signed headers. Requests are signed with Ed25519 using RFC 9421-style `Signature-Input` and `Signature`, and can be validated server-side with `VerifyHTTPSignature`.
 Signed identity headers include `sigilum-namespace`, `sigilum-subject`, `sigilum-agent-key`, and `sigilum-agent-cert`.

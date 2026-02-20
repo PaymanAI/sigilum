@@ -41,6 +41,27 @@ const agent = sigilum.certify(createAgent(...));
 
 This does not wrap your agent class. It attaches identity and signed request helpers.
 
+## 3. Hello Signed Request
+
+```ts
+import * as sigilum from "@sigilum/sdk";
+
+const namespace = "alice";
+const agent = sigilum.certify({});
+
+const response = await agent.sigilum.fetch(`/v1/namespaces/${namespace}`, {
+  method: "GET",
+});
+
+console.log("status", response.status);
+console.log(await response.text());
+```
+
+Expected outcome:
+
+- request includes Sigilum signed headers
+- API returns namespace metadata when auth/approval is satisfied
+
 ## Minimal runnable example
 
 ```ts

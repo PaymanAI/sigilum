@@ -34,6 +34,33 @@ agent = MyAgent(...)
 sigilum.certify(agent)
 ```
 
+## 3) Hello Signed Request
+
+```python
+import sigilum
+
+namespace = "alice"
+
+class Agent:
+    pass
+
+agent = Agent()
+sigilum.certify(agent, namespace=namespace)
+
+response = agent.sigilum.fetch(
+    url=f"/v1/namespaces/{namespace}",
+    method="GET",
+)
+
+print("status", response.status)
+print(response.read().decode("utf-8"))
+```
+
+Expected outcome:
+
+- request includes Sigilum signed headers
+- API returns namespace metadata when auth/approval is satisfied
+
 ## Minimal runnable example
 
 ```python
