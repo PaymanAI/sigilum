@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"sort"
@@ -45,7 +44,14 @@ func writeVerificationFailure(
 	requestID string,
 ) {
 	if logEnabled {
-		log.Printf("proxy request verify failed request_id=%s connection=%s remote_ip=%s reason=%s", requestID, connectionID, remoteIP, result.Reason)
+		logGatewayDecision("proxy_auth_denied", map[string]any{
+			"request_id":  requestID,
+			"connection":  connectionID,
+			"remote_ip":   remoteIP,
+			"stage":       "signature_verification",
+			"decision":    "deny",
+			"reason_code": codeAuthSignatureInvalid,
+		})
 	}
 	writeProxyAuthError(w, http.StatusForbidden, codeAuthSignatureInvalid, "request signature verification failed")
 }

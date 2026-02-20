@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -43,18 +42,15 @@ func handleProxyRequest(
 	start := time.Now()
 	remoteIP := clientIP(r, cfg.TrustedProxyCIDRs)
 	requestID := requestIDFromContext(r.Context())
-	if cfg.LogProxyRequests {
-		log.Printf(
-			"proxy request start request_id=%s method=%s connection=%s path=%s query=%q remote_ip=%s signed_headers=%t",
-			requestID,
-			r.Method,
-			connectionID,
-			upstreamPath,
-			r.URL.RawQuery,
-			remoteIP,
-			hasSigilumHeaders(r.Header),
-		)
-	}
+	logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_request_start", map[string]any{
+		"request_id":     requestID,
+		"method":         r.Method,
+		"connection":     connectionID,
+		"path":           upstreamPath,
+		"query_present":  strings.TrimSpace(r.URL.RawQuery) != "",
+		"remote_ip":      remoteIP,
+		"signed_headers": hasSigilumHeaders(r.Header),
+	})
 
 	body, err := readLimitedRequestBody(r, cfg.MaxRequestBodyBytes)
 	if err != nil {
@@ -86,7 +82,11 @@ func handleProxyRequest(
 		return
 	} else if warning != "" {
 		w.Header().Set("X-Sigilum-Rotation-Warning", warning)
-		log.Printf("rotation warning request_id=%s connection=%s detail=%s", requestID, connectionID, warning)
+		logGatewayDecisionIf(cfg.LogProxyRequests, "rotation_warning", map[string]any{
+			"request_id":  requestID,
+			"connection":  connectionID,
+			"reason_code": "ROTATION_WARNING",
+		})
 	}
 
 	r.Body = io.NopCloser(bytes.NewReader(body))
@@ -103,22 +103,25 @@ func handleProxyRequest(
 			Error: "upstream request failed",
 			Code:  "UPSTREAM_ERROR",
 		})
-		log.Printf("upstream request failed request_id=%s connection=%s err=%v", requestID, connectionID, proxyErr)
+		logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_upstream_error", map[string]any{
+			"request_id":  requestID,
+			"connection":  connectionID,
+			"decision":    "error",
+			"reason_code": "UPSTREAM_ERROR",
+			"error":       proxyErr,
+		})
 	}
 
 	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	proxy.ServeHTTP(recorder, r)
-	if cfg.LogProxyRequests {
-		log.Printf(
-			"proxy request end request_id=%s method=%s connection=%s status=%d duration=%s response_bytes=%d",
-			requestID,
-			r.Method,
-			connectionID,
-			recorder.status,
-			time.Since(start).Round(time.Millisecond),
-			recorder.bytesWritten,
-		)
-	}
+	logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_request_end", map[string]any{
+		"request_id":     requestID,
+		"method":         r.Method,
+		"connection":     connectionID,
+		"status":         recorder.status,
+		"duration_ms":    time.Since(start).Milliseconds(),
+		"response_bytes": recorder.bytesWritten,
+	})
 }
 
 func handleMCPRequest(
@@ -146,19 +149,16 @@ func handleMCPRequest(
 	start := time.Now()
 	remoteIP := clientIP(r, cfg.TrustedProxyCIDRs)
 	requestID := requestIDFromContext(r.Context())
-	if cfg.LogProxyRequests {
-		log.Printf(
-			"mcp request start request_id=%s method=%s connection=%s action=%s tool=%s query=%q remote_ip=%s signed_headers=%t",
-			requestID,
-			r.Method,
-			connectionID,
-			action,
-			toolName,
-			r.URL.RawQuery,
-			remoteIP,
-			hasSigilumHeaders(r.Header),
-		)
-	}
+	logGatewayDecisionIf(cfg.LogProxyRequests, "mcp_request_start", map[string]any{
+		"request_id":     requestID,
+		"method":         r.Method,
+		"connection":     connectionID,
+		"action":         action,
+		"tool":           toolName,
+		"query_present":  strings.TrimSpace(r.URL.RawQuery) != "",
+		"remote_ip":      remoteIP,
+		"signed_headers": hasSigilumHeaders(r.Header),
+	})
 
 	body, err := readLimitedRequestBody(r, cfg.MaxRequestBodyBytes)
 	if err != nil {
@@ -189,7 +189,11 @@ func handleMCPRequest(
 		return
 	} else if warning != "" {
 		w.Header().Set("X-Sigilum-Rotation-Warning", warning)
-		log.Printf("rotation warning request_id=%s connection=%s detail=%s", requestID, connectionID, warning)
+		logGatewayDecisionIf(cfg.LogProxyRequests, "rotation_warning", map[string]any{
+			"request_id":  requestID,
+			"connection":  connectionID,
+			"reason_code": "ROTATION_WARNING",
+		})
 	}
 
 	tools := proxyCfg.Connection.MCPDiscovery.Tools
@@ -267,16 +271,13 @@ func handleMCPRequest(
 		return
 	}
 
-	if cfg.LogProxyRequests {
-		log.Printf(
-			"mcp request end request_id=%s method=%s connection=%s action=%s duration=%s",
-			requestID,
-			r.Method,
-			connectionID,
-			action,
-			time.Since(start).Round(time.Millisecond),
-		)
-	}
+	logGatewayDecisionIf(cfg.LogProxyRequests, "mcp_request_end", map[string]any{
+		"request_id":  requestID,
+		"method":      r.Method,
+		"connection":  connectionID,
+		"action":      action,
+		"duration_ms": time.Since(start).Milliseconds(),
+	})
 }
 
 func resolveToolArguments(body []byte) (json.RawMessage, error) {

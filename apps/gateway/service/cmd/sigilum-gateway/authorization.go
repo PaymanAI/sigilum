@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/subtle"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -30,9 +29,13 @@ func authorizeConnectionRequest(
 ) (authorizedIdentity, bool) {
 	requestID := requestIDFromContext(r.Context())
 	if shouldBypassConnectionAuthorization(cfg, connectionID) {
-		if cfg.LogProxyRequests {
-			log.Printf("proxy request auth bypass request_id=%s connection=%s remote_ip=%s", requestID, connectionID, remoteIP)
-		}
+		logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_auth_bypass", map[string]any{
+			"request_id":  requestID,
+			"connection":  connectionID,
+			"remote_ip":   remoteIP,
+			"decision":    "allow",
+			"reason_code": "ALLOW_UNSIGNED_CONNECTION",
+		})
 		return authorizedIdentity{}, true
 	}
 
@@ -72,9 +75,14 @@ func verifySignedRequest(
 	cfg config.Config,
 ) bool {
 	if err := validateSigilumAuthHeaders(headers); err != nil {
-		if cfg.LogProxyRequests {
-			log.Printf("proxy request header validation failed request_id=%s connection=%s remote_ip=%s err=%v", requestID, connectionID, remoteIP, err)
-		}
+		logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_auth_denied", map[string]any{
+			"request_id":  requestID,
+			"connection":  connectionID,
+			"remote_ip":   remoteIP,
+			"stage":       "header_validation",
+			"decision":    "deny",
+			"reason_code": codeAuthHeadersInvalid,
+		})
 		writeProxyAuthError(w, http.StatusForbidden, codeAuthHeadersInvalid, "invalid or duplicate signed headers")
 		return false
 	}
@@ -92,9 +100,14 @@ func verifySignedRequest(
 	}
 
 	if componentErr := validateSignatureComponents(headers.Get(headerSignatureInput), len(body) > 0); componentErr != nil {
-		if cfg.LogProxyRequests {
-			log.Printf("proxy request component validation failed request_id=%s connection=%s remote_ip=%s err=%v", requestID, connectionID, remoteIP, componentErr)
-		}
+		logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_auth_denied", map[string]any{
+			"request_id":  requestID,
+			"connection":  connectionID,
+			"remote_ip":   remoteIP,
+			"stage":       "component_validation",
+			"decision":    "deny",
+			"reason_code": codeAuthSignedComponents,
+		})
 		writeProxyAuthError(w, http.StatusForbidden, codeAuthSignedComponents, "invalid signed component set")
 		return false
 	}
@@ -111,15 +124,24 @@ func resolveAuthorizedIdentity(
 ) (authorizedIdentity, bool) {
 	namespace, publicKey, subject, identityErr := extractSigilumIdentity(headers)
 	if identityErr != nil {
-		if cfg.LogProxyRequests {
-			log.Printf("proxy request identity extraction failed request_id=%s connection=%s remote_ip=%s err=%v", requestID, connectionID, remoteIP, identityErr)
-		}
+		logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_auth_denied", map[string]any{
+			"request_id":  requestID,
+			"connection":  connectionID,
+			"remote_ip":   remoteIP,
+			"stage":       "identity_extraction",
+			"decision":    "deny",
+			"reason_code": codeAuthIdentityInvalid,
+		})
 		writeProxyAuthError(w, http.StatusForbidden, codeAuthIdentityInvalid, "invalid Sigilum identity headers")
 		return authorizedIdentity{}, false
 	}
-	if cfg.LogProxyRequests {
-		log.Printf("proxy request subject resolved request_id=%s connection=%s namespace=%s subject=%s", requestID, connectionID, namespace, subject)
-	}
+	logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_identity_resolved", map[string]any{
+		"request_id": requestID,
+		"connection": connectionID,
+		"namespace":  namespace,
+		"subject":    subject,
+		"decision":   "allow",
+	})
 	return authorizedIdentity{
 		Namespace: namespace,
 		Subject:   subject,
@@ -139,16 +161,27 @@ func enforceNonceReplayProtection(
 ) bool {
 	nonce, nonceErr := extractSignatureNonce(headers.Get(headerSignatureInput))
 	if nonceErr != nil {
-		if cfg.LogProxyRequests {
-			log.Printf("proxy request nonce extraction failed request_id=%s connection=%s remote_ip=%s err=%v", requestID, connectionID, remoteIP, nonceErr)
-		}
+		logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_auth_denied", map[string]any{
+			"request_id":  requestID,
+			"connection":  connectionID,
+			"remote_ip":   remoteIP,
+			"stage":       "nonce_validation",
+			"decision":    "deny",
+			"reason_code": codeAuthNonceInvalid,
+		})
 		writeProxyAuthError(w, http.StatusForbidden, codeAuthNonceInvalid, "invalid signature nonce")
 		return false
 	}
 	if nonceCache != nil && nonceCache.Seen(namespace, nonce, time.Now().UTC()) {
-		if cfg.LogProxyRequests {
-			log.Printf("proxy request replay detected request_id=%s connection=%s remote_ip=%s namespace=%s", requestID, connectionID, remoteIP, namespace)
-		}
+		logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_auth_denied", map[string]any{
+			"request_id":  requestID,
+			"connection":  connectionID,
+			"remote_ip":   remoteIP,
+			"namespace":   namespace,
+			"stage":       "replay_detection",
+			"decision":    "deny",
+			"reason_code": codeAuthReplayDetected,
+		})
 		writeProxyAuthError(w, http.StatusForbidden, codeAuthReplayDetected, "replay detected")
 		return false
 	}
@@ -166,22 +199,38 @@ func enforceClaimAuthorization(
 	cfg config.Config,
 ) bool {
 	if claimsCache == nil {
+		logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_auth_denied", map[string]any{
+			"request_id":  requestID,
+			"connection":  connectionID,
+			"stage":       "claims_cache",
+			"decision":    "deny",
+			"reason_code": codeAuthClaimsUnavailable,
+		})
 		writeProxyAuthError(w, http.StatusForbidden, codeAuthClaimsUnavailable, "claims authorization cache is unavailable")
 		return false
 	}
 
 	approved, claimErr := claimsCache.IsApproved(r.Context(), connectionID, identity.Namespace, identity.PublicKey)
 	if claimErr != nil {
-		if cfg.LogProxyRequests {
-			log.Printf("proxy request claim cache failed request_id=%s connection=%s remote_ip=%s err=%v", requestID, connectionID, remoteIP, claimErr)
-		}
+		logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_auth_denied", map[string]any{
+			"request_id":  requestID,
+			"connection":  connectionID,
+			"remote_ip":   remoteIP,
+			"namespace":   identity.Namespace,
+			"stage":       "claims_lookup",
+			"decision":    "deny",
+			"reason_code": codeAuthClaimsLookupFailed,
+		})
 		writeProxyAuthError(w, http.StatusForbidden, codeAuthClaimsLookupFailed, "claims lookup failed")
 		return false
 	}
 
-	if cfg.LogProxyRequests {
-		log.Printf("proxy claim cache precheck request_id=%s connection=%s namespace=%s approved=%t", requestID, connectionID, identity.Namespace, approved)
-	}
+	logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_claim_precheck", map[string]any{
+		"request_id": requestID,
+		"connection": connectionID,
+		"namespace":  identity.Namespace,
+		"approved":   approved,
+	})
 	if !approved {
 		claimAttempt := claimRegistrationAttempt{
 			Enabled: cfg.AutoRegisterClaims,
@@ -196,36 +245,39 @@ func enforceClaimAuthorization(
 			})
 			claimAttempt.Result = submitResult
 			claimAttempt.Err = submitErr
-			if cfg.LogProxyRequests {
-				if submitErr != nil {
-					log.Printf(
-						"proxy claim submit failed request_id=%s connection=%s namespace=%s subject=%s remote_ip=%s err=%v",
-						requestID,
-						connectionID,
-						identity.Namespace,
-						identity.Subject,
-						remoteIP,
-						submitErr,
-					)
-				} else {
-					log.Printf(
-						"proxy claim submit result request_id=%s connection=%s namespace=%s subject=%s remote_ip=%s claim_id=%s status=%s http_status=%d code=%s",
-						requestID,
-						connectionID,
-						identity.Namespace,
-						identity.Subject,
-						remoteIP,
-						submitResult.ClaimID,
-						submitResult.Status,
-						submitResult.HTTPStatus,
-						submitResult.Code,
-					)
-				}
+			if submitErr != nil {
+				logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_claim_submit", map[string]any{
+					"request_id":  requestID,
+					"connection":  connectionID,
+					"namespace":   identity.Namespace,
+					"subject":     identity.Subject,
+					"remote_ip":   remoteIP,
+					"decision":    "error",
+					"reason_code": "CLAIM_SUBMIT_FAILED",
+				})
+			} else {
+				logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_claim_submit", map[string]any{
+					"request_id":   requestID,
+					"connection":   connectionID,
+					"namespace":    identity.Namespace,
+					"subject":      identity.Subject,
+					"remote_ip":    remoteIP,
+					"claim_id":     submitResult.ClaimID,
+					"claim_status": submitResult.Status,
+					"http_status":  submitResult.HTTPStatus,
+					"reason_code":  submitResult.Code,
+				})
 			}
 		}
-		if cfg.LogProxyRequests {
-			log.Printf("proxy request denied by claim cache request_id=%s connection=%s remote_ip=%s namespace=%s", requestID, connectionID, remoteIP, identity.Namespace)
-		}
+		logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_auth_denied", map[string]any{
+			"request_id":  requestID,
+			"connection":  connectionID,
+			"remote_ip":   remoteIP,
+			"namespace":   identity.Namespace,
+			"stage":       "claims_authorization",
+			"decision":    "deny",
+			"reason_code": codeAuthClaimRequired,
+		})
 		writeProxyAuthRequiredMarkdown(w, proxyAuthRequiredMarkdownInput{
 			Namespace:         identity.Namespace,
 			Subject:           identity.Subject,
@@ -254,16 +306,15 @@ func enforceAdminRequestAccess(w http.ResponseWriter, r *http.Request, cfg confi
 	switch mode {
 	case config.AdminAccessModeToken:
 		if adminToken == "" {
-			if cfg.LogProxyRequests {
-				log.Printf(
-					"admin request denied request_id=%s mode=%s reason=token_not_configured path=%s method=%s remote_ip=%s",
-					requestID,
-					mode,
-					r.URL.Path,
-					r.Method,
-					remoteIP,
-				)
-			}
+			logGatewayDecisionIf(cfg.LogProxyRequests, "admin_access_denied", map[string]any{
+				"request_id":  requestID,
+				"mode":        mode,
+				"path":        r.URL.Path,
+				"method":      r.Method,
+				"remote_ip":   remoteIP,
+				"decision":    "deny",
+				"reason_code": "ADMIN_TOKEN_NOT_CONFIGURED",
+			})
 			writeJSON(w, http.StatusInternalServerError, errorResponse{
 				Error: "admin token mode requires GATEWAY_ADMIN_TOKEN",
 				Code:  "ADMIN_TOKEN_NOT_CONFIGURED",
@@ -271,27 +322,25 @@ func enforceAdminRequestAccess(w http.ResponseWriter, r *http.Request, cfg confi
 			return false
 		}
 		if hasAdminToken(r, adminToken) {
-			if cfg.LogProxyRequests {
-				log.Printf(
-					"admin request access granted request_id=%s via token mode=%s path=%s method=%s",
-					requestID,
-					mode,
-					r.URL.Path,
-					r.Method,
-				)
-			}
+			logGatewayDecisionIf(cfg.LogProxyRequests, "admin_access_granted", map[string]any{
+				"request_id": requestID,
+				"mode":       mode,
+				"path":       r.URL.Path,
+				"method":     r.Method,
+				"decision":   "allow",
+				"via":        "token",
+			})
 			return true
 		}
-		if cfg.LogProxyRequests {
-			log.Printf(
-				"admin request denied request_id=%s mode=%s reason=token_required path=%s method=%s remote_ip=%s",
-				requestID,
-				mode,
-				r.URL.Path,
-				r.Method,
-				remoteIP,
-			)
-		}
+		logGatewayDecisionIf(cfg.LogProxyRequests, "admin_access_denied", map[string]any{
+			"request_id":  requestID,
+			"mode":        mode,
+			"path":        r.URL.Path,
+			"method":      r.Method,
+			"remote_ip":   remoteIP,
+			"decision":    "deny",
+			"reason_code": "ADMIN_TOKEN_REQUIRED",
+		})
 		writeJSON(w, http.StatusForbidden, errorResponse{
 			Error: "admin endpoints require a valid admin token",
 			Code:  "ADMIN_TOKEN_REQUIRED",
@@ -299,28 +348,26 @@ func enforceAdminRequestAccess(w http.ResponseWriter, r *http.Request, cfg confi
 		return false
 	case config.AdminAccessModeLoopback:
 		if isLoopbackClient(remoteIP) {
-			if cfg.LogProxyRequests {
-				log.Printf(
-					"admin request access granted request_id=%s via loopback mode=%s path=%s method=%s remote_ip=%s",
-					requestID,
-					mode,
-					r.URL.Path,
-					r.Method,
-					remoteIP,
-				)
-			}
+			logGatewayDecisionIf(cfg.LogProxyRequests, "admin_access_granted", map[string]any{
+				"request_id": requestID,
+				"mode":       mode,
+				"path":       r.URL.Path,
+				"method":     r.Method,
+				"remote_ip":  remoteIP,
+				"decision":   "allow",
+				"via":        "loopback",
+			})
 			return true
 		}
-		if cfg.LogProxyRequests {
-			log.Printf(
-				"admin request denied request_id=%s mode=%s reason=loopback_required path=%s method=%s remote_ip=%s",
-				requestID,
-				mode,
-				r.URL.Path,
-				r.Method,
-				remoteIP,
-			)
-		}
+		logGatewayDecisionIf(cfg.LogProxyRequests, "admin_access_denied", map[string]any{
+			"request_id":  requestID,
+			"mode":        mode,
+			"path":        r.URL.Path,
+			"method":      r.Method,
+			"remote_ip":   remoteIP,
+			"decision":    "deny",
+			"reason_code": "ADMIN_LOOPBACK_REQUIRED",
+		})
 		writeJSON(w, http.StatusForbidden, errorResponse{
 			Error: "admin endpoints require loopback client access",
 			Code:  "ADMIN_LOOPBACK_REQUIRED",
@@ -328,40 +375,37 @@ func enforceAdminRequestAccess(w http.ResponseWriter, r *http.Request, cfg confi
 		return false
 	default:
 		if adminToken != "" && hasAdminToken(r, adminToken) {
-			if cfg.LogProxyRequests {
-				log.Printf(
-					"admin request access granted request_id=%s via token mode=%s path=%s method=%s",
-					requestID,
-					mode,
-					r.URL.Path,
-					r.Method,
-				)
-			}
+			logGatewayDecisionIf(cfg.LogProxyRequests, "admin_access_granted", map[string]any{
+				"request_id": requestID,
+				"mode":       mode,
+				"path":       r.URL.Path,
+				"method":     r.Method,
+				"decision":   "allow",
+				"via":        "token",
+			})
 			return true
 		}
 		if isLoopbackClient(remoteIP) {
-			if cfg.LogProxyRequests {
-				log.Printf(
-					"admin request access granted request_id=%s via loopback mode=%s path=%s method=%s remote_ip=%s",
-					requestID,
-					mode,
-					r.URL.Path,
-					r.Method,
-					remoteIP,
-				)
-			}
+			logGatewayDecisionIf(cfg.LogProxyRequests, "admin_access_granted", map[string]any{
+				"request_id": requestID,
+				"mode":       mode,
+				"path":       r.URL.Path,
+				"method":     r.Method,
+				"remote_ip":  remoteIP,
+				"decision":   "allow",
+				"via":        "loopback",
+			})
 			return true
 		}
-		if cfg.LogProxyRequests {
-			log.Printf(
-				"admin request denied request_id=%s mode=%s reason=token_or_loopback_required path=%s method=%s remote_ip=%s",
-				requestID,
-				mode,
-				r.URL.Path,
-				r.Method,
-				remoteIP,
-			)
-		}
+		logGatewayDecisionIf(cfg.LogProxyRequests, "admin_access_denied", map[string]any{
+			"request_id":  requestID,
+			"mode":        mode,
+			"path":        r.URL.Path,
+			"method":      r.Method,
+			"remote_ip":   remoteIP,
+			"decision":    "deny",
+			"reason_code": "ADMIN_TOKEN_OR_LOOPBACK_REQUIRED",
+		})
 		writeJSON(w, http.StatusForbidden, errorResponse{
 			Error: "admin endpoints require loopback access or a valid admin token",
 			Code:  "ADMIN_TOKEN_OR_LOOPBACK_REQUIRED",

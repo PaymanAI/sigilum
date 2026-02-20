@@ -172,6 +172,16 @@ Rotation policy controls:
 
 In `block` mode, overdue connections are rejected with `ROTATION_REQUIRED`.
 
+## Structured Decision Logs
+
+When `GATEWAY_LOG_PROXY_REQUESTS=true`, gateway emits JSON decision logs for auth, claim, admin-access, runtime, and upstream decision points.
+
+Redaction rules are enforced before serialization:
+
+- secret-bearing fields (`token`, `secret`, `authorization`, `signature`, `cert`, `api_key`) are replaced with `[redacted]`
+- identity fields (`namespace`, `subject`, key identifiers) are hashed to stable fingerprints
+- client IP fields are masked (`/24` for IPv4, `/64` for IPv6)
+
 ## CLI (Local Service Management)
 
 The gateway also provides a local CLI for managing stored service connections directly:

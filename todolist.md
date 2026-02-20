@@ -15,7 +15,7 @@ Reference: `world_class_review.md`
 - [x] `GW-001` Define and implement one explicit admin trust model.
 - [x] `GW-003` Add deterministic auth failure code taxonomy and docs mapping.
 - [ ] `GW-011` Refactor MCP session and retry behavior into clear state machine.
-- [ ] `GW-020` Add structured gateway decision logs with redaction guarantees.
+- [x] `GW-020` Add structured gateway decision logs with redaction guarantees.
 - [ ] `GW-021` Add gateway metrics for auth, policy, MCP, and upstream latency/errors.
 - [x] `SDK-002` Expand shared RFC9421 conformance vectors and run in all SDKs.
 - [x] `SDK-006` Restore Java SDK source implementation or mark unsupported in matrix.
