@@ -21,6 +21,6 @@ Reference: `world_class_review.md`
 - [ ] `SDK-006` Restore Java SDK source implementation or mark unsupported in matrix.
 - [ ] `SCR-005` Add checksum/signature verification to release install path.
 - [ ] `SCR-006` Extract shared script library to remove duplicated shell logic.
-- [ ] `SCR-009` Add shellcheck + script CI checks.
+- [x] `SCR-009` Add shellcheck + script CI checks.
 - [ ] `PRD-001` Build one canonical onboarding checklist per deployment mode.
 - [ ] `PRD-007` Publish product-wide error/success message style guide.

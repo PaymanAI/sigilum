@@ -1,0 +1,58 @@
+name: Script Checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck on shell scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t shell_scripts < <(find scripts -type f -name '*.sh' | sort)
+          if [[ ${#shell_scripts[@]} -eq 0 ]]; then
+            echo "No shell scripts found."
+            exit 0
+          fi
+          shellcheck -x "${shell_scripts[@]}"
+
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate script syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t shell_scripts < <(find scripts -type f -name '*.sh' | sort)
+          if [[ ${#shell_scripts[@]} -gt 0 ]]; then
+            for script in "${shell_scripts[@]}"; do
+              bash -n "$script"
+            done
+          fi
+
+          mapfile -t node_scripts < <(find scripts -type f -name '*.mjs' | sort)
+          if [[ ${#node_scripts[@]} -gt 0 ]]; then
+            for script in "${node_scripts[@]}"; do
+              node --check "$script"
+            done
+          fi
