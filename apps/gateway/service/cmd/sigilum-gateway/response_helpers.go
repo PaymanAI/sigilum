@@ -12,6 +12,15 @@ import (
 	"sigilum.local/gateway/internal/connectors"
 )
 
+type proxyAuthRequiredMarkdownInput struct {
+	Namespace         string
+	Subject           string
+	PublicKey         string
+	Service           string
+	RemoteIP          string
+	ClaimRegistration claimRegistrationAttempt
+}
+
 var errRequestBodyTooLarge = errors.New("request body exceeds configured limit")
 
 type statusRecorder struct {
@@ -129,4 +138,144 @@ func writeProxyAuthFailure(w http.ResponseWriter) {
 		Error: "request not authorized",
 		Code:  "AUTH_FORBIDDEN",
 	})
+}
+
+func writeProxyAuthRequiredMarkdown(w http.ResponseWriter, input proxyAuthRequiredMarkdownInput) {
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Sigilum-Code", "AUTH_FORBIDDEN")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = w.Write([]byte(buildProxyAuthRequiredMarkdown(input)))
+}
+
+func buildProxyAuthRequiredMarkdown(input proxyAuthRequiredMarkdownInput) string {
+	namespace := markdownInline(strings.TrimSpace(input.Namespace))
+	if namespace == "" {
+		namespace = "(unknown)"
+	}
+	subject := markdownInline(strings.TrimSpace(input.Subject))
+	if subject == "" {
+		subject = "(unknown)"
+	}
+	service := markdownInline(strings.TrimSpace(input.Service))
+	if service == "" {
+		service = "(unknown)"
+	}
+	publicKey := markdownInline(truncateForDisplay(strings.TrimSpace(input.PublicKey), 96))
+	if publicKey == "" {
+		publicKey = "(unknown)"
+	}
+	remoteIP := markdownInline(strings.TrimSpace(input.RemoteIP))
+	if remoteIP == "" {
+		remoteIP = "(unknown)"
+	}
+
+	var registrationSummary strings.Builder
+	registrationSummary.WriteString("- Auto-registration mode: ")
+	if input.ClaimRegistration.Enabled {
+		registrationSummary.WriteString("`enabled` (gateway)\n")
+	} else {
+		registrationSummary.WriteString("`disabled`\n")
+	}
+
+	if input.ClaimRegistration.Enabled {
+		if input.ClaimRegistration.Err != nil {
+			registrationSummary.WriteString("- Claim submit result: `failed-before-response`\n")
+			registrationSummary.WriteString("- Submit error: `" + markdownInline(truncateForDisplay(input.ClaimRegistration.Err.Error(), 220)) + "`\n")
+		} else {
+			result := input.ClaimRegistration.Result
+			if result.HTTPStatus >= 200 && result.HTTPStatus < 300 {
+				registrationSummary.WriteString("- Claim submit result: `recorded`\n")
+			} else if result.HTTPStatus > 0 {
+				registrationSummary.WriteString("- Claim submit result: `api-rejected`\n")
+			} else {
+				registrationSummary.WriteString("- Claim submit result: `no-response`\n")
+			}
+			if result.HTTPStatus > 0 {
+				registrationSummary.WriteString(fmt.Sprintf("- Claim API status: `%d`\n", result.HTTPStatus))
+			}
+			if claimID := markdownInline(strings.TrimSpace(result.ClaimID)); claimID != "" {
+				registrationSummary.WriteString("- Claim ID: `" + claimID + "`\n")
+			}
+			if claimStatus := markdownInline(strings.TrimSpace(result.Status)); claimStatus != "" {
+				registrationSummary.WriteString("- Claim state: `" + claimStatus + "`\n")
+			}
+			if result.Code != "" {
+				registrationSummary.WriteString("- Claim API code: `" + markdownInline(result.Code) + "`\n")
+			}
+			message := strings.TrimSpace(result.Message)
+			if message != "" {
+				registrationSummary.WriteString("- Claim API message: `" + markdownInline(truncateForDisplay(message, 220)) + "`\n")
+			}
+		}
+	}
+
+	var nextStep string
+	if input.ClaimRegistration.Enabled && input.ClaimRegistration.Err == nil {
+		status := strings.ToLower(strings.TrimSpace(input.ClaimRegistration.Result.Status))
+		switch status {
+		case "pending":
+			nextStep = "Namespace owner approval is required. Approve the pending request, then retry."
+		case "approved":
+			nextStep = "Access appears approved already. Retry the request now."
+		case "rejected":
+			nextStep = "Request was rejected by policy or owner action. Review policy/limits before retrying."
+		default:
+			nextStep = "Review claim status in the dashboard/API and approve access if needed."
+		}
+	} else {
+		nextStep = "Review access policy and submit/approve the claim before retrying."
+	}
+
+	return strings.TrimSpace(fmt.Sprintf(`
+# AUTH_FORBIDDEN: Sigilum Authorization Required
+
+~~~text
++--------------------------------------------------------------------------+
+|  /!\  SECURE ACCESS BLOCKED                                              |
+|                                                                          |
+|  Sigilum verified your signature, but this key is not approved for       |
+|  the target service yet. This block protects service credentials and      |
+|  prevents unauthorized tool or API execution.                            |
++--------------------------------------------------------------------------+
+~~~
+
+## Request Context
+- Namespace: %s
+- Subject: %s
+- Service: %s
+- Agent key: %s
+- Remote IP: %s
+
+## Authorization Registration
+%s
+
+## Why this matters
+Sigilum is intentionally fail-closed here. Only approved keys can use service credentials.
+
+## Next Step
+%s
+`, namespace, subject, service, publicKey, remoteIP, strings.TrimSpace(registrationSummary.String()), markdownInline(nextStep)))
+}
+
+func markdownInline(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = strings.ReplaceAll(value, "`", "'")
+	value = strings.ReplaceAll(value, "\r", " ")
+	value = strings.ReplaceAll(value, "\n", " ")
+	return strings.TrimSpace(value)
+}
+
+func truncateForDisplay(value string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	trimmed := strings.TrimSpace(value)
+	if len(trimmed) <= max {
+		return trimmed
+	}
+	return strings.TrimSpace(trimmed[:max]) + "..."
 }

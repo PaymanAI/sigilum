@@ -26,6 +26,7 @@ type Config struct {
 	AllowedOrigins             map[string]struct{}
 	TrustedProxyCIDRs          []*net.IPNet
 	LogProxyRequests           bool
+	AutoRegisterClaims         bool
 	AllowUnsignedProxy         bool
 	AllowUnsignedFor           map[string]struct{}
 	RequireSignedAdminChecks   bool
@@ -57,6 +58,7 @@ func Load() (Config, error) {
 		ClaimsCacheMaxApproved:     10_000,
 		TrustedProxyCIDRs:          []*net.IPNet{},
 		LogProxyRequests:           true,
+		AutoRegisterClaims:         true,
 		AllowUnsignedProxy:         false,
 		AllowUnsignedFor:           map[string]struct{}{},
 		RequireSignedAdminChecks:   true,
@@ -80,6 +82,11 @@ func Load() (Config, error) {
 		return Config{}, err
 	} else {
 		cfg.LogProxyRequests = value
+	}
+	if value, err := getEnvBool("GATEWAY_AUTO_REGISTER_CLAIMS", cfg.AutoRegisterClaims); err != nil {
+		return Config{}, err
+	} else {
+		cfg.AutoRegisterClaims = value
 	}
 	if value, err := getEnvBool("GATEWAY_ALLOW_UNSIGNED_PROXY", cfg.AllowUnsignedProxy); err != nil {
 		return Config{}, err

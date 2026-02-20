@@ -2,6 +2,8 @@ package claims
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,6 +35,25 @@ type CacheConfig struct {
 	ResolveServiceAPIKey func(service string) string
 	Logger               func(format string, args ...any)
 	MaxApprovedClaims    int
+}
+
+type SubmitClaimInput struct {
+	Service   string
+	Namespace string
+	PublicKey string
+	AgentIP   string
+	Nonce     string
+	Subject   string
+}
+
+type SubmitClaimResult struct {
+	HTTPStatus int
+	ClaimID    string
+	Status     string
+	Service    string
+	Message    string
+	Error      string
+	Code       string
 }
 
 type approvalSnapshot struct {
@@ -226,6 +247,121 @@ func (c *Cache) IsApproved(ctx context.Context, service, namespace, publicKey st
 	return approved, nil
 }
 
+func (c *Cache) SubmitClaim(ctx context.Context, input SubmitClaimInput) (SubmitClaimResult, error) {
+	service := strings.TrimSpace(input.Service)
+	namespace := strings.TrimSpace(input.Namespace)
+	publicKey := strings.TrimSpace(input.PublicKey)
+	if service == "" {
+		return SubmitClaimResult{}, errors.New("claim submit requires service")
+	}
+	if namespace == "" {
+		return SubmitClaimResult{}, errors.New("claim submit requires namespace")
+	}
+	if publicKey == "" {
+		return SubmitClaimResult{}, errors.New("claim submit requires public key")
+	}
+	if c.bindings == nil {
+		return SubmitClaimResult{}, errors.New("claims cache signer is not configured")
+	}
+	if c.resolveServiceAPIKey == nil {
+		return SubmitClaimResult{}, errors.New("service API key resolver is not configured")
+	}
+
+	serviceAPIKey := strings.TrimSpace(c.resolveServiceAPIKey(service))
+	if serviceAPIKey == "" {
+		return SubmitClaimResult{}, fmt.Errorf("service API key not configured for service %q", service)
+	}
+
+	agentIP := strings.TrimSpace(input.AgentIP)
+	if agentIP == "" {
+		agentIP = "127.0.0.1"
+	}
+	nonce := strings.TrimSpace(input.Nonce)
+	if nonce == "" {
+		generatedNonce, err := claimNonce()
+		if err != nil {
+			return SubmitClaimResult{}, err
+		}
+		nonce = generatedNonce
+	}
+
+	payload, err := json.Marshal(map[string]string{
+		"namespace":  namespace,
+		"public_key": publicKey,
+		"service":    service,
+		"agent_ip":   agentIP,
+		"nonce":      nonce,
+	})
+	if err != nil {
+		return SubmitClaimResult{}, fmt.Errorf("encode claim submit payload: %w", err)
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+
+	claimURL := strings.TrimRight(c.baseURL, "/") + "/v1/claims"
+	resp, err := c.bindings.Do(ctx, sigilum.SignRequestInput{
+		URL:     claimURL,
+		Method:  http.MethodPost,
+		Subject: strings.TrimSpace(input.Subject),
+		Headers: map[string]string{
+			"Authorization":           "Bearer " + serviceAPIKey,
+			"Content-Type":            "application/json",
+			"X-Sigilum-Claim-Binding": "namespace-only",
+		},
+		Body: payload,
+	})
+	if err != nil {
+		return SubmitClaimResult{}, fmt.Errorf("claim submit request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if readErr != nil {
+		return SubmitClaimResult{}, fmt.Errorf("claim submit read failed: %w", readErr)
+	}
+
+	result := SubmitClaimResult{
+		HTTPStatus: resp.StatusCode,
+		Service:    service,
+	}
+
+	var parsed struct {
+		ClaimID string `json:"claim_id"`
+		Status  string `json:"status"`
+		Service string `json:"service"`
+		Message string `json:"message"`
+		Error   string `json:"error"`
+		Code    string `json:"code"`
+	}
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			result.Message = strings.TrimSpace(string(body))
+			return result, nil
+		}
+	}
+	result.ClaimID = strings.TrimSpace(parsed.ClaimID)
+	result.Status = strings.TrimSpace(parsed.Status)
+	result.Service = strings.TrimSpace(parsed.Service)
+	if result.Service == "" {
+		result.Service = service
+	}
+	result.Message = strings.TrimSpace(parsed.Message)
+	result.Error = strings.TrimSpace(parsed.Error)
+	result.Code = strings.TrimSpace(parsed.Code)
+	if result.Message == "" && result.Error != "" {
+		result.Message = result.Error
+	}
+
+	return result, nil
+}
+
 func (c *Cache) runBackgroundRefresh() {
 	ticker := time.NewTicker(c.refreshInterval)
 	defer ticker.Stop()
@@ -378,4 +514,13 @@ func (c *Cache) lookupFresh(service string, approvalKey string, now time.Time) (
 
 func claimCacheKey(namespace string, publicKey string) string {
 	return namespace + "\x00" + publicKey
+}
+
+func claimNonce() (string, error) {
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		return "", fmt.Errorf("generate claim nonce: %w", err)
+	}
+	hexValue := hex.EncodeToString(nonce)
+	return hexValue[0:8] + "-" + hexValue[8:12] + "-" + hexValue[12:16] + "-" + hexValue[16:20] + "-" + hexValue[20:32], nil
 }

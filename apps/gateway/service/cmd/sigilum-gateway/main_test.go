@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"sigilum.local/gateway/config"
+	claimcache "sigilum.local/gateway/internal/claims"
 	"sigilum.local/gateway/internal/connectors"
 )
 
@@ -445,5 +446,43 @@ func TestWithRequestIDPreservesIncomingHeader(t *testing.T) {
 
 	if got := recorder.Header().Get(requestIDHeader); got != "req-from-client" {
 		t.Fatalf("expected response header to preserve incoming request id, got %q", got)
+	}
+}
+
+func TestWriteProxyAuthRequiredMarkdown(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	writeProxyAuthRequiredMarkdown(recorder, proxyAuthRequiredMarkdownInput{
+		Namespace: "alice",
+		Subject:   "agent-main",
+		PublicKey: "ed25519:abc123",
+		Service:   "sigilum-secure-linear",
+		RemoteIP:  "203.0.113.10",
+		ClaimRegistration: claimRegistrationAttempt{
+			Enabled: true,
+			Result: claimcache.SubmitClaimResult{
+				HTTPStatus: http.StatusCreated,
+				ClaimID:    "cl_test_123",
+				Status:     "pending",
+				Message:    "Access request submitted.",
+			},
+		},
+	})
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403, got %d", recorder.Code)
+	}
+	contentType := recorder.Header().Get("Content-Type")
+	if !strings.Contains(contentType, "text/markdown") {
+		t.Fatalf("expected markdown response content-type, got %q", contentType)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, "AUTH_FORBIDDEN") {
+		t.Fatalf("expected AUTH_FORBIDDEN marker in markdown body")
+	}
+	if !strings.Contains(body, "SECURE ACCESS BLOCKED") {
+		t.Fatalf("expected warning banner in markdown body")
+	}
+	if !strings.Contains(body, "cl_test_123") {
+		t.Fatalf("expected claim id details in markdown body")
 	}
 }

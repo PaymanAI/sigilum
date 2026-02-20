@@ -12,6 +12,12 @@ import (
 	"sigilum.local/sdk-go/sigilum"
 )
 
+type claimRegistrationAttempt struct {
+	Enabled bool
+	Result  claimcache.SubmitClaimResult
+	Err     error
+}
+
 func authorizeConnectionRequest(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -177,10 +183,57 @@ func enforceClaimAuthorization(
 		log.Printf("proxy claim cache precheck request_id=%s connection=%s namespace=%s approved=%t", requestID, connectionID, identity.Namespace, approved)
 	}
 	if !approved {
+		claimAttempt := claimRegistrationAttempt{
+			Enabled: cfg.AutoRegisterClaims,
+		}
+		if cfg.AutoRegisterClaims {
+			submitResult, submitErr := claimsCache.SubmitClaim(r.Context(), claimcache.SubmitClaimInput{
+				Service:   connectionID,
+				Namespace: identity.Namespace,
+				PublicKey: identity.PublicKey,
+				AgentIP:   remoteIP,
+				Subject:   identity.Subject,
+			})
+			claimAttempt.Result = submitResult
+			claimAttempt.Err = submitErr
+			if cfg.LogProxyRequests {
+				if submitErr != nil {
+					log.Printf(
+						"proxy claim submit failed request_id=%s connection=%s namespace=%s subject=%s remote_ip=%s err=%v",
+						requestID,
+						connectionID,
+						identity.Namespace,
+						identity.Subject,
+						remoteIP,
+						submitErr,
+					)
+				} else {
+					log.Printf(
+						"proxy claim submit result request_id=%s connection=%s namespace=%s subject=%s remote_ip=%s claim_id=%s status=%s http_status=%d code=%s",
+						requestID,
+						connectionID,
+						identity.Namespace,
+						identity.Subject,
+						remoteIP,
+						submitResult.ClaimID,
+						submitResult.Status,
+						submitResult.HTTPStatus,
+						submitResult.Code,
+					)
+				}
+			}
+		}
 		if cfg.LogProxyRequests {
 			log.Printf("proxy request denied by claim cache request_id=%s connection=%s remote_ip=%s namespace=%s", requestID, connectionID, remoteIP, identity.Namespace)
 		}
-		writeProxyAuthFailure(w)
+		writeProxyAuthRequiredMarkdown(w, proxyAuthRequiredMarkdownInput{
+			Namespace:         identity.Namespace,
+			Subject:           identity.Subject,
+			PublicKey:         identity.PublicKey,
+			Service:           connectionID,
+			RemoteIP:          remoteIP,
+			ClaimRegistration: claimAttempt,
+		})
 		return false
 	}
 	return true

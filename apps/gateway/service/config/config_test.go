@@ -38,6 +38,32 @@ func TestLoadDefaultsRequireSignedAdminChecks(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultsEnableAutoRegisterClaims(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_AUTO_REGISTER_CLAIMS", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.AutoRegisterClaims {
+		t.Fatalf("expected auto_register_claims default to true")
+	}
+}
+
+func TestLoadAllowsDisablingAutoRegisterClaims(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_AUTO_REGISTER_CLAIMS", "false")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.AutoRegisterClaims {
+		t.Fatalf("expected auto_register_claims to be false when overridden")
+	}
+}
+
 func TestLoadAllowsDisablingSignedAdminChecks(t *testing.T) {
 	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
 	t.Setenv("GATEWAY_REQUIRE_SIGNED_ADMIN_CHECKS", "false")
