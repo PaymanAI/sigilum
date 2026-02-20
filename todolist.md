@@ -1,0 +1,26 @@
+# Sigilum World-Class TODO
+
+Reference: `world_class_review.md`
+
+## In Progress Queue
+
+- [ ] `SDK-001` Enforce identical strict signature verification profile across TS/Go/Python SDKs.
+- [ ] `GW-016` Normalize gateway method-not-allowed and route failures to stable JSON errors.
+- [ ] `GW-018` Harden gateway CORS contract for admin and signed request headers.
+- [ ] `SCR-001` Harden gateway pairing bridge shutdown/retry/relay-safety behavior.
+
+## Next Queue
+
+- [ ] `GW-001` Define and implement one explicit admin trust model.
+- [ ] `GW-003` Add deterministic auth failure code taxonomy and docs mapping.
+- [ ] `GW-011` Refactor MCP session and retry behavior into clear state machine.
+- [ ] `GW-020` Add structured gateway decision logs with redaction guarantees.
+- [ ] `GW-021` Add gateway metrics for auth, policy, MCP, and upstream latency/errors.
+- [ ] `SDK-002` Expand shared RFC9421 conformance vectors and run in all SDKs.
+- [ ] `SDK-006` Restore Java SDK source implementation or mark unsupported in matrix.
+- [ ] `SCR-005` Add checksum/signature verification to release install path.
+- [ ] `SCR-006` Extract shared script library to remove duplicated shell logic.
+- [ ] `SCR-009` Add shellcheck + script CI checks.
+- [ ] `PRD-001` Build one canonical onboarding checklist per deployment mode.
+- [ ] `PRD-007` Publish product-wide error/success message style guide.
+
