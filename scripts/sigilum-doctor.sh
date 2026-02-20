@@ -20,8 +20,12 @@ warn_count=0
 fail_count=0
 
 declare -a action_items=()
+declare -a check_statuses=()
+declare -a check_labels=()
+declare -a check_details=()
 
 NO_COLOR_FLAG="false"
+JSON_OUTPUT_FLAG="false"
 COLOR_ENABLED="false"
 TERM_COLS=120
 LABEL_WIDTH=30
@@ -45,6 +49,7 @@ Usage:
 Checks local prerequisites, runtime status, token posture, and common misconfiguration.
 
 Options:
+  --json      Emit machine-readable JSON report
   --no-color  Disable ANSI colors
   -h, --help  Show help
 EOF
@@ -95,10 +100,16 @@ repeat_char() {
 }
 
 section() {
+  if [[ "$JSON_OUTPUT_FLAG" == "true" ]]; then
+    return 0
+  fi
   printf '\n%s%s%s\n' "${CLR_BOLD}${CLR_CYAN}" "$1" "${CLR_RESET}"
 }
 
 rule() {
+  if [[ "$JSON_OUTPUT_FLAG" == "true" ]]; then
+    return 0
+  fi
   local width="$TERM_COLS"
   if (( width > 80 )); then
     width=80
@@ -123,6 +134,59 @@ shorten_path() {
 
 normalize_text() {
   printf '%s' "$1" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'
+}
+
+json_escape() {
+  local value="${1:-}"
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  value=${value//$'\n'/\\n}
+  value=${value//$'\r'/\\r}
+  value=${value//$'\t'/\\t}
+  printf '%s' "$value"
+}
+
+add_check() {
+  check_statuses+=("$1")
+  check_labels+=("$(normalize_text "$2")")
+  check_details+=("$(normalize_text "$3")")
+}
+
+print_json_report() {
+  local overall_status="ok"
+  local i
+
+  if (( fail_count > 0 )); then
+    overall_status="fail"
+  elif (( warn_count > 0 )); then
+    overall_status="warn"
+  fi
+
+  printf '{'
+  printf '"status":"%s",' "$overall_status"
+  printf '"ok":%d,' "$ok_count"
+  printf '"warnings":%d,' "$warn_count"
+  printf '"failures":%d,' "$fail_count"
+  printf '"checks":['
+  for ((i = 0; i < ${#check_statuses[@]}; i += 1)); do
+    if (( i > 0 )); then
+      printf ','
+    fi
+    printf '{"status":"%s","label":"%s","detail":"%s"}' \
+      "$(json_escape "${check_statuses[$i]}")" \
+      "$(json_escape "${check_labels[$i]}")" \
+      "$(json_escape "${check_details[$i]}")"
+  done
+  printf '],'
+  printf '"actions":['
+  for ((i = 0; i < ${#action_items[@]}; i += 1)); do
+    if (( i > 0 )); then
+      printf ','
+    fi
+    printf '"%s"' "$(json_escape "${action_items[$i]}")"
+  done
+  printf ']'
+  printf '}\n'
 }
 
 truncate_middle() {
@@ -164,6 +228,9 @@ format_detail() {
 }
 
 print_row() {
+  if [[ "$JSON_OUTPUT_FLAG" == "true" ]]; then
+    return 0
+  fi
   local status="$1"
   local label="$2"
   local detail="$3"
@@ -190,20 +257,24 @@ print_row() {
 
 record_ok() {
   ok_count=$((ok_count + 1))
+  add_check "OK" "$1" "$2"
   print_row "OK" "$1" "$2"
 }
 
 record_warn() {
   warn_count=$((warn_count + 1))
+  add_check "WARN" "$1" "$2"
   print_row "WARN" "$1" "$2"
 }
 
 record_fail() {
   fail_count=$((fail_count + 1))
+  add_check "FAIL" "$1" "$2"
   print_row "FAIL" "$1" "$2"
 }
 
 record_info() {
+  add_check "INFO" "$1" "$2"
   print_row "INFO" "$1" "$2"
 }
 
@@ -279,6 +350,10 @@ process.stdout.write(String(val).trim());
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --json)
+      JSON_OUTPUT_FLAG="true"
+      shift
+      ;;
     --no-color)
       NO_COLOR_FLAG="true"
       shift
@@ -298,9 +373,11 @@ done
 setup_colors
 detect_terminal_width
 
-printf '%sSigilum Doctor%s\n' "${CLR_BOLD}" "${CLR_RESET}"
-printf '%sLocal readiness report for API, gateway, keys, and OpenClaw config.%s\n' "${CLR_DIM}" "${CLR_RESET}"
-rule
+if [[ "$JSON_OUTPUT_FLAG" != "true" ]]; then
+  printf '%sSigilum Doctor%s\n' "${CLR_BOLD}" "${CLR_RESET}"
+  printf '%sLocal readiness report for API, gateway, keys, and OpenClaw config.%s\n' "${CLR_DIM}" "${CLR_RESET}"
+  rule
+fi
 
 section "Toolchain"
 check_cmd node "Node.js" true
@@ -451,20 +528,24 @@ else
   record_warn "OpenClaw config" "Not found at ${OPENCLAW_CONFIG_PATH}"
 fi
 
-rule
-if [[ "$fail_count" -gt 0 ]]; then
-  printf '%sSummary:%s %d ok, %d warnings, %d failures\n' "${CLR_BOLD}${CLR_RED}" "${CLR_RESET}" "$ok_count" "$warn_count" "$fail_count"
-elif [[ "$warn_count" -gt 0 ]]; then
-  printf '%sSummary:%s %d ok, %d warnings, %d failures\n' "${CLR_BOLD}${CLR_YELLOW}" "${CLR_RESET}" "$ok_count" "$warn_count" "$fail_count"
+if [[ "$JSON_OUTPUT_FLAG" == "true" ]]; then
+  print_json_report
 else
-  printf '%sSummary:%s %d ok, %d warnings, %d failures\n' "${CLR_BOLD}${CLR_GREEN}" "${CLR_RESET}" "$ok_count" "$warn_count" "$fail_count"
-fi
+  rule
+  if [[ "$fail_count" -gt 0 ]]; then
+    printf '%sSummary:%s %d ok, %d warnings, %d failures\n' "${CLR_BOLD}${CLR_RED}" "${CLR_RESET}" "$ok_count" "$warn_count" "$fail_count"
+  elif [[ "$warn_count" -gt 0 ]]; then
+    printf '%sSummary:%s %d ok, %d warnings, %d failures\n' "${CLR_BOLD}${CLR_YELLOW}" "${CLR_RESET}" "$ok_count" "$warn_count" "$fail_count"
+  else
+    printf '%sSummary:%s %d ok, %d warnings, %d failures\n' "${CLR_BOLD}${CLR_GREEN}" "${CLR_RESET}" "$ok_count" "$warn_count" "$fail_count"
+  fi
 
-if (( ${#action_items[@]} > 0 )); then
-  section "Recommended Actions"
-  for i in "${!action_items[@]}"; do
-    printf '  %d) %s\n' "$((i + 1))" "${action_items[$i]}"
-  done
+  if (( ${#action_items[@]} > 0 )); then
+    section "Recommended Actions"
+    for i in "${!action_items[@]}"; do
+      printf '  %d) %s\n' "$((i + 1))" "${action_items[$i]}"
+    done
+  fi
 fi
 
 if [[ "$fail_count" -gt 0 ]]; then

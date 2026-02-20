@@ -178,6 +178,12 @@ Run diagnostics:
 ./sigilum doctor
 ```
 
+Machine-readable diagnostics for automation:
+
+```bash
+./sigilum doctor --json
+```
+
 Run full local e2e flow (recommended smoke test):
 
 ```bash

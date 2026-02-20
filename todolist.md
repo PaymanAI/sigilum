@@ -28,5 +28,6 @@ Reference: `world_class_review.md`
 - [x] `SCR-005` Add checksum/signature verification to release install path.
 - [x] `SCR-006` Extract shared script library to remove duplicated shell logic.
 - [x] `SCR-009` Add shellcheck + script CI checks.
+- [x] `SCR-010` Make `sigilum doctor` emit machine-readable JSON and human-friendly summary.
 - [x] `PRD-001` Build one canonical onboarding checklist per deployment mode.
 - [x] `PRD-007` Publish product-wide error/success message style guide.

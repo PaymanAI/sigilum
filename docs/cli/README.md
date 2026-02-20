@@ -155,11 +155,16 @@ Runs local diagnostics:
 - local identity/key-file checks
 - API/gateway health checks
 - OpenClaw config permissions and authz-notify token posture checks
+- machine-readable JSON report mode for automation (`--json`)
 
 Example:
 
 ```bash
 sigilum doctor
+```
+
+```bash
+sigilum doctor --json
 ```
 
 ### `sigilum gateway pair ...`
