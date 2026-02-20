@@ -218,6 +218,9 @@ Gateway exposes Prometheus-style metrics at `GET /metrics`:
 - `sigilum_gateway_upstream_error_total{class=...}`
 - `sigilum_gateway_mcp_discovery_total{result=...}`
 - `sigilum_gateway_mcp_tool_call_total{result=...}`
+- `sigilum_gateway_requests_in_flight`
+- `sigilum_gateway_shutdown_drain_total{outcome=...}`
+- `sigilum_gateway_shutdown_drain_seconds_{count,sum}{outcome=...}`
 
 ## CLI (Local Service Management)
 

@@ -18,25 +18,28 @@ type gatewayMetrics struct {
 
 	authRejects      map[string]uint64
 	replayDetections uint64
+	inFlightRequests uint64
 
 	upstreamRequests map[string]uint64
 	upstreamLatency  map[string]latencyAggregate
 	upstreamErrors   map[string]uint64
 
-	mcpDiscovery map[string]uint64
-	mcpToolCalls map[string]uint64
+	mcpDiscovery       map[string]uint64
+	mcpToolCalls       map[string]uint64
+	shutdownDrainStats map[string]latencyAggregate
 }
 
 var gatewayMetricRegistry = newGatewayMetrics()
 
 func newGatewayMetrics() *gatewayMetrics {
 	return &gatewayMetrics{
-		authRejects:      make(map[string]uint64, 16),
-		upstreamRequests: make(map[string]uint64, 16),
-		upstreamLatency:  make(map[string]latencyAggregate, 16),
-		upstreamErrors:   make(map[string]uint64, 16),
-		mcpDiscovery:     make(map[string]uint64, 8),
-		mcpToolCalls:     make(map[string]uint64, 8),
+		authRejects:        make(map[string]uint64, 16),
+		upstreamRequests:   make(map[string]uint64, 16),
+		upstreamLatency:    make(map[string]latencyAggregate, 16),
+		upstreamErrors:     make(map[string]uint64, 16),
+		mcpDiscovery:       make(map[string]uint64, 8),
+		mcpToolCalls:       make(map[string]uint64, 8),
+		shutdownDrainStats: make(map[string]latencyAggregate, 4),
 	}
 }
 
@@ -45,11 +48,13 @@ func (m *gatewayMetrics) reset() {
 	defer m.mu.Unlock()
 	m.authRejects = map[string]uint64{}
 	m.replayDetections = 0
+	m.inFlightRequests = 0
 	m.upstreamRequests = map[string]uint64{}
 	m.upstreamLatency = map[string]latencyAggregate{}
 	m.upstreamErrors = map[string]uint64{}
 	m.mcpDiscovery = map[string]uint64{}
 	m.mcpToolCalls = map[string]uint64{}
+	m.shutdownDrainStats = map[string]latencyAggregate{}
 }
 
 func (m *gatewayMetrics) recordAuthReject(reasonCode string) {
@@ -97,6 +102,30 @@ func (m *gatewayMetrics) recordMCPToolCall(result string) {
 	m.mcpToolCalls[normalized]++
 }
 
+func (m *gatewayMetrics) recordRequestStart() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.inFlightRequests++
+}
+
+func (m *gatewayMetrics) recordRequestFinish() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.inFlightRequests > 0 {
+		m.inFlightRequests--
+	}
+}
+
+func (m *gatewayMetrics) recordShutdownDrain(outcome string, duration time.Duration) {
+	result := normalizeMetricLabel(outcome, "unknown")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	agg := m.shutdownDrainStats[result]
+	agg.Count++
+	agg.Sum += duration.Seconds()
+	m.shutdownDrainStats[result] = agg
+}
+
 func (m *gatewayMetrics) renderPrometheus() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -104,11 +133,14 @@ func (m *gatewayMetrics) renderPrometheus() string {
 	var builder strings.Builder
 	writeMetricHeader(&builder, "sigilum_gateway_auth_reject_total", "counter", "Total proxy auth rejects by reason code.")
 	writeMetricHeader(&builder, "sigilum_gateway_replay_detected_total", "counter", "Total replay detections from signature nonce cache.")
+	writeMetricHeader(&builder, "sigilum_gateway_requests_in_flight", "gauge", "Current number of in-flight HTTP requests.")
 	writeMetricHeader(&builder, "sigilum_gateway_upstream_requests_total", "counter", "Total upstream requests by protocol/outcome.")
 	writeMetricHeader(&builder, "sigilum_gateway_upstream_latency_seconds", "summary", "Observed upstream latency by protocol/outcome.")
 	writeMetricHeader(&builder, "sigilum_gateway_upstream_error_total", "counter", "Total upstream failures by class.")
 	writeMetricHeader(&builder, "sigilum_gateway_mcp_discovery_total", "counter", "Total MCP discovery attempts by result.")
 	writeMetricHeader(&builder, "sigilum_gateway_mcp_tool_call_total", "counter", "Total MCP tool calls by result.")
+	writeMetricHeader(&builder, "sigilum_gateway_shutdown_drain_total", "counter", "Total gateway graceful shutdown drain attempts by outcome.")
+	writeMetricHeader(&builder, "sigilum_gateway_shutdown_drain_seconds", "summary", "Observed graceful shutdown drain durations by outcome.")
 
 	for _, reason := range sortedMapKeys(m.authRejects) {
 		fmt.Fprintf(
@@ -119,6 +151,7 @@ func (m *gatewayMetrics) renderPrometheus() string {
 		)
 	}
 	fmt.Fprintf(&builder, "sigilum_gateway_replay_detected_total %d\n", m.replayDetections)
+	fmt.Fprintf(&builder, "sigilum_gateway_requests_in_flight %d\n", m.inFlightRequests)
 
 	for _, key := range sortedMapKeys(m.upstreamRequests) {
 		protocol, outcome := splitMetricKey(key)
@@ -171,6 +204,27 @@ func (m *gatewayMetrics) renderPrometheus() string {
 			"sigilum_gateway_mcp_tool_call_total{result=%q} %d\n",
 			escapePromLabel(result),
 			m.mcpToolCalls[result],
+		)
+	}
+	for _, outcome := range sortedLatencyKeys(m.shutdownDrainStats) {
+		agg := m.shutdownDrainStats[outcome]
+		fmt.Fprintf(
+			&builder,
+			"sigilum_gateway_shutdown_drain_total{outcome=%q} %d\n",
+			escapePromLabel(outcome),
+			agg.Count,
+		)
+		fmt.Fprintf(
+			&builder,
+			"sigilum_gateway_shutdown_drain_seconds_count{outcome=%q} %d\n",
+			escapePromLabel(outcome),
+			agg.Count,
+		)
+		fmt.Fprintf(
+			&builder,
+			"sigilum_gateway_shutdown_drain_seconds_sum{outcome=%q} %.6f\n",
+			escapePromLabel(outcome),
+			agg.Sum,
 		)
 	}
 

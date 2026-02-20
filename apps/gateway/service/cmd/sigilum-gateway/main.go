@@ -119,7 +119,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           withRequestID(mux),
+		Handler:           withInFlightRequestTracking(withRequestID(mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      180 * time.Second,
@@ -179,18 +179,30 @@ func main() {
 		}
 	case <-serverCtx.Done():
 		log.Printf("shutdown signal received; draining for up to %s", cfg.ShutdownTimeout)
+		shutdownStart := time.Now()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 		defer cancel()
 
+		shutdownOutcome := "success"
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			log.Printf("graceful shutdown failed: %v", err)
+			shutdownOutcome = classifyShutdownOutcome(err, shutdownCtx.Err())
 			if closeErr := srv.Close(); closeErr != nil {
 				log.Printf("forced server close failed: %v", closeErr)
+				shutdownOutcome = "forced_close_failed"
 			}
 		}
+		gatewayMetricRegistry.recordShutdownDrain(shutdownOutcome, time.Since(shutdownStart))
 
 		if err := <-serverErrCh; err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server error during shutdown: %v", err)
 		}
 	}
+}
+
+func classifyShutdownOutcome(shutdownErr error, ctxErr error) string {
+	if errors.Is(shutdownErr, context.DeadlineExceeded) || errors.Is(ctxErr, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	return "error"
 }

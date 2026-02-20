@@ -16,6 +16,7 @@ Reference: `world_class_review.md`
 - [x] `GW-003` Add deterministic auth failure code taxonomy and docs mapping.
 - [x] `GW-017` Add `request_id`, `timestamp`, and `docs_url` to gateway error responses.
 - [x] `GW-011` Refactor MCP session and retry behavior into clear state machine.
+- [x] `GW-006` Introduce graceful shutdown drain metrics and in-flight request accounting.
 - [x] `GW-010` Add timeouts per route class (proxy vs admin vs discovery vs tool call).
 - [x] `GW-020` Add structured gateway decision logs with redaction guarantees.
 - [x] `GW-021` Add gateway metrics for auth, policy, MCP, and upstream latency/errors.

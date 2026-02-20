@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -19,6 +20,25 @@ import (
 	"sigilum.local/gateway/internal/connectors"
 	"sigilum.local/sdk-go/sigilum"
 )
+
+func isolateServiceKeyHome(t *testing.T) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+}
+
+func TestClassifyShutdownOutcomeTimeout(t *testing.T) {
+	outcome := classifyShutdownOutcome(context.DeadlineExceeded, nil)
+	if outcome != "timeout" {
+		t.Fatalf("expected timeout outcome, got %q", outcome)
+	}
+}
+
+func TestClassifyShutdownOutcomeError(t *testing.T) {
+	outcome := classifyShutdownOutcome(errors.New("boom"), nil)
+	if outcome != "error" {
+		t.Fatalf("expected error outcome, got %q", outcome)
+	}
+}
 
 func TestValidateSignatureComponentsNoBody(t *testing.T) {
 	input := `sig1=("@method" "@target-uri" "sigilum-namespace" "sigilum-subject" "sigilum-agent-key" "sigilum-agent-cert");created=1;keyid="did:sigilum:alice#ed25519-test";alg="ed25519";nonce="abc"`
@@ -264,6 +284,7 @@ func TestEnforceAdminRequestAccessLoopbackModeRejectsTokenFromNonLoopback(t *tes
 }
 
 func TestResolveServiceAPIKeyPrefersScopedEnv(t *testing.T) {
+	isolateServiceKeyHome(t)
 	t.Setenv("SIGILUM_SERVICE_API_KEY_DEMO_SERVICE_GATEWAY", "scoped-key")
 	t.Setenv("SIGILUM_HOME", "")
 
@@ -273,6 +294,7 @@ func TestResolveServiceAPIKeyPrefersScopedEnv(t *testing.T) {
 }
 
 func TestResolveServiceAPIKeyFallsBackToFile(t *testing.T) {
+	isolateServiceKeyHome(t)
 	t.Setenv("SIGILUM_SERVICE_API_KEY_DEMO_SERVICE_GATEWAY", "")
 	t.Setenv("SIGILUM_HOME", "")
 
@@ -288,6 +310,7 @@ func TestResolveServiceAPIKeyFallsBackToFile(t *testing.T) {
 }
 
 func TestResolveServiceAPIKeyPrefersFileOverDefault(t *testing.T) {
+	isolateServiceKeyHome(t)
 	t.Setenv("SIGILUM_SERVICE_API_KEY_DEMO_SERVICE_GATEWAY", "")
 	t.Setenv("SIGILUM_HOME", "")
 
@@ -303,6 +326,7 @@ func TestResolveServiceAPIKeyPrefersFileOverDefault(t *testing.T) {
 }
 
 func TestResolveServiceAPIKeyFallsBackToDefaultWithoutFile(t *testing.T) {
+	isolateServiceKeyHome(t)
 	t.Setenv("SIGILUM_SERVICE_API_KEY_DEMO_SERVICE_GATEWAY", "")
 	t.Setenv("SIGILUM_HOME", "")
 
@@ -312,6 +336,7 @@ func TestResolveServiceAPIKeyFallsBackToDefaultWithoutFile(t *testing.T) {
 }
 
 func TestResolveServiceAPIKeyRejectsUnsafeIDForFileLookup(t *testing.T) {
+	isolateServiceKeyHome(t)
 	t.Setenv("SIGILUM_SERVICE_API_KEY_DEFAULT", "")
 	t.Setenv("SIGILUM_HOME", "")
 

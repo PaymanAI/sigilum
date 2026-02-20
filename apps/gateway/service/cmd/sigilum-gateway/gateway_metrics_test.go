@@ -19,17 +19,22 @@ func TestGatewayMetricsRenderPrometheusIncludesCoreSeries(t *testing.T) {
 	metrics.recordUpstreamError("UPSTREAM_ERROR")
 	metrics.recordMCPDiscovery("success")
 	metrics.recordMCPToolCall("forbidden")
+	metrics.recordRequestStart()
+	metrics.recordShutdownDrain("success", 230*time.Millisecond)
 
 	output := metrics.renderPrometheus()
 	expectedSnippets := []string{
 		`sigilum_gateway_auth_reject_total{reason="auth_headers_invalid"} 1`,
 		`sigilum_gateway_auth_reject_total{reason="auth_replay_detected"} 1`,
 		`sigilum_gateway_replay_detected_total 1`,
+		`sigilum_gateway_requests_in_flight 1`,
 		`sigilum_gateway_upstream_requests_total{protocol="http",outcome="success"} 1`,
 		`sigilum_gateway_upstream_requests_total{protocol="mcp",outcome="error"} 1`,
 		`sigilum_gateway_upstream_error_total{class="upstream_error"} 1`,
 		`sigilum_gateway_mcp_discovery_total{result="success"} 1`,
 		`sigilum_gateway_mcp_tool_call_total{result="forbidden"} 1`,
+		`sigilum_gateway_shutdown_drain_total{outcome="success"} 1`,
+		`sigilum_gateway_shutdown_drain_seconds_count{outcome="success"} 1`,
 	}
 	for _, snippet := range expectedSnippets {
 		if !strings.Contains(output, snippet) {
