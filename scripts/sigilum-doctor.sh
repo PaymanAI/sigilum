@@ -19,6 +19,22 @@ ok_count=0
 warn_count=0
 fail_count=0
 
+declare -a action_items=()
+
+NO_COLOR_FLAG="false"
+COLOR_ENABLED="false"
+TERM_COLS=120
+LABEL_WIDTH=30
+
+CLR_RESET=""
+CLR_BOLD=""
+CLR_DIM=""
+CLR_RED=""
+CLR_GREEN=""
+CLR_YELLOW=""
+CLR_BLUE=""
+CLR_CYAN=""
+
 usage() {
   cat <<'EOF'
 Sigilum Doctor
@@ -29,37 +45,192 @@ Usage:
 Checks local prerequisites, runtime status, token posture, and common misconfiguration.
 
 Options:
+  --no-color  Disable ANSI colors
   -h, --help  Show help
 EOF
 }
 
-log_ok() {
+setup_colors() {
+  if [[ "$NO_COLOR_FLAG" == "true" || -n "${NO_COLOR:-}" || ! -t 1 || "${TERM:-}" == "dumb" ]]; then
+    COLOR_ENABLED="false"
+    return 0
+  fi
+
+  COLOR_ENABLED="true"
+  CLR_RESET=$'\033[0m'
+  CLR_BOLD=$'\033[1m'
+  CLR_DIM=$'\033[2m'
+  CLR_RED=$'\033[31m'
+  CLR_GREEN=$'\033[32m'
+  CLR_YELLOW=$'\033[33m'
+  CLR_BLUE=$'\033[34m'
+  CLR_CYAN=$'\033[36m'
+}
+
+detect_terminal_width() {
+  local cols
+  cols=""
+  if command -v tput >/dev/null 2>&1; then
+    cols="$(tput cols 2>/dev/null || true)"
+  fi
+  if [[ -z "$cols" && -n "${COLUMNS:-}" ]]; then
+    cols="${COLUMNS}"
+  fi
+  if [[ "$cols" =~ ^[0-9]+$ ]] && (( cols >= 80 )); then
+    TERM_COLS="$cols"
+  else
+    TERM_COLS=120
+  fi
+}
+
+repeat_char() {
+  local char="$1"
+  local count="$2"
+  local out=""
+  local i
+  for ((i = 0; i < count; i += 1)); do
+    out="${out}${char}"
+  done
+  printf '%s' "$out"
+}
+
+section() {
+  printf '\n%s%s%s\n' "${CLR_BOLD}${CLR_CYAN}" "$1" "${CLR_RESET}"
+}
+
+rule() {
+  local width="$TERM_COLS"
+  if (( width > 80 )); then
+    width=80
+  fi
+  printf '%s\n' "$(repeat_char "-" "$width")"
+}
+
+has_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+shorten_path() {
+  local value="$1"
+  if [[ "$value" == "$HOME"* ]]; then
+    value="~${value#$HOME}"
+  fi
+  if [[ "$value" == "$ROOT_DIR"* ]]; then
+    value=".${value#$ROOT_DIR}"
+  fi
+  printf '%s' "$value"
+}
+
+normalize_text() {
+  printf '%s' "$1" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'
+}
+
+truncate_middle() {
+  local text="$1"
+  local max_len="$2"
+  local text_len
+  text_len=${#text}
+
+  if (( text_len <= max_len )); then
+    printf '%s' "$text"
+    return 0
+  fi
+  if (( max_len <= 3 )); then
+    printf '%s' "${text:0:max_len}"
+    return 0
+  fi
+
+  local left right suffix
+  left=$(( (max_len - 3) / 2 ))
+  right=$(( max_len - 3 - left ))
+  suffix=""
+  if (( right > 0 )); then
+    suffix="${text: -right}"
+  fi
+  printf '%s...%s' "${text:0:left}" "$suffix"
+}
+
+format_detail() {
+  local raw="$1"
+  local clean available
+  clean="$(shorten_path "$raw")"
+  clean="$(normalize_text "$clean")"
+
+  available=$((TERM_COLS - 2 - 4 - 2 - LABEL_WIDTH - 2))
+  if (( available < 24 )); then
+    available=24
+  fi
+  truncate_middle "$clean" "$available"
+}
+
+print_row() {
+  local status="$1"
+  local label="$2"
+  local detail="$3"
+  local color="$CLR_RESET"
+  local detail_fmt
+
+  case "$status" in
+    OK) color="$CLR_GREEN" ;;
+    WARN) color="$CLR_YELLOW" ;;
+    FAIL) color="$CLR_RED" ;;
+    INFO) color="$CLR_BLUE" ;;
+  esac
+
+  detail_fmt="$(format_detail "$detail")"
+  printf '  %s%-4s%s  %-*.*s  %s\n' \
+    "${color}${CLR_BOLD}" \
+    "$status" \
+    "${CLR_RESET}" \
+    "$LABEL_WIDTH" \
+    "$LABEL_WIDTH" \
+    "$label" \
+    "$detail_fmt"
+}
+
+record_ok() {
   ok_count=$((ok_count + 1))
-  echo "[ok]   $1"
+  print_row "OK" "$1" "$2"
 }
 
-log_warn() {
+record_warn() {
   warn_count=$((warn_count + 1))
-  echo "[warn] $1"
+  print_row "WARN" "$1" "$2"
 }
 
-log_fail() {
+record_fail() {
   fail_count=$((fail_count + 1))
-  echo "[fail] $1"
+  print_row "FAIL" "$1" "$2"
+}
+
+record_info() {
+  print_row "INFO" "$1" "$2"
+}
+
+add_action() {
+  local item
+  item="$(normalize_text "$1")"
+  if [[ -z "$item" ]]; then
+    return 0
+  fi
+  action_items+=("$item")
 }
 
 check_cmd() {
   local cmd="$1"
   local label="$2"
   local required="${3:-true}"
+  local path
   if command -v "$cmd" >/dev/null 2>&1; then
-    log_ok "${label}: $(command -v "$cmd")"
+    path="$(command -v "$cmd")"
+    record_ok "$label" "$path"
     return 0
   fi
+
   if [[ "$required" == "true" ]]; then
-    log_fail "${label}: missing command '${cmd}'"
+    record_fail "$label" "Missing command '${cmd}'"
   else
-    log_warn "${label}: missing optional command '${cmd}'"
+    record_warn "$label" "Missing optional command '${cmd}'"
   fi
 }
 
@@ -83,14 +254,35 @@ check_http_ok() {
   local status
   status="$(curl -sS -o /dev/null -w "%{http_code}" "$url" || true)"
   if [[ "$status" == "200" ]]; then
-    log_ok "${label}: ${url} (HTTP 200)"
+    record_ok "$label" "${url} (HTTP 200)"
   else
-    log_warn "${label}: ${url} returned HTTP ${status:-000}"
+    if [[ ! "$status" =~ ^[0-9]{3}$ ]]; then
+      status="000"
+    fi
+    record_warn "$label" "${url} returned HTTP ${status}"
   fi
+}
+
+json_field() {
+  local json="$1"
+  local key="$2"
+  printf "%s" "$json" | node -e "
+const fs=require('fs');
+const v=JSON.parse(fs.readFileSync(0,'utf8'));
+const key=process.argv[1];
+const val=v[key];
+if (typeof val === 'boolean') { process.stdout.write(val ? 'true' : 'false'); process.exit(0); }
+if (val === null || val === undefined) { process.stdout.write(''); process.exit(0); }
+process.stdout.write(String(val).trim());
+" "$key"
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --no-color)
+      NO_COLOR_FLAG="true"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -103,61 +295,74 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-echo "Sigilum doctor checks:"
+setup_colors
+detect_terminal_width
 
+printf '%sSigilum Doctor%s\n' "${CLR_BOLD}" "${CLR_RESET}"
+printf '%sLocal readiness report for API, gateway, keys, and OpenClaw config.%s\n' "${CLR_DIM}" "${CLR_RESET}"
+rule
+
+section "Toolchain"
 check_cmd node "Node.js" true
 check_cmd pnpm "pnpm" true
 check_cmd go "Go" true
-check_cmd java "Java (for sdk-java tests)" false
-check_cmd mvn "Maven (for sdk-java tests)" false
+check_cmd java "Java (sdk-java)" false
+check_cmd mvn "Maven (sdk-java)" false
 check_cmd curl "curl" true
 
+section "Sigilum Workspace"
 if [[ -f "${ROOT_DIR}/apps/api/wrangler.toml" ]]; then
-  log_ok "Wrangler config present: ${ROOT_DIR}/apps/api/wrangler.toml"
+  record_ok "Wrangler config" "${ROOT_DIR}/apps/api/wrangler.toml"
 elif [[ -f "${ROOT_DIR}/apps/api/wrangler.toml.example" ]]; then
-  log_warn "Wrangler config missing; template exists at ${ROOT_DIR}/apps/api/wrangler.toml.example"
+  record_warn "Wrangler config" "Missing wrangler.toml; template exists at ${ROOT_DIR}/apps/api/wrangler.toml.example"
+  add_action "Create local API config: cp apps/api/wrangler.toml.example apps/api/wrangler.toml"
 else
-  log_fail "Wrangler config and template are missing under ${ROOT_DIR}/apps/api"
+  record_fail "Wrangler config" "Missing wrangler.toml and wrangler.toml.example under ${ROOT_DIR}/apps/api"
 fi
 
 if [[ -f "$IDENTITY_PATH" ]]; then
-  log_ok "Gateway signer identity present: ${IDENTITY_PATH}"
+  record_ok "Gateway identity" "$IDENTITY_PATH"
 else
-  log_warn "Gateway signer identity missing: ${IDENTITY_PATH}"
+  record_warn "Gateway identity" "Missing ${IDENTITY_PATH}"
+  add_action "Bootstrap local stack to create identity: ./sigilum up"
 fi
 
 if [[ -f "$GATEWAY_KEY_PATH" ]]; then
-  log_ok "Gateway service API key file present: ${GATEWAY_KEY_PATH}"
+  record_ok "Gateway key file" "$GATEWAY_KEY_PATH"
 else
-  log_warn "Gateway service API key file missing: ${GATEWAY_KEY_PATH}"
+  record_warn "Gateway key file" "Missing ${GATEWAY_KEY_PATH}"
 fi
 if [[ -f "$NATIVE_KEY_PATH" ]]; then
-  log_ok "Demo native service key file present: ${NATIVE_KEY_PATH}"
+  record_ok "Demo native key file" "$NATIVE_KEY_PATH"
 else
-  log_warn "Demo native service key file missing: ${NATIVE_KEY_PATH}"
+  record_warn "Demo native key file" "Missing ${NATIVE_KEY_PATH}"
 fi
 if [[ -f "$PROXY_KEY_PATH" ]]; then
-  log_ok "Demo gateway service key file present: ${PROXY_KEY_PATH}"
+  record_ok "Demo gateway key file" "$PROXY_KEY_PATH"
 else
-  log_warn "Demo gateway service key file missing: ${PROXY_KEY_PATH}"
+  record_warn "Demo gateway key file" "Missing ${PROXY_KEY_PATH}"
 fi
 
-if command -v curl >/dev/null 2>&1; then
+section "Local Services"
+if has_cmd curl; then
   check_http_ok "API health" "http://127.0.0.1:${API_PORT}/health"
   check_http_ok "Gateway health" "http://127.0.0.1:${GATEWAY_PORT}/health"
+else
+  record_warn "Health checks" "Skipping API/gateway probes because curl is missing"
 fi
 
+section "OpenClaw Config"
 if [[ -f "$OPENCLAW_CONFIG_PATH" ]]; then
   local_mode="$(file_mode "$OPENCLAW_CONFIG_PATH" || true)"
   if [[ -n "$local_mode" ]] && [[ "$local_mode" == "600" ]]; then
-    log_ok "OpenClaw config permissions are strict (600): ${OPENCLAW_CONFIG_PATH}"
+    record_ok "Config permissions" "${OPENCLAW_CONFIG_PATH} (600)"
   elif [[ -n "$local_mode" ]]; then
-    log_warn "OpenClaw config permissions are ${local_mode}; recommended 600: ${OPENCLAW_CONFIG_PATH}"
+    record_warn "Config permissions" "${OPENCLAW_CONFIG_PATH} (${local_mode}; recommended 600)"
   else
-    log_warn "Unable to determine permissions for ${OPENCLAW_CONFIG_PATH}"
+    record_warn "Config permissions" "Unable to read permissions for ${OPENCLAW_CONFIG_PATH}"
   fi
 
-  if command -v node >/dev/null 2>&1; then
+  if has_cmd node; then
     summary_json="$(
       OPENCLAW_CONFIG_PATH="$OPENCLAW_CONFIG_PATH" node <<'NODE'
 const fs = require("fs");
@@ -206,47 +411,62 @@ process.stdout.write(JSON.stringify(out));
 NODE
     )"
 
-    parse_ok="$(printf "%s" "$summary_json" | node -e 'const fs=require("fs"); const v=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write(v.parse_ok ? "true" : "false");')"
-    parse_error="$(printf "%s" "$summary_json" | node -e 'const fs=require("fs"); const v=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write((v.parse_error || "").trim());')"
-    authz_enabled="$(printf "%s" "$summary_json" | node -e 'const fs=require("fs"); const v=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write(v.authz_enabled ? "true" : "false");')"
-    has_owner_token="$(printf "%s" "$summary_json" | node -e 'const fs=require("fs"); const v=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write(v.has_owner_token ? "true" : "false");')"
-    config_mode="$(printf "%s" "$summary_json" | node -e 'const fs=require("fs"); const v=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write((v.mode || "").trim());')"
-    config_namespace="$(printf "%s" "$summary_json" | node -e 'const fs=require("fs"); const v=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write((v.namespace || "").trim());')"
+    parse_ok="$(json_field "$summary_json" "parse_ok")"
+    parse_error="$(json_field "$summary_json" "parse_error")"
+    authz_enabled="$(json_field "$summary_json" "authz_enabled")"
+    has_owner_token="$(json_field "$summary_json" "has_owner_token")"
+    config_mode="$(json_field "$summary_json" "mode")"
+    config_namespace="$(json_field "$summary_json" "namespace")"
 
     if [[ "$parse_ok" != "true" ]]; then
-      log_fail "OpenClaw config parse failed: ${parse_error:-unknown parse error}"
+      record_fail "Config parse" "${parse_error:-Unknown parse error}"
     else
+      record_info "Detected mode" "${config_mode:-unset}"
+      record_info "Detected namespace" "${config_namespace:-unset}"
+
       if [[ "$authz_enabled" == "true" && "$has_owner_token" != "true" ]]; then
-        log_fail "sigilum-authz-notify is enabled but SIGILUM_OWNER_TOKEN is missing."
+        record_fail "authz-notify" "Enabled but SIGILUM_OWNER_TOKEN is missing"
+        add_action "Disable authz-notify or provide owner token via sigilum openclaw install --enable-authz-notify true --owner-token <jwt>"
       elif [[ "$authz_enabled" == "true" && "$has_owner_token" == "true" ]]; then
-        log_ok "sigilum-authz-notify enabled with owner token configured."
-        log_warn "Owner token is loaded in OpenClaw runtime; disable authz-notify if not required."
+        record_ok "authz-notify" "Enabled with owner token configured"
+        record_warn "Owner token exposure" "Owner token is loaded in OpenClaw runtime"
       elif [[ "$authz_enabled" != "true" && "$has_owner_token" == "true" ]]; then
-        log_warn "Owner token exists in OpenClaw config while authz-notify is disabled."
+        record_warn "Owner token residue" "Owner token exists in config while authz-notify is disabled"
       else
-        log_ok "sigilum-authz-notify is disabled (default-safe posture)."
+        record_ok "authz-notify" "Disabled (default-safe posture)"
       fi
 
       if [[ "$config_mode" == "managed" && "$has_owner_token" != "true" ]]; then
-        log_warn "Managed mode detected without owner token."
-        echo "       Onboarding:"
-        echo "       1) Open https://sigilum.id"
+        record_warn "Managed onboarding" "Managed mode detected without owner token"
+        add_action "Open https://sigilum.id and reserve namespace '${config_namespace:-<namespace>}'"
         if [[ -n "$config_namespace" ]]; then
-          echo "       2) Sign in and reserve namespace '${config_namespace}'"
-          echo "       3) Run: sigilum auth login --mode managed --namespace ${config_namespace} --owner-token-stdin"
+          add_action "Run: sigilum auth login --mode managed --namespace ${config_namespace} --owner-token-stdin"
         else
-          echo "       2) Sign in and reserve your namespace"
-          echo "       3) Run: sigilum auth login --mode managed --namespace <namespace> --owner-token-stdin"
+          add_action "Run: sigilum auth login --mode managed --namespace <namespace> --owner-token-stdin"
         fi
       fi
     fi
   fi
 else
-  log_warn "OpenClaw config not found at ${OPENCLAW_CONFIG_PATH}"
+  record_warn "OpenClaw config" "Not found at ${OPENCLAW_CONFIG_PATH}"
 fi
 
-echo ""
-echo "Summary: ${ok_count} ok, ${warn_count} warnings, ${fail_count} failures."
+rule
+if [[ "$fail_count" -gt 0 ]]; then
+  printf '%sSummary:%s %d ok, %d warnings, %d failures\n' "${CLR_BOLD}${CLR_RED}" "${CLR_RESET}" "$ok_count" "$warn_count" "$fail_count"
+elif [[ "$warn_count" -gt 0 ]]; then
+  printf '%sSummary:%s %d ok, %d warnings, %d failures\n' "${CLR_BOLD}${CLR_YELLOW}" "${CLR_RESET}" "$ok_count" "$warn_count" "$fail_count"
+else
+  printf '%sSummary:%s %d ok, %d warnings, %d failures\n' "${CLR_BOLD}${CLR_GREEN}" "${CLR_RESET}" "$ok_count" "$warn_count" "$fail_count"
+fi
+
+if (( ${#action_items[@]} > 0 )); then
+  section "Recommended Actions"
+  for i in "${!action_items[@]}"; do
+    printf '  %d) %s\n' "$((i + 1))" "${action_items[$i]}"
+  done
+fi
+
 if [[ "$fail_count" -gt 0 ]]; then
   exit 1
 fi

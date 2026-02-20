@@ -11,12 +11,14 @@ function usage() {
     [--api-url <url>] \\
     [--gateway-admin-url <url>] \\
     [--reconnect-ms <ms>] \\
+    [--connect-timeout-ms <ms>] \\
     [--heartbeat-ms <ms>]
 
 Defaults:
   --api-url           $SIGILUM_API_URL or $SIGILUM_REGISTRY_URL or http://127.0.0.1:8787
   --gateway-admin-url $GATEWAY_ADMIN_URL or http://127.0.0.1:38100
   --reconnect-ms      2000
+  --connect-timeout-ms 5000
   --heartbeat-ms      30000
 `);
 }
@@ -29,6 +31,7 @@ function parseArgs(argv) {
     apiUrl: process.env.SIGILUM_API_URL || process.env.SIGILUM_REGISTRY_URL || "http://127.0.0.1:8787",
     gatewayAdminUrl: process.env.GATEWAY_ADMIN_URL || "http://127.0.0.1:38100",
     reconnectMs: 2000,
+    connectTimeoutMs: 5000,
     heartbeatMs: 30000,
   };
 
@@ -60,6 +63,10 @@ function parseArgs(argv) {
         out.reconnectMs = Number.parseInt(next || "", 10);
         i += 1;
         break;
+      case "--connect-timeout-ms":
+        out.connectTimeoutMs = Number.parseInt(next || "", 10);
+        i += 1;
+        break;
       case "--heartbeat-ms":
         out.heartbeatMs = Number.parseInt(next || "", 10);
         i += 1;
@@ -82,6 +89,9 @@ function parseArgs(argv) {
   if (!Number.isFinite(out.reconnectMs) || out.reconnectMs < 100) {
     out.reconnectMs = 2000;
   }
+  if (!Number.isFinite(out.connectTimeoutMs) || out.connectTimeoutMs < 1000) {
+    out.connectTimeoutMs = 5000;
+  }
   if (!Number.isFinite(out.heartbeatMs) || out.heartbeatMs < 1000) {
     out.heartbeatMs = 25000;
   }
@@ -100,6 +110,82 @@ function buildPairConnectUrl(apiUrl, sessionId, namespace, pairCode) {
   parsed.searchParams.set("namespace", namespace);
   parsed.searchParams.set("code", pairCode);
   return parsed.toString();
+}
+
+async function fetchWithTimeout(url, init, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(new Error(`timeout after ${timeoutMs}ms`));
+  }, timeoutMs);
+  try {
+    return await fetch(url, { ...(init || {}), signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function truncateText(value, max = 180) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}...`;
+}
+
+function isLikelyHtml(contentType, body) {
+  const ctype = String(contentType || "").toLowerCase();
+  if (ctype.includes("text/html")) return true;
+  return /<!doctype html|<html[\s>]/i.test(String(body || ""));
+}
+
+async function ensureHealthy(url, label, timeoutMs) {
+  const healthUrl = new URL("/health", url).toString();
+  let response;
+  try {
+    response = await fetchWithTimeout(healthUrl, { method: "GET" }, timeoutMs);
+  } catch (error) {
+    throw new Error(
+      `${label} is unreachable at ${healthUrl} (${String(error)}).`,
+    );
+  }
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    const contentType = response.headers.get("content-type") || "";
+    const htmlHint = isLikelyHtml(contentType, body)
+      ? " This looks like an HTML dashboard app, not the Sigilum API."
+      : "";
+    throw new Error(
+      `${label} health check failed at ${healthUrl} (HTTP ${response.status}).${htmlHint} Body: ${truncateText(body)}`,
+    );
+  }
+}
+
+async function ensurePairingRoute(apiUrl, timeoutMs) {
+  const pairingUrl = new URL("/v1/gateway/pairing/connect", apiUrl).toString();
+  let response;
+  try {
+    response = await fetchWithTimeout(pairingUrl, { method: "GET" }, timeoutMs);
+  } catch (error) {
+    throw new Error(`Pairing endpoint probe failed for ${pairingUrl} (${String(error)}).`);
+  }
+
+  const body = await response.text().catch(() => "");
+  const contentType = response.headers.get("content-type") || "";
+  if (response.status === 404) {
+    throw new Error(
+      `Pairing endpoint not found at ${pairingUrl} (HTTP 404). Verify --api-url points to Sigilum API.`,
+    );
+  }
+  if (isLikelyHtml(contentType, body)) {
+    throw new Error(
+      `Pairing endpoint at ${pairingUrl} returned HTML, which usually means --api-url is a dashboard host, not Sigilum API.`,
+    );
+  }
+}
+
+async function preflight(cfg) {
+  await ensureHealthy(cfg.apiUrl, "Sigilum API", cfg.connectTimeoutMs);
+  await ensurePairingRoute(cfg.apiUrl, cfg.connectTimeoutMs);
+  await ensureHealthy(cfg.gatewayAdminUrl, "Local Sigilum gateway admin", cfg.connectTimeoutMs);
 }
 
 function sanitizePath(pathname) {
@@ -191,14 +277,31 @@ async function run() {
   console.log(`[sigilum] api=${cfg.apiUrl}`);
   console.log(`[sigilum] gateway_admin=${cfg.gatewayAdminUrl}`);
   console.log(`[sigilum] session=${cfg.sessionId} namespace=${cfg.namespace}`);
+  console.log("[sigilum] preflight: validating api and gateway admin endpoints");
+  await preflight(cfg);
+  console.log("[sigilum] preflight: ok");
 
   while (!shuttingDown) {
     try {
       await new Promise((resolve, reject) => {
         const ws = new WebSocket(wsUrl);
         let heartbeatTimer = null;
+        let connectTimer = setTimeout(() => {
+          console.error(
+            `[sigilum] websocket connect timeout after ${cfg.connectTimeoutMs}ms (url=${wsUrl})`,
+          );
+          try {
+            ws.close(1000, "connect-timeout");
+          } catch {
+            // ignore
+          }
+        }, cfg.connectTimeoutMs);
 
         ws.onopen = () => {
+          if (connectTimer) {
+            clearTimeout(connectTimer);
+            connectTimer = null;
+          }
           console.log("[sigilum] gateway pairing websocket connected");
           heartbeatTimer = setInterval(() => {
             if (ws.readyState !== 1) return;
@@ -244,10 +347,15 @@ async function run() {
         };
 
         ws.onerror = () => {
-          // Close event handler will handle reconnect.
+          // Close event handler will handle reconnect; keep this diagnostic visible.
+          console.error("[sigilum] websocket error (will retry)");
         };
 
         ws.onclose = (event) => {
+          if (connectTimer) {
+            clearTimeout(connectTimer);
+            connectTimer = null;
+          }
           if (heartbeatTimer) {
             clearInterval(heartbeatTimer);
             heartbeatTimer = null;

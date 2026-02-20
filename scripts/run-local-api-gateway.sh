@@ -57,7 +57,7 @@ ensure_api_wrangler_config
 : "${GATEWAY_CLI_BINARY:=${GATEWAY_BIN_DIR}/sigilum-gateway-cli}"
 # Namespace for the gateway's own Sigilum signer identity used on gateway->API requests.
 # This is NOT the service slug and does not restrict incoming agent namespaces.
-: "${GATEWAY_SIGILUM_NAMESPACE:=johndee}"
+: "${GATEWAY_SIGILUM_NAMESPACE:=${SIGILUM_NAMESPACE:-johndee}}"
 : "${GATEWAY_SIGILUM_HOME:=${ROOT_DIR}/.sigilum-workspace}"
 : "${GATEWAY_MASTER_KEY:=sigilum-local-dev-master-key}"
 : "${GATEWAY_LOCAL_BOOTSTRAP:=true}"

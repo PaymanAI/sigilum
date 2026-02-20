@@ -14,6 +14,7 @@ Options:
   --api-url <url>            Sigilum API base URL
   --gateway-admin-url <url>  Local gateway admin URL (default: http://127.0.0.1:38100)
   --reconnect-ms <ms>        WebSocket reconnect delay (default: 2000)
+  --connect-timeout-ms <ms>  HTTP/WebSocket preflight timeout (default: 5000)
   -h, --help
 EOF
 }

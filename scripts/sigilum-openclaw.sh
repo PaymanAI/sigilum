@@ -14,23 +14,38 @@ Usage:
 Commands:
   install [options]             Install Sigilum hooks/skills into OpenClaw
                                 Use: sigilum openclaw install --help
+  uninstall [options]           Remove Sigilum hooks/skills/runtime/keys from OpenClaw
+                                Use: sigilum openclaw uninstall --help
   status                        Show current OpenClaw Sigilum install status
 
 Common install options:
   --mode <managed|oss-local>    Sigilum mode (default: managed)
+  --source-home <path>          Sigilum source checkout root for oss-local mode
   --namespace <value>           Target namespace
   --gateway-url <url>           Gateway URL
   --api-url <url>               API URL
-  --dashboard-url <url>         Dashboard claims URL
+  --dashboard-url <url>         Dashboard URL
+  --interactive                 Force onboarding prompts
+  --non-interactive             Disable onboarding prompts
+  --auto-start-sigilum <bool>   Auto-start local Sigilum stack when local defaults are down
   --enable-authz-notify <bool>  Enable notification hook
   --owner-token <jwt>           Owner JWT (required if notify enabled)
   --restart                     Restart OpenClaw after install
 
+Common uninstall options:
+  --openclaw-home <path>        Target OpenClaw home (default: ~/.openclaw)
+  --config <path>               Path to openclaw.json
+  --workspace <path>            Override workspace cleanup path
+  --key-root <path>             Override key-root cleanup path
+  --runtime-root <path>         Override runtime-root cleanup path
+  --sigilum-home <path>         Override SIGILUM_HOME cleanup path
+
 Examples:
   sigilum openclaw --help
   sigilum openclaw install --help
-  sigilum openclaw install --namespace johndee --mode managed --restart
-  sigilum openclaw install --namespace johndee --mode oss-local
+  sigilum openclaw install --restart
+  sigilum openclaw install --mode oss-local --api-url http://127.0.0.1:8787
+  sigilum openclaw uninstall
   sigilum openclaw status
 USAGE
 }
@@ -50,6 +65,13 @@ case "$command" in
       exec "${ROOT_DIR}/openclaw/install-openclaw-sigilum.sh" --help "$@"
     fi
     exec "${ROOT_DIR}/openclaw/install-openclaw-sigilum.sh" "$@"
+    ;;
+  uninstall)
+    if [[ "${1:-}" == "help" ]]; then
+      shift || true
+      exec "${ROOT_DIR}/openclaw/uninstall-openclaw-sigilum.sh" --help "$@"
+    fi
+    exec "${ROOT_DIR}/openclaw/uninstall-openclaw-sigilum.sh" "$@"
     ;;
   status)
     config_path="${OPENCLAW_HOME}/openclaw.json"
@@ -111,6 +133,10 @@ NODE
     if [[ "${1:-}" == "install" ]]; then
       shift || true
       exec "${ROOT_DIR}/openclaw/install-openclaw-sigilum.sh" --help "$@"
+    fi
+    if [[ "${1:-}" == "uninstall" ]]; then
+      shift || true
+      exec "${ROOT_DIR}/openclaw/uninstall-openclaw-sigilum.sh" --help "$@"
     fi
     usage
     ;;

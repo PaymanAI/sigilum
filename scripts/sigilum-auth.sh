@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR_CANDIDATE="${SIGILUM_SOURCE_HOME:-$SCRIPT_ROOT}"
+if [[ ! -d "$ROOT_DIR_CANDIDATE" ]]; then
+  echo "SIGILUM_SOURCE_HOME directory not found: ${ROOT_DIR_CANDIDATE}" >&2
+  exit 1
+fi
+ROOT_DIR="$(cd "$ROOT_DIR_CANDIDATE" && pwd)"
 cd "$ROOT_DIR"
 
 usage() {
@@ -54,6 +60,30 @@ require_cmd() {
   fi
 }
 
+ensure_local_oss_source_layout() {
+  local api_dir="${ROOT_DIR}/apps/api"
+  local wrangler_template="${api_dir}/wrangler.toml.example"
+  if [[ -d "$api_dir" && -f "$wrangler_template" ]]; then
+    return 0
+  fi
+
+  echo "oss-local mode requires a full Sigilum source checkout." >&2
+  echo "Current runtime root does not include local API sources:" >&2
+  echo "  expected directory: ${api_dir}" >&2
+  echo "  expected file:      ${wrangler_template}" >&2
+  echo "" >&2
+  echo "Use one of these paths:" >&2
+  echo "  1) managed mode from this install:" >&2
+  echo "     sigilum openclaw install --mode managed" >&2
+  echo "  2) oss-local from a source checkout:" >&2
+  echo "     git clone https://github.com/PaymanAI/sigilum.git" >&2
+  echo "     cd sigilum" >&2
+  echo "     ./sigilum openclaw install --mode oss-local --api-url http://127.0.0.1:8787" >&2
+  echo "  3) point global CLI to source checkout:" >&2
+  echo "     SIGILUM_SOURCE_HOME=/path/to/sigilum sigilum openclaw install --mode oss-local --source-home /path/to/sigilum --api-url http://127.0.0.1:8787" >&2
+  exit 1
+}
+
 is_bool() {
   local lower
   lower="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
@@ -93,6 +123,7 @@ normalize_bool_or_preserve() {
 }
 
 ensure_api_wrangler_config() {
+  ensure_local_oss_source_layout
   local api_dir="${ROOT_DIR}/apps/api"
   local config_path="${api_dir}/wrangler.toml"
   local template_path="${api_dir}/wrangler.toml.example"
@@ -169,6 +200,7 @@ resolve_local_jwt_secret() {
 }
 
 ensure_local_owner_user() {
+  ensure_local_oss_source_layout
   local namespace="$1"
   local email="$2"
   local user_id="user_local_${namespace}"
@@ -471,6 +503,7 @@ case "$command" in
     fi
 
     if [[ "$MODE" == "oss-local" ]]; then
+      ensure_local_oss_source_layout
       validate_namespace "$NAMESPACE"
       if [[ "$command" == "refresh" || -z "$OWNER_TOKEN" ]]; then
         require_cmd pnpm

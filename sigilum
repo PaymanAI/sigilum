@@ -3,58 +3,89 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+CLR_RESET=""
+CLR_BOLD=""
+CLR_DIM=""
+CLR_YELLOW=""
+CLR_CYAN=""
+
+setup_colors() {
+  if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" ]]; then
+    CLR_RESET=$'\033[0m'
+    CLR_BOLD=$'\033[1m'
+    CLR_DIM=$'\033[2m'
+    CLR_YELLOW=$'\033[33m'
+    CLR_CYAN=$'\033[36m'
+  fi
+}
+
+setup_colors
+
+print_version() {
+  if [[ -f "$ROOT_DIR/VERSION" ]]; then
+    printf 'sigilum %s\n' "$(cat "$ROOT_DIR/VERSION")"
+  else
+    printf 'sigilum (development)\n'
+  fi
+}
+
 usage() {
-  cat <<'EOF'
-Sigilum Local CLI
+  cat <<USAGE
+${CLR_BOLD}${CLR_YELLOW}✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧${CLR_RESET}
+${CLR_BOLD}${CLR_YELLOW}✧${CLR_RESET}                  ${CLR_BOLD}${CLR_YELLOW}✧${CLR_RESET} ${CLR_BOLD}S I G I L U M${CLR_YELLOW}.${CLR_RESET}                        ${CLR_BOLD}${CLR_YELLOW}✧${CLR_RESET}
+${CLR_BOLD}${CLR_YELLOW}✧${CLR_RESET}            ${CLR_DIM}Auditable Identity for AI Agents${CLR_RESET}              ${CLR_BOLD}${CLR_YELLOW}✧${CLR_RESET}
+${CLR_BOLD}${CLR_YELLOW}✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧${CLR_RESET}
 
-Usage:
-  sigilum [global options] <command> [args]
+${CLR_BOLD}${CLR_CYAN}Usage:${CLR_RESET}
+  ${CLR_BOLD}sigilum${CLR_RESET} ${CLR_DIM}[global options] <command> [args]${CLR_RESET}
 
-Global options:
-  --namespace <value>            Set GATEWAY_SIGILUM_NAMESPACE
-  --sigilum-home <path>          Set GATEWAY_SIGILUM_HOME
-  --gateway-admin-url <url>      Set GATEWAY_ADMIN_URL
-  --gateway-data-dir <path>      Set GATEWAY_DATA_DIR
-  --gateway-master-key <value>   Set GATEWAY_MASTER_KEY
-  --api-port <port>              Set API_PORT
-  --gateway-port <port>          Set GATEWAY_PORT
-  --native-port <port>           Set NATIVE_PORT
-  --upstream-port <port>         Set UPSTREAM_PORT
-  -h, --help                     Show help
+${CLR_BOLD}${CLR_CYAN}Global options:${CLR_RESET}
+  ${CLR_BOLD}--namespace <value>${CLR_RESET}            ${CLR_DIM}Set GATEWAY_SIGILUM_NAMESPACE${CLR_RESET}
+  ${CLR_BOLD}--sigilum-home <path>${CLR_RESET}          ${CLR_DIM}Set GATEWAY_SIGILUM_HOME${CLR_RESET}
+  ${CLR_BOLD}--gateway-admin-url <url>${CLR_RESET}      ${CLR_DIM}Set GATEWAY_ADMIN_URL${CLR_RESET}
+  ${CLR_BOLD}--gateway-data-dir <path>${CLR_RESET}      ${CLR_DIM}Set GATEWAY_DATA_DIR${CLR_RESET}
+  ${CLR_BOLD}--gateway-master-key <value>${CLR_RESET}   ${CLR_DIM}Set GATEWAY_MASTER_KEY${CLR_RESET}
+  ${CLR_BOLD}-v, --version${CLR_RESET}                  ${CLR_DIM}Show version${CLR_RESET}
+  ${CLR_BOLD}--api-port <port>${CLR_RESET}              ${CLR_DIM}Set API_PORT${CLR_RESET}
+  ${CLR_BOLD}--gateway-port <port>${CLR_RESET}          ${CLR_DIM}Set GATEWAY_PORT${CLR_RESET}
+  ${CLR_BOLD}--native-port <port>${CLR_RESET}           ${CLR_DIM}Set NATIVE_PORT${CLR_RESET}
+  ${CLR_BOLD}--upstream-port <port>${CLR_RESET}         ${CLR_DIM}Set UPSTREAM_PORT${CLR_RESET}
+  ${CLR_BOLD}-h, --help${CLR_RESET}                     ${CLR_DIM}Show help${CLR_RESET}
 
-Commands:
-  install [options]              Install sigilum command into your shell (symlink/alias)
-  auth <args>                    Manage namespace-owner auth token bootstrap (login/refresh)
-  login [options]                Alias for: sigilum auth login
-  gateway <args>                 Gateway pairing helpers (local bridge for managed dashboard)
-  openclaw <args>                Manage OpenClaw integration (install/status; managed|oss-local)
-  service <args>                 Manage local services (delegates to scripts/sigilum-service.sh)
-  doctor                         Validate local setup, security posture, and runtime readiness
-  up                             Start local API + gateway (scripts/run-local-api-gateway.sh)
-  down                           Stop local API/gateway/demo listeners on known ports
-  e2e-tests                      Start demo services and run end-to-end tests
-  agent-simulator                Run agent auth simulator against running services
-  help [command]                 Show top-level or command-specific help
+${CLR_BOLD}${CLR_CYAN}Commands:${CLR_RESET}
+  ${CLR_BOLD}install${CLR_RESET} [options]              ${CLR_DIM}Install sigilum command into your shell (symlink/alias)${CLR_RESET}
+  ${CLR_BOLD}auth${CLR_RESET} <args>                    ${CLR_DIM}Manage namespace-owner auth token bootstrap (login/refresh)${CLR_RESET}
+  ${CLR_BOLD}login${CLR_RESET} [options]                ${CLR_DIM}Alias for: sigilum auth login${CLR_RESET}
+  ${CLR_BOLD}gateway${CLR_RESET} <args>                 ${CLR_DIM}Gateway pairing helpers (local bridge for managed dashboard)${CLR_RESET}
+  ${CLR_BOLD}openclaw${CLR_RESET} <args>                ${CLR_DIM}Manage OpenClaw integration (install/uninstall/status)${CLR_RESET}
+  ${CLR_BOLD}service${CLR_RESET} <args>                 ${CLR_DIM}Manage local services (delegates to scripts/sigilum-service.sh)${CLR_RESET}
+  ${CLR_BOLD}doctor${CLR_RESET}                         ${CLR_DIM}Validate local setup, security posture, and runtime readiness${CLR_RESET}
+  ${CLR_BOLD}up${CLR_RESET}                             ${CLR_DIM}Start local API + gateway (scripts/run-local-api-gateway.sh)${CLR_RESET}
+  ${CLR_BOLD}down${CLR_RESET}                           ${CLR_DIM}Stop local API/gateway/demo listeners on known ports${CLR_RESET}
+  ${CLR_BOLD}e2e-tests${CLR_RESET}                      ${CLR_DIM}Start demo services and run end-to-end tests${CLR_RESET}
+  ${CLR_BOLD}agent-simulator${CLR_RESET}                ${CLR_DIM}Run agent auth simulator against running services${CLR_RESET}
+  ${CLR_BOLD}help${CLR_RESET} [command]                 ${CLR_DIM}Show top-level or command-specific help${CLR_RESET}
 
-Examples:
-  sigilum install
-  sigilum auth login --mode oss-local --namespace johndee
-  sigilum auth refresh --mode oss-local --namespace johndee
-  sigilum gateway pair --session-id <id> --pair-code <code> --namespace johndee
-  sigilum openclaw --help
-  sigilum openclaw install --help
-  sigilum openclaw install --namespace johndee --mode oss-local
-  sigilum openclaw install --namespace johndee --mode managed
-  sigilum help openclaw
-  sigilum doctor
-  sigilum up
-  sigilum down
-  sigilum service add --service-slug demo-native --mode native
-  sigilum service list --namespace johndee
-  sigilum service secret set --service-slug linear --upstream-secret-env LINEAR_TOKEN
-  sigilum service add --service-slug demo-proxy --mode gateway --upstream-base-url http://127.0.0.1:12000
-  sigilum e2e-tests
-EOF
+${CLR_BOLD}${CLR_CYAN}Examples:${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum install${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum auth login --mode oss-local --namespace johndee${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum auth refresh --mode oss-local --namespace johndee${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum gateway pair --session-id <id> --pair-code <code> --namespace johndee${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum openclaw --help${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum openclaw install --help${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum openclaw install --namespace johndee --mode oss-local${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum openclaw install --namespace johndee --mode managed${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum openclaw uninstall${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum help openclaw${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum doctor${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum up${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum down${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum service add --service-slug demo-native --mode native${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum service list --namespace johndee${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum service secret set --service-slug linear --upstream-secret-env LINEAR_TOKEN${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum service add --service-slug demo-proxy --mode gateway --upstream-base-url http://127.0.0.1:12000${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum e2e-tests${CLR_RESET}
+USAGE
 }
 
 ensure_script() {
@@ -73,6 +104,116 @@ export_if_set() {
   fi
 }
 
+trim() {
+  local value="${1:-}"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+default_sigilum_config_file() {
+  local config_home="${SIGILUM_CONFIG_HOME:-$HOME/.sigilum}"
+  local config_file="${SIGILUM_CONFIG_FILE:-${config_home}/config.env}"
+  printf '%s' "$config_file"
+}
+
+read_env_file_value() {
+  local file_path="$1"
+  local key="$2"
+  local line lhs rhs first_char last_char
+
+  [[ -f "$file_path" ]] || return 1
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    [[ "$line" == *"="* ]] || continue
+
+    lhs="$(trim "${line%%=*}")"
+    [[ -n "$lhs" ]] || continue
+    [[ "${lhs:0:1}" != "#" ]] || continue
+    [[ "$lhs" == "$key" ]] || continue
+
+    rhs="$(trim "${line#*=}")"
+    if [[ ${#rhs} -ge 2 ]]; then
+      first_char="${rhs:0:1}"
+      last_char="${rhs: -1}"
+      if [[ "$first_char" == "\"" && "$last_char" == "\"" ]]; then
+        rhs="${rhs:1:${#rhs}-2}"
+      elif [[ "$first_char" == "'" && "$last_char" == "'" ]]; then
+        rhs="${rhs:1:${#rhs}-2}"
+      fi
+    fi
+
+    printf '%s' "$rhs"
+    return 0
+  done < "$file_path"
+
+  return 1
+}
+
+load_persisted_namespace_defaults() {
+  if [[ -n "${GATEWAY_SIGILUM_NAMESPACE:-}" || -n "${SIGILUM_NAMESPACE:-}" ]]; then
+    return 0
+  fi
+
+  local config_file persisted_namespace
+  config_file="$(default_sigilum_config_file)"
+  [[ -f "$config_file" ]] || return 0
+
+  persisted_namespace="$(read_env_file_value "$config_file" "GATEWAY_SIGILUM_NAMESPACE" || true)"
+  if [[ -z "$persisted_namespace" ]]; then
+    persisted_namespace="$(read_env_file_value "$config_file" "SIGILUM_NAMESPACE" || true)"
+  fi
+  persisted_namespace="$(trim "$persisted_namespace")"
+  if [[ -n "$persisted_namespace" ]]; then
+    export GATEWAY_SIGILUM_NAMESPACE="$persisted_namespace"
+    export SIGILUM_NAMESPACE="$persisted_namespace"
+  fi
+}
+
+detect_openclaw_namespace() {
+  local openclaw_home="${OPENCLAW_HOME:-$HOME/.openclaw}"
+  local config_path="${OPENCLAW_CONFIG_PATH:-${openclaw_home}/openclaw.json}"
+  if [[ ! -f "$config_path" ]]; then
+    return 0
+  fi
+  node - "$config_path" <<'NODE'
+const fs = require("node:fs");
+const path = (process.argv[2] || "").trim();
+if (!path) process.exit(0);
+try {
+  const raw = fs.readFileSync(path, "utf8");
+  const parsed = JSON.parse(raw);
+  const hooks = parsed?.hooks?.internal?.entries?.["sigilum-plugin"]?.env;
+  const namespace = typeof hooks?.SIGILUM_NAMESPACE === "string"
+    ? hooks.SIGILUM_NAMESPACE.trim()
+    : "";
+  if (namespace) process.stdout.write(namespace);
+} catch {
+  // best-effort detection only
+}
+NODE
+}
+
+resolve_namespace_for_up() {
+  if [[ -n "${GATEWAY_SIGILUM_NAMESPACE:-}" ]]; then
+    export SIGILUM_NAMESPACE="${SIGILUM_NAMESPACE:-$GATEWAY_SIGILUM_NAMESPACE}"
+    return 0
+  fi
+
+  if [[ -n "${SIGILUM_NAMESPACE:-}" ]]; then
+    export GATEWAY_SIGILUM_NAMESPACE="$SIGILUM_NAMESPACE"
+    return 0
+  fi
+
+  local detected_namespace
+  detected_namespace="$(detect_openclaw_namespace)"
+  if [[ -n "$detected_namespace" ]]; then
+    export GATEWAY_SIGILUM_NAMESPACE="$detected_namespace"
+    export SIGILUM_NAMESPACE="$detected_namespace"
+  fi
+}
+
 NAMESPACE=""
 SIGILUM_HOME=""
 GATEWAY_ADMIN_URL_OPT=""
@@ -82,6 +223,8 @@ API_PORT_OPT=""
 GATEWAY_PORT_OPT=""
 NATIVE_PORT_OPT=""
 UPSTREAM_PORT_OPT=""
+
+load_persisted_namespace_defaults
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -121,6 +264,10 @@ while [[ $# -gt 0 ]]; do
       UPSTREAM_PORT_OPT="${2:-}"
       shift 2
       ;;
+    --version|-v)
+      print_version
+      exit 0
+      ;;
     --help|-h)
       usage
       exit 0
@@ -146,6 +293,7 @@ if [[ $# -lt 1 ]]; then
 fi
 
 export_if_set "GATEWAY_SIGILUM_NAMESPACE" "$NAMESPACE"
+export_if_set "SIGILUM_NAMESPACE" "$NAMESPACE"
 export_if_set "GATEWAY_SIGILUM_HOME" "$SIGILUM_HOME"
 export_if_set "GATEWAY_ADMIN_URL" "$GATEWAY_ADMIN_URL_OPT"
 export_if_set "GATEWAY_DATA_DIR" "$GATEWAY_DATA_DIR_OPT"
@@ -159,6 +307,10 @@ command="$1"
 shift || true
 
 case "$command" in
+  version)
+    print_version
+    exit 0
+    ;;
   install)
     ensure_script "$ROOT_DIR/scripts/install-sigilum.sh"
     exec "$ROOT_DIR/scripts/install-sigilum.sh" "$@"
@@ -184,6 +336,7 @@ case "$command" in
     exec "$ROOT_DIR/scripts/sigilum-doctor.sh" "$@"
     ;;
   up)
+    resolve_namespace_for_up
     ensure_script "$ROOT_DIR/scripts/run-local-api-gateway.sh"
     if [[ -n "${GATEWAY_PORT_OPT}" ]] && [[ -z "${GATEWAY_ADDR:-}" ]]; then
       export GATEWAY_ADDR=":${GATEWAY_PORT_OPT}"
