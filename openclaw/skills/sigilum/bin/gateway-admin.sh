@@ -22,8 +22,7 @@ Defaults:
 Notes:
   - This helper prefers `curl` (supports HTTP/HTTPS); falls back to bash /dev/tcp for HTTP when curl is unavailable.
   - `tools` and `call` sign requests with the selected per-agent key.
-  - On `401/403 AUTH_FORBIDDEN`, `tools`/`call` auto-attempt claim submission to
-    `${SIGILUM_API_URL:-${SIGILUM_REGISTRY_URL}}` using service API key env/file.
+  - On `401/403 AUTH_FORBIDDEN`, `tools`/`call` print `APPROVAL_*` fields to guide namespace-owner approval.
   - `list`, `test`, `discover` require SIGILUM_ALLOW_INSECURE_ADMIN=true.
 EOF
 }
@@ -346,103 +345,6 @@ resolve_identity_files() {
   exit 2
 }
 
-service_api_key_env_suffix() {
-  local value
-  value="$(trim "$1")"
-  if [[ -z "$value" ]]; then
-    printf 'DEFAULT'
-    return 0
-  fi
-  printf '%s' "$value" \
-    | tr '[:lower:]' '[:upper:]' \
-    | sed -E 's/[^A-Z0-9]+/_/g; s/^_+//; s/_+$//' \
-    | awk '{ if (length($0)==0) print "DEFAULT"; else print $0 }'
-}
-
-is_safe_service_key_id() {
-  local value
-  value="$(trim "$1")"
-  if (( ${#value} < 3 || ${#value} > 64 )); then
-    return 1
-  fi
-  if [[ ! "$value" =~ ^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$ ]]; then
-    return 1
-  fi
-  return 0
-}
-
-runtime_home_from_root() {
-  local root
-  root="$(trim "${SIGILUM_RUNTIME_ROOT:-}")"
-  if [[ -z "$root" ]]; then
-    return 1
-  fi
-  root="${root%/}"
-  if [[ "$root" == */runtime ]]; then
-    printf '%s' "${root%/runtime}"
-    return 0
-  fi
-  printf '%s' "$root"
-}
-
-resolve_service_api_key() {
-  local connection_id="$1"
-  local scoped_env suffix
-  suffix="$(service_api_key_env_suffix "$connection_id")"
-  scoped_env="SIGILUM_SERVICE_API_KEY_${suffix}"
-  if [[ -n "${!scoped_env:-}" ]]; then
-    printf '%s' "$(trim "${!scoped_env}")"
-    return 0
-  fi
-  if ! is_safe_service_key_id "$connection_id"; then
-    if [[ -n "${SIGILUM_SERVICE_API_KEY:-}" ]]; then
-      printf '%s' "$(trim "${SIGILUM_SERVICE_API_KEY}")"
-      return 0
-    fi
-    return 1
-  fi
-
-  local -a key_homes=()
-  if [[ -n "${SIGILUM_HOME:-}" ]]; then
-    key_homes+=("$(trim "${SIGILUM_HOME}")")
-  fi
-  if runtime_home="$(runtime_home_from_root)"; then
-    key_homes+=("$runtime_home")
-  fi
-  key_homes+=("${HOME}/.sigilum" "${HOME}/.openclaw/.sigilum" "${HOME}/.openclaw/workspace/.sigilum")
-
-  local home_dir key_file raw
-  for home_dir in "${key_homes[@]}"; do
-    [[ -z "$home_dir" ]] && continue
-    key_file="${home_dir%/}/service-api-key-${connection_id}"
-    if [[ -f "$key_file" ]]; then
-      raw="$(tr -d '\r\n' <"$key_file")"
-      if [[ -n "$raw" ]]; then
-        printf '%s' "$raw"
-        return 0
-      fi
-    fi
-  done
-  if [[ -n "${SIGILUM_SERVICE_API_KEY:-}" ]]; then
-    printf '%s' "$(trim "${SIGILUM_SERVICE_API_KEY}")"
-    return 0
-  fi
-  return 1
-}
-
-auto_register_claim_enabled() {
-  local raw
-  raw="$(printf '%s' "${SIGILUM_AUTO_REGISTER_CLAIM:-true}" | tr '[:upper:]' '[:lower:]')"
-  case "$raw" in
-    0|false|no|off)
-      return 1
-      ;;
-    *)
-      return 0
-      ;;
-  esac
-}
-
 build_signing_context() {
   ensure_cmd openssl
   ensure_cmd od
@@ -542,6 +444,8 @@ signed_request() {
   local -a extra_headers=("$@")
   local req_path
   req_path="$(request_path_for_endpoint "$endpoint")"
+  local method_component
+  method_component="$(printf '%s' "$method" | tr '[:upper:]' '[:lower:]')"
 
   local target_uri
   target_uri="${URL_SCHEME}://${URL_HOST}:${URL_PORT}${req_path}"
@@ -567,7 +471,7 @@ signed_request() {
 
   signing_base="${TMP_SIGN_DIR}/signing-base.txt"
   {
-    printf '"@method": %s\n' "$method"
+    printf '"@method": %s\n' "$method_component"
     printf '"@target-uri": %s\n' "$target_uri"
     if [[ -n "$content_digest" ]]; then
       printf '"content-digest": %s\n' "$content_digest"
@@ -604,96 +508,22 @@ signed_request() {
   http_request "$method" "$endpoint" "$body" "${headers[@]}"
 }
 
-should_attempt_claim_registration() {
+is_auth_forbidden_response() {
   local status="${HTTP_STATUS:-}"
   if [[ "$status" != "401" && "$status" != "403" ]]; then
     return 1
   fi
   case "${HTTP_BODY:-}" in
-    *AUTH_FORBIDDEN*)
+    *"# AUTH_FORBIDDEN: Sigilum Authorization Required"*|*"Sigilum verified your signature"*)
       return 0
       ;;
   esac
   return 1
 }
 
-submit_authorization_claim() {
-  local connection_id="$1"
-  CLAIM_HTTP_STATUS=""
-  CLAIM_HTTP_BODY=""
-  CLAIM_ERROR=""
-
-  local api_url
-  api_url="$(trim "${SIGILUM_API_URL:-${SIGILUM_REGISTRY_URL:-}}")"
-  if [[ -z "$api_url" ]]; then
-    CLAIM_ERROR="SIGILUM_API_URL or SIGILUM_REGISTRY_URL is not set; cannot submit authorization claim."
-    return 1
-  fi
-
-  local service_api_key
-  if ! service_api_key="$(resolve_service_api_key "$connection_id")" || [[ -z "$service_api_key" ]]; then
-    CLAIM_ERROR="No service API key found for ${connection_id}; set SIGILUM_SERVICE_API_KEY or SIGILUM_SERVICE_API_KEY_$(service_api_key_env_suffix "$connection_id")."
-    return 1
-  fi
-
-  local saved_scheme="$URL_SCHEME"
-  local saved_host="$URL_HOST"
-  local saved_port="$URL_PORT"
-  local saved_base="$URL_BASE_PATH"
-
-  if ! parse_url "$api_url"; then
-    CLAIM_ERROR="Unsupported or invalid SIGILUM_API_URL (${api_url}); claim submission supports plain HTTP in this helper."
-    URL_SCHEME="$saved_scheme"
-    URL_HOST="$saved_host"
-    URL_PORT="$saved_port"
-    URL_BASE_PATH="$saved_base"
-    return 1
-  fi
-
-  local claim_nonce agent_ip service_slug claim_body
-  claim_nonce="$(create_nonce)"
-  agent_ip="$(trim "${SIGILUM_AGENT_IP:-127.0.0.1}")"
-  service_slug="$(trim "${SIGILUM_SERVICE_SLUG:-${connection_id}}")"
-  claim_body="$(printf '{"namespace":"%s","public_key":"%s","service":"%s","agent_ip":"%s","nonce":"%s"}' \
-    "$SIG_NAMESPACE" "$SIG_PUBLIC_KEY" "$service_slug" "$agent_ip" "$claim_nonce")"
-
-  local gateway_status="${HTTP_STATUS:-}"
-  local gateway_body="${HTTP_BODY:-}"
-
-  signed_request "POST" "/v1/claims" "$claim_body" "authorization: Bearer ${service_api_key}"
-  CLAIM_HTTP_STATUS="${HTTP_STATUS:-}"
-  CLAIM_HTTP_BODY="${HTTP_BODY:-}"
-
-  HTTP_STATUS="$gateway_status"
-  HTTP_BODY="$gateway_body"
-  URL_SCHEME="$saved_scheme"
-  URL_HOST="$saved_host"
-  URL_PORT="$saved_port"
-  URL_BASE_PATH="$saved_base"
-  return 0
-}
-
-attempt_claim_registration_if_needed() {
-  local connection_id="$1"
-  CLAIM_HTTP_STATUS=""
-  CLAIM_HTTP_BODY=""
-  CLAIM_ERROR=""
-
-  if ! auto_register_claim_enabled; then
-    return 0
-  fi
-  if ! should_attempt_claim_registration; then
-    return 0
-  fi
-  if ! submit_authorization_claim "$connection_id"; then
-    return 1
-  fi
-  return 0
-}
-
 print_approval_required_context() {
   local connection_id="${1:-}"
-  if ! should_attempt_claim_registration; then
+  if ! is_auth_forbidden_response; then
     return 0
   fi
   printf 'APPROVAL_REQUIRED=true\n'
@@ -702,7 +532,7 @@ print_approval_required_context() {
   printf 'APPROVAL_SUBJECT=%s\n' "${SIG_SUBJECT:-}"
   printf 'APPROVAL_PUBLIC_KEY=%s\n' "${SIG_PUBLIC_KEY:-}"
   printf 'APPROVAL_SERVICE=%s\n' "${connection_id}"
-  printf 'APPROVAL_MESSAGE=%s\n' "Namespace-owner approval is required for this agent key/service claim."
+  printf 'APPROVAL_MESSAGE=%s\n' "HTTP 403 AUTH_FORBIDDEN: this key has no active approval for the service (new, revoked, or expired). Ask namespace owner to approve/re-approve and retry."
 }
 
 print_response() {
@@ -712,15 +542,7 @@ print_response() {
     printf '%s\n' "$HTTP_BODY"
   fi
   print_approval_required_context "$connection_id"
-  if [[ -n "${CLAIM_HTTP_STATUS:-}" ]]; then
-    printf 'CLAIM_HTTP_STATUS=%s\n' "${CLAIM_HTTP_STATUS}"
-    if [[ -n "${CLAIM_HTTP_BODY:-}" ]]; then
-      printf '%s\n' "${CLAIM_HTTP_BODY}"
-    fi
-  fi
-  if [[ -n "${CLAIM_ERROR:-}" ]]; then
-    printf 'CLAIM_ERROR=%s\n' "${CLAIM_ERROR}"
-  fi
+  return 0
 }
 
 deny_insecure_admin() {
@@ -744,13 +566,12 @@ case "$cmd" in
     parse_url "$gateway_url" || exit 2
     build_signing_context
     signed_request "GET" "/mcp/${connection_id}/tools" ""
-    attempt_claim_registration_if_needed "$connection_id" || true
     print_response "$connection_id"
     ;;
   call)
     connection_id="${2:-}"
     tool_name="${3:-}"
-    args_json="${4:-{}}"
+    _args_default='{}'; args_json="${4:-$_args_default}"
     gateway_url="${5:-$(gateway_url_default)}"
     if [[ -z "$connection_id" || -z "$tool_name" ]]; then
       echo "Usage: gateway-admin.sh call <connection_id> <tool_name> [arguments_json] [gateway_url]" >&2
@@ -759,7 +580,6 @@ case "$cmd" in
     parse_url "$gateway_url" || exit 2
     build_signing_context
     signed_request "POST" "/mcp/${connection_id}/tools/${tool_name}/call" "$args_json"
-    attempt_claim_registration_if_needed "$connection_id" || true
     print_response "$connection_id"
     ;;
   list)

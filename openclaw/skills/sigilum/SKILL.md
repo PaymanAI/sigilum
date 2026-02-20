@@ -13,12 +13,14 @@ Use this skill for provider access through Sigilum gateway (Linear, Typefully, a
 
 - Sigilum gateway is the default integration path.
 - For “can you access <provider>?” always check gateway runtime access first.
+- Negative-answer gate: before saying "no integration", "no access", or asking for direct provider credentials, you must run a signed `tools` check for the provider connection.
 - Do not ask for a direct provider API key unless:
   - `sigilum-secure-<provider>` is missing, or
   - signed runtime check fails for non-auth reasons.
 - If `sigilum-secure-linear` is active and test passes, answer that Linear is accessible via Sigilum gateway.
 - Access checks must be signed and claim-gated per agent key.
 - Do not use `/api/admin/*` as a capability check path.
+- Use the hook-injected provider alias map (for example `linear -> sigilum-secure-linear`) as the source of truth for provider-to-connection routing.
 
 ## Commands
 
@@ -39,7 +41,13 @@ CONNECTION_ID="sigilum-secure-<provider>"
 "${HELPER}" tools "${CONNECTION_ID}" "${GATEWAY_URL}"
 ```
 
-When auth is required (`401/403 AUTH_FORBIDDEN`), the helper auto-attempts claim submission to Sigilum API and prints:
+Important parsing rule:
+
+- Do **not** truncate helper output to first lines.
+- Always read the full output and parse `HTTP_STATUS` + `APPROVAL_*` fields.
+- If `APPROVAL_REQUIRED=true`, treat it as authorization-required-now (including revoked/expired prior approvals), ask user to approve/re-approve, then retry.
+
+When auth is required (`401/403 AUTH_FORBIDDEN`), the helper prints:
 
 - `APPROVAL_REQUIRED=true`
 - `APPROVAL_NAMESPACE=<namespace>`
@@ -48,8 +56,6 @@ When auth is required (`401/403 AUTH_FORBIDDEN`), the helper auto-attempts claim
 - `APPROVAL_PUBLIC_KEY=<ed25519:...>`
 - `APPROVAL_SERVICE=<connection_id>`
 - `APPROVAL_MESSAGE=<operator guidance>`
-- `CLAIM_HTTP_STATUS=<status>` when claim submit was attempted
-- `CLAIM_ERROR=<message>` when claim submit could not be attempted (missing API URL/key, unsupported URL, etc.)
 
 Signed tool call:
 
@@ -70,9 +76,15 @@ When user asks: “can you access linear?”
    - `200`: yes, accessible via Sigilum gateway for this agent key.
    - `401` or `403`: agent authorization required.
    - If `APPROVAL_REQUIRED=true`, include `APPROVAL_NAMESPACE`, `APPROVAL_AGENT_ID`, and `APPROVAL_PUBLIC_KEY` in your user-facing approval instructions.
-   - If `CLAIM_HTTP_STATUS` is present and indicates pending/already pending/already approved, report that claim registration was submitted (or already exists).
+   - Never infer "gateway restart bug" from `401/403` alone; use `APPROVAL_*` and claim details as the source of truth.
    - `404`: connection missing; ask user to configure/install the provider connection.
    - Other non-2xx: gateway/upstream issue; surface exact error and next action.
+
+If user asks "what skills/integrations do you have?" and mentions any provider:
+
+1. Consult the hook-injected alias map for that provider name.
+2. Run signed `tools` check for the mapped connection id.
+3. Only then answer availability.
 
 ## Runtime CLI (optional)
 
