@@ -36,6 +36,7 @@ Supported SDKs implement the same signed-header profile for API requests:
 - SDKs expose portable retry helpers for idempotent calls (`retryWithBackoff` / `retry_with_backoff` / `RetryWithBackoff`) plus shared retryable status guidance (`429/502/503/504`)
 
 `sigilum-subject` is not decorative: treat it as a stable requester principal id inside a namespace. Gateway can apply subject-aware policy using this value (for example MCP tool filtering).
+When `subject` is omitted at signing time, supported SDKs default `sigilum-subject` to the signer namespace.
 
 Shared conformance vectors are stored in:
 

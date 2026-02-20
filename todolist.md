@@ -29,6 +29,7 @@ Reference: `world_class_review.md`
 - [x] `GW-013` Add MCP discovery caching policy (TTL + stale-if-error + forced refresh API).
 - [x] `GW-014` Add MCP tool policy explainability endpoint (`why allowed/denied`).
 - [x] `SDK-002` Expand shared RFC9421 conformance vectors and run in all SDKs.
+- [x] `SDK-003` Guarantee default `sigilum-subject` semantics across TS/Go/Python.
 - [x] `SDK-004` Align SDK signature verification failure codes/messages across TS/Go/Python.
 - [x] `SDK-006` Restore Java SDK source implementation or mark unsupported in matrix.
 - [x] `SDK-008` Add shared backward-compatibility tests for persisted identity record format.

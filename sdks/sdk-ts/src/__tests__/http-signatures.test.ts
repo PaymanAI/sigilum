@@ -34,6 +34,7 @@ describe("RFC 9421 signing", () => {
       headers: { "content-type": "application/json" },
       body: '{"action":"approve"}',
     });
+    expect(signed.headers.get("sigilum-subject")).toBe("alice");
 
     const verified = verifyHttpSignature({
       url: signed.url,

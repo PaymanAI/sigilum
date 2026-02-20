@@ -28,6 +28,9 @@ func TestSignAndVerify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sign request: %v", err)
 	}
+	if got := signed.Headers["sigilum-subject"]; got != "alice" {
+		t.Fatalf("expected default sigilum-subject alice, got %q", got)
+	}
 
 	verified := VerifyHTTPSignature(VerifySignatureInput{
 		URL:               signed.URL,

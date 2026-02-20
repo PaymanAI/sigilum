@@ -18,6 +18,7 @@ def test_sign_and_verify_request() -> None:
             headers={"content-type": "application/json"},
             body='{"action":"approve"}',
         )
+        assert signed.headers.get("sigilum-subject") == "alice"
 
         result = verify_http_signature(
             url=signed.url,
