@@ -31,6 +31,7 @@ Reference: `world_class_review.md`
 - [x] `SDK-002` Expand shared RFC9421 conformance vectors and run in all SDKs.
 - [x] `SDK-003` Guarantee default `sigilum-subject` semantics across TS/Go/Python.
 - [x] `SDK-004` Align SDK signature verification failure codes/messages across TS/Go/Python.
+- [x] `SDK-005` Add guardrails to prevent generated SDK artifacts/caches from being committed.
 - [x] `SDK-006` Restore Java SDK source implementation or mark unsupported in matrix.
 - [x] `SDK-008` Add shared backward-compatibility tests for persisted identity record format.
 - [x] `SDK-010` Add portable retry helper APIs with idempotency guidance across SDKs.

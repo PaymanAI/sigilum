@@ -33,6 +33,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify SDK artifacts are not tracked
+        shell: bash
+        run: ./scripts/check-sdk-artifacts.sh
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:

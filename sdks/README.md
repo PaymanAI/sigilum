@@ -68,6 +68,8 @@ Run tests per SDK package:
   - `python -m pytest sdks/sdk-python/tests`
 - Go:
   - `go test ./...` (from `sdks/sdk-go`)
+- Repository guardrails:
+  - `pnpm sdk:artifacts` (ensures generated artifacts/caches are not tracked under `sdks/`)
 
 Java SDK is currently a placeholder package and does not ship executable source/tests yet.
 
