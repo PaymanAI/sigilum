@@ -74,6 +74,9 @@ func TestVerifyFailsOnBodyTamper(t *testing.T) {
 	if verified.Valid {
 		t.Fatalf("expected invalid signature when body is tampered")
 	}
+	if verified.Code != "SIG_CONTENT_DIGEST_MISMATCH" {
+		t.Fatalf("expected SIG_CONTENT_DIGEST_MISMATCH, got %q", verified.Code)
+	}
 }
 
 func TestVerifyFailsOnSubjectMismatch(t *testing.T) {
@@ -105,6 +108,9 @@ func TestVerifyFailsOnSubjectMismatch(t *testing.T) {
 	})
 	if verified.Valid {
 		t.Fatal("expected invalid signature due to subject mismatch")
+	}
+	if verified.Code != "SIG_EXPECTED_SUBJECT_MISMATCH" {
+		t.Fatalf("expected SIG_EXPECTED_SUBJECT_MISMATCH, got %q", verified.Code)
 	}
 }
 
@@ -140,6 +146,9 @@ func TestVerifyFailsOnInvalidSignedComponentSet(t *testing.T) {
 	})
 	if verified.Valid {
 		t.Fatal("expected invalid signature due to signed component profile")
+	}
+	if verified.Code != "SIG_SIGNED_COMPONENTS_INVALID" {
+		t.Fatalf("expected SIG_SIGNED_COMPONENTS_INVALID, got %q", verified.Code)
 	}
 	if !strings.Contains(strings.ToLower(verified.Reason), "component set") {
 		t.Fatalf("expected component-set error, got: %s", verified.Reason)

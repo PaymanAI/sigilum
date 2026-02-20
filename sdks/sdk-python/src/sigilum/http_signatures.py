@@ -244,88 +244,96 @@ def verify_http_signature(
     now_ts: int | None = None,
     seen_nonces: set[str] | None = None,
 ) -> VerifySignatureResult:
+    def invalid(code: str, reason: str) -> VerifySignatureResult:
+        return VerifySignatureResult(valid=False, code=code, reason=reason)
+
     try:
         normalized_headers = _normalize_headers(headers)
         signature_input = normalized_headers.get("signature-input")
         signature_header = normalized_headers.get("signature")
 
         if not signature_input or not signature_header:
-            return VerifySignatureResult(valid=False, reason="Missing Signature-Input or Signature header")
+            return invalid("SIG_MISSING_SIGNATURE_HEADERS", "Missing Signature-Input or Signature header")
 
         match = _SIGNATURE_INPUT_PATTERN.match(signature_input)
         if not match:
-            return VerifySignatureResult(valid=False, reason="Invalid Signature-Input format")
+            return invalid("SIG_SIGNATURE_INPUT_INVALID", "Invalid Signature-Input format")
 
         raw_components, created_raw, key_id, alg, nonce = match.groups()
         created_value = int(created_raw)
         if created_value <= 0:
-            return VerifySignatureResult(valid=False, reason="Invalid Signature-Input created timestamp")
+            return invalid("SIG_CREATED_INVALID", "Invalid Signature-Input created timestamp")
         if alg.lower() != "ed25519":
-            return VerifySignatureResult(valid=False, reason="Unsupported signature algorithm")
+            return invalid("SIG_ALGORITHM_UNSUPPORTED", "Unsupported signature algorithm")
         if max_age_seconds is not None:
             now_value = now_ts if now_ts is not None else int(datetime.now(timezone.utc).timestamp())
             age = now_value - created_value
             if age < 0 or age > max_age_seconds:
-                return VerifySignatureResult(valid=False, reason="Signature expired or not yet valid")
+                return invalid("SIG_TIMESTAMP_OUT_OF_RANGE", "Signature expired or not yet valid")
         if seen_nonces is not None:
             if nonce in seen_nonces:
-                return VerifySignatureResult(valid=False, reason="Replay detected: nonce already seen")
+                return invalid("SIG_REPLAY_DETECTED", "Replay detected: nonce already seen")
             seen_nonces.add(nonce)
 
         components: list[str] = []
         for token in raw_components.strip().split():
             if not (token.startswith('"') and token.endswith('"')):
-                return VerifySignatureResult(valid=False, reason="Invalid component in Signature-Input")
+                return invalid("SIG_SIGNATURE_INPUT_INVALID", "Invalid component in Signature-Input")
             components.append(token[1:-1])
 
         signature_match = _SIGNATURE_PATTERN.match(signature_header)
         if not signature_match:
-            return VerifySignatureResult(valid=False, reason="Invalid Signature format")
+            return invalid("SIG_SIGNATURE_HEADER_INVALID", "Invalid Signature format")
         signature = base64.b64decode(signature_match.group(1).encode("ascii"))
 
         cert_header = normalized_headers.get("sigilum-agent-cert")
         if not cert_header:
-            return VerifySignatureResult(valid=False, reason="Missing sigilum-agent-cert header")
-        cert = decode_certificate_header(cert_header)
+            return invalid("SIG_CERT_HEADER_MISSING", "Missing sigilum-agent-cert header")
+        try:
+            cert = decode_certificate_header(cert_header)
+        except Exception as error:
+            return invalid("SIG_CERT_HEADER_INVALID", str(error))
 
         if not verify_certificate(cert):
-            return VerifySignatureResult(valid=False, reason="Invalid agent certificate")
+            return invalid("SIG_CERT_INVALID", "Invalid agent certificate")
 
         namespace_header = normalized_headers.get("sigilum-namespace")
         if namespace_header != cert.namespace:
-            return VerifySignatureResult(valid=False, reason="Namespace header mismatch")
+            return invalid("SIG_NAMESPACE_MISMATCH", "Namespace header mismatch")
         subject_header = (normalized_headers.get("sigilum-subject") or "").strip()
         if not subject_header:
-            return VerifySignatureResult(valid=False, reason="Missing sigilum-subject header")
+            return invalid("SIG_SUBJECT_MISSING", "Missing sigilum-subject header")
         if "sigilum-subject" not in components:
-            return VerifySignatureResult(valid=False, reason="Missing sigilum-subject in signed components")
+            return invalid("SIG_SUBJECT_COMPONENT_MISSING", "Missing sigilum-subject in signed components")
 
         if expected_namespace and expected_namespace != namespace_header:
-            return VerifySignatureResult(
-                valid=False,
-                reason=f"Namespace mismatch: expected {expected_namespace}, got {namespace_header}",
+            return invalid(
+                "SIG_EXPECTED_NAMESPACE_MISMATCH",
+                f"Namespace mismatch: expected {expected_namespace}, got {namespace_header}",
             )
         if expected_subject and expected_subject != subject_header:
-            return VerifySignatureResult(
-                valid=False,
-                reason=f"Subject mismatch: expected {expected_subject}, got {subject_header}",
+            return invalid(
+                "SIG_EXPECTED_SUBJECT_MISMATCH",
+                f"Subject mismatch: expected {expected_subject}, got {subject_header}",
             )
 
         key_header = normalized_headers.get("sigilum-agent-key")
+        if not key_header:
+            return invalid("SIG_KEY_HEADER_MISSING", "Missing sigilum-agent-key header")
         if key_header != cert.public_key:
-            return VerifySignatureResult(valid=False, reason="Certificate public key mismatch")
+            return invalid("SIG_KEY_MISMATCH", "Certificate public key mismatch")
 
         if key_id != cert.key_id:
-            return VerifySignatureResult(valid=False, reason="keyid mismatch")
+            return invalid("SIG_KEY_ID_MISMATCH", "keyid mismatch")
 
         body_bytes = _normalize_body(body)
         has_body = bool(body_bytes and len(body_bytes) > 0)
         if not _valid_signed_component_set(components, has_body):
-            return VerifySignatureResult(valid=False, reason="Invalid signed component set")
+            return invalid("SIG_SIGNED_COMPONENTS_INVALID", "Invalid signed component set")
         if body_bytes:
             digest = _content_digest(body_bytes)
             if normalized_headers.get("content-digest") != digest:
-                return VerifySignatureResult(valid=False, reason="Content digest mismatch")
+                return invalid("SIG_CONTENT_DIGEST_MISMATCH", "Content digest mismatch")
 
         signature_params = _signature_params(
             components=components,
@@ -342,11 +350,14 @@ def verify_http_signature(
         )
 
         if not key_header or not key_header.startswith("ed25519:"):
-            return VerifySignatureResult(valid=False, reason="Invalid sigilum-agent-key header")
+            return invalid("SIG_KEY_HEADER_INVALID", "Invalid sigilum-agent-key header")
 
         public_key = base64.b64decode(key_header.removeprefix("ed25519:"))
         VerifyKey(public_key).verify(signing_base, signature)
 
         return VerifySignatureResult(valid=True, namespace=cert.namespace, subject=subject_header, key_id=cert.key_id)
     except Exception as error:
-        return VerifySignatureResult(valid=False, reason=str(error))
+        reason = str(error)
+        if reason == "Signature was forged or corrupt":
+            return invalid("SIG_VERIFICATION_FAILED", reason)
+        return invalid("SIG_INTERNAL_ERROR", reason)

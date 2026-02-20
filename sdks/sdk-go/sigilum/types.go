@@ -81,6 +81,7 @@ type VerifySignatureInput struct {
 
 type VerifySignatureResult struct {
 	Valid     bool
+	Code      string
 	Namespace string
 	Subject   string
 	KeyID     string

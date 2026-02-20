@@ -37,6 +37,32 @@ var requiredComponentsWithBody = []string{
 	"sigilum-agent-cert",
 }
 
+const (
+	verifyCodeMissingSignatureHeaders   = "SIG_MISSING_SIGNATURE_HEADERS"
+	verifyCodeSignatureInputInvalid     = "SIG_SIGNATURE_INPUT_INVALID"
+	verifyCodeAlgorithmUnsupported      = "SIG_ALGORITHM_UNSUPPORTED"
+	verifyCodeCreatedInvalid            = "SIG_CREATED_INVALID"
+	verifyCodeTimestampOutOfRange       = "SIG_TIMESTAMP_OUT_OF_RANGE"
+	verifyCodeReplayDetected            = "SIG_REPLAY_DETECTED"
+	verifyCodeSignatureHeaderInvalid    = "SIG_SIGNATURE_HEADER_INVALID"
+	verifyCodeCertHeaderMissing         = "SIG_CERT_HEADER_MISSING"
+	verifyCodeCertHeaderInvalid         = "SIG_CERT_HEADER_INVALID"
+	verifyCodeCertInvalid               = "SIG_CERT_INVALID"
+	verifyCodeNamespaceMismatch         = "SIG_NAMESPACE_MISMATCH"
+	verifyCodeExpectedNamespaceMismatch = "SIG_EXPECTED_NAMESPACE_MISMATCH"
+	verifyCodeSubjectMissing            = "SIG_SUBJECT_MISSING"
+	verifyCodeExpectedSubjectMismatch   = "SIG_EXPECTED_SUBJECT_MISMATCH"
+	verifyCodeSubjectComponentMissing   = "SIG_SUBJECT_COMPONENT_MISSING"
+	verifyCodeSignedComponentsInvalid   = "SIG_SIGNED_COMPONENTS_INVALID"
+	verifyCodeKeyHeaderMissing          = "SIG_KEY_HEADER_MISSING"
+	verifyCodeKeyMismatch               = "SIG_KEY_MISMATCH"
+	verifyCodeKeyIDMismatch             = "SIG_KEY_ID_MISMATCH"
+	verifyCodeContentDigestMismatch     = "SIG_CONTENT_DIGEST_MISMATCH"
+	verifyCodeSigningBaseInvalid        = "SIG_SIGNING_BASE_INVALID"
+	verifyCodeKeyHeaderInvalid          = "SIG_KEY_HEADER_INVALID"
+	verifyCodeVerificationFailed        = "SIG_VERIFICATION_FAILED"
+)
+
 type parsedSignatureInput struct {
 	Components []string
 	Created    int64
@@ -242,23 +268,27 @@ func SignHTTPRequest(identity SigilumIdentity, input SignRequestInput) (SignedRe
 }
 
 func VerifyHTTPSignature(input VerifySignatureInput) VerifySignatureResult {
+	invalid := func(code string, reason string) VerifySignatureResult {
+		return VerifySignatureResult{Valid: false, Code: code, Reason: reason}
+	}
+
 	headers := normalizeHeaders(input.Headers)
 	signatureInput := headers["signature-input"]
 	signatureValue := headers["signature"]
 
 	if signatureInput == "" || signatureValue == "" {
-		return VerifySignatureResult{Valid: false, Reason: "Missing Signature-Input or Signature header"}
+		return invalid(verifyCodeMissingSignatureHeaders, "Missing Signature-Input or Signature header")
 	}
 
 	parsed, err := parseSignatureInputHeader(signatureInput)
 	if err != nil {
-		return VerifySignatureResult{Valid: false, Reason: err.Error()}
+		return invalid(verifyCodeSignatureInputInvalid, err.Error())
 	}
 	if strings.ToLower(parsed.Alg) != "ed25519" {
-		return VerifySignatureResult{Valid: false, Reason: "Unsupported signature algorithm"}
+		return invalid(verifyCodeAlgorithmUnsupported, "Unsupported signature algorithm")
 	}
 	if parsed.Created <= 0 {
-		return VerifySignatureResult{Valid: false, Reason: "Invalid Signature-Input created timestamp"}
+		return invalid(verifyCodeCreatedInvalid, "Invalid Signature-Input created timestamp")
 	}
 	if input.MaxAgeSeconds > 0 {
 		now := input.NowUnix
@@ -267,86 +297,92 @@ func VerifyHTTPSignature(input VerifySignatureInput) VerifySignatureResult {
 		}
 		age := now - parsed.Created
 		if age < 0 || age > input.MaxAgeSeconds {
-			return VerifySignatureResult{Valid: false, Reason: "Signature expired or not yet valid"}
+			return invalid(verifyCodeTimestampOutOfRange, "Signature expired or not yet valid")
 		}
 	}
 	if input.SeenNonces != nil {
 		if _, exists := input.SeenNonces[parsed.Nonce]; exists {
-			return VerifySignatureResult{Valid: false, Reason: "Replay detected: nonce already seen"}
+			return invalid(verifyCodeReplayDetected, "Replay detected: nonce already seen")
 		}
 		input.SeenNonces[parsed.Nonce] = struct{}{}
 	}
 
 	signature, err := parseSignatureHeader(signatureValue)
 	if err != nil {
-		return VerifySignatureResult{Valid: false, Reason: err.Error()}
+		return invalid(verifyCodeSignatureHeaderInvalid, err.Error())
 	}
 
 	certHeader := headers["sigilum-agent-cert"]
 	if certHeader == "" {
-		return VerifySignatureResult{Valid: false, Reason: "Missing sigilum-agent-cert header"}
+		return invalid(verifyCodeCertHeaderMissing, "Missing sigilum-agent-cert header")
 	}
 	certificate, err := DecodeCertificateHeader(certHeader)
 	if err != nil {
-		return VerifySignatureResult{Valid: false, Reason: "Invalid sigilum-agent-cert header"}
+		return invalid(verifyCodeCertHeaderInvalid, "Invalid sigilum-agent-cert header")
 	}
 	if !VerifyCertificate(certificate) {
-		return VerifySignatureResult{Valid: false, Reason: "Invalid agent certificate"}
+		return invalid(verifyCodeCertInvalid, "Invalid agent certificate")
 	}
 
 	namespaceHeader := headers["sigilum-namespace"]
 	if namespaceHeader == "" || namespaceHeader != certificate.Namespace {
-		return VerifySignatureResult{Valid: false, Reason: "Namespace header mismatch"}
+		return invalid(verifyCodeNamespaceMismatch, "Namespace header mismatch")
 	}
 	if strings.TrimSpace(input.ExpectedNamespace) != "" && input.ExpectedNamespace != namespaceHeader {
-		return VerifySignatureResult{Valid: false, Reason: fmt.Sprintf("Namespace mismatch: expected %s, got %s", input.ExpectedNamespace, namespaceHeader)}
+		return invalid(
+			verifyCodeExpectedNamespaceMismatch,
+			fmt.Sprintf("Namespace mismatch: expected %s, got %s", input.ExpectedNamespace, namespaceHeader),
+		)
 	}
 	subjectHeader := strings.TrimSpace(headers["sigilum-subject"])
 	if subjectHeader == "" {
-		return VerifySignatureResult{Valid: false, Reason: "Missing sigilum-subject header"}
+		return invalid(verifyCodeSubjectMissing, "Missing sigilum-subject header")
 	}
 	if strings.TrimSpace(input.ExpectedSubject) != "" && input.ExpectedSubject != subjectHeader {
-		return VerifySignatureResult{Valid: false, Reason: fmt.Sprintf("Subject mismatch: expected %s, got %s", input.ExpectedSubject, subjectHeader)}
+		return invalid(
+			verifyCodeExpectedSubjectMismatch,
+			fmt.Sprintf("Subject mismatch: expected %s, got %s", input.ExpectedSubject, subjectHeader),
+		)
 	}
 	if !containsComponent(parsed.Components, "sigilum-subject") {
-		return VerifySignatureResult{Valid: false, Reason: "Missing sigilum-subject in signed components"}
+		return invalid(verifyCodeSubjectComponentMissing, "Missing sigilum-subject in signed components")
 	}
 	hasBody := len(input.Body) > 0
 	if !hasValidSignedComponentSet(parsed.Components, hasBody) {
-		return VerifySignatureResult{Valid: false, Reason: "Invalid signed component set"}
+		return invalid(verifyCodeSignedComponentsInvalid, "Invalid signed component set")
 	}
 
 	keyHeader := headers["sigilum-agent-key"]
 	if keyHeader == "" {
-		return VerifySignatureResult{Valid: false, Reason: "Missing sigilum-agent-key header"}
+		return invalid(verifyCodeKeyHeaderMissing, "Missing sigilum-agent-key header")
 	}
 	if keyHeader != certificate.PublicKey {
-		return VerifySignatureResult{Valid: false, Reason: "Certificate public key mismatch"}
+		return invalid(verifyCodeKeyMismatch, "Certificate public key mismatch")
 	}
 	if parsed.KeyID != certificate.KeyID {
-		return VerifySignatureResult{Valid: false, Reason: "keyid mismatch"}
+		return invalid(verifyCodeKeyIDMismatch, "keyid mismatch")
 	}
 
 	if len(input.Body) > 0 {
 		expectedDigest := contentDigest(input.Body)
 		if headers["content-digest"] != expectedDigest {
-			return VerifySignatureResult{Valid: false, Reason: "Content digest mismatch"}
+			return invalid(verifyCodeContentDigestMismatch, "Content digest mismatch")
 		}
 	}
 
 	sigParams := signatureParams(parsed.Components, parsed.Created, parsed.KeyID, parsed.Nonce)
 	base, err := signingBase(parsed.Components, normalizeMethod(input.Method), normalizeTargetURI(input.URL), headers, sigParams)
 	if err != nil {
-		return VerifySignatureResult{Valid: false, Reason: err.Error()}
+		return invalid(verifyCodeSigningBaseInvalid, err.Error())
 	}
 
 	publicKey, err := publicKeyFromEncoded(keyHeader)
 	if err != nil {
-		return VerifySignatureResult{Valid: false, Reason: "Invalid sigilum-agent-key header"}
+		return invalid(verifyCodeKeyHeaderInvalid, "Invalid sigilum-agent-key header")
 	}
 
 	if !ed25519.Verify(ed25519.PublicKey(publicKey), base, signature) {
-		return VerifySignatureResult{Valid: false, Reason: "Signature verification failed"}
+		return invalid(verifyCodeVerificationFailed, "Signature verification failed")
 	}
 
 	return VerifySignatureResult{Valid: true, Namespace: certificate.Namespace, Subject: subjectHeader, KeyID: certificate.KeyID}

@@ -69,6 +69,7 @@ describe("RFC 9421 signing", () => {
 
     expect(verified.valid).toBe(false);
     expect(verified.reason).toMatch(/digest/i);
+    expect(verified.code).toBe("SIG_CONTENT_DIGEST_MISMATCH");
   });
 
   it("fails verification when namespace does not match", () => {
@@ -90,6 +91,7 @@ describe("RFC 9421 signing", () => {
 
     expect(verified.valid).toBe(false);
     expect(verified.reason).toMatch(/namespace mismatch/i);
+    expect(verified.code).toBe("SIG_EXPECTED_NAMESPACE_MISMATCH");
   });
 
   it("fails verification when subject does not match", () => {
@@ -113,6 +115,7 @@ describe("RFC 9421 signing", () => {
 
     expect(verified.valid).toBe(false);
     expect(verified.reason).toMatch(/subject mismatch/i);
+    expect(verified.code).toBe("SIG_EXPECTED_SUBJECT_MISMATCH");
   });
 
   it("fails verification when signed component profile is invalid", () => {
@@ -143,5 +146,6 @@ describe("RFC 9421 signing", () => {
 
     expect(verified.valid).toBe(false);
     expect(verified.reason).toMatch(/component set/i);
+    expect(verified.code).toBe("SIG_SIGNED_COMPONENTS_INVALID");
   });
 });

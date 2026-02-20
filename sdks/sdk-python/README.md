@@ -92,6 +92,11 @@ agent.sigilum.fetch(
 All protected API endpoints require signed headers. This SDK signs requests with Ed25519 using RFC 9421-style `Signature-Input` and `Signature`, including `sigilum-namespace`, `sigilum-subject`, `sigilum-agent-key`, and `sigilum-agent-cert`.
 Use a stable `sigilum-subject` principal id; gateway policy can use it for subject-level controls.
 
+`verify_http_signature(...)` returns deterministic failure metadata for automation:
+
+- `code` (stable machine code such as `SIG_CONTENT_DIGEST_MISMATCH`)
+- `reason` (human-readable detail)
+
 ## Auth note
 
 Signed headers prove agent identity. Some endpoints also require additional auth:

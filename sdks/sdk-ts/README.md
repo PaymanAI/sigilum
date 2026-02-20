@@ -96,6 +96,11 @@ All protected API endpoints require signed headers. This SDK signs requests with
 
 Use a stable `sigilum-subject` principal id (not a random per-request value); gateway policy can use it for subject-level controls.
 
+`verifyHttpSignature(...)` returns deterministic failure metadata for automation:
+
+- `code` (stable machine code such as `SIG_CONTENT_DIGEST_MISMATCH`)
+- `reason` (human-readable detail)
+
 ## Auth note
 
 Signed headers prove agent identity. Some endpoints also require additional auth:

@@ -58,6 +58,7 @@ class SignedRequest:
 @dataclass(frozen=True)
 class VerifySignatureResult:
     valid: bool
+    code: str | None = None
     namespace: str | None = None
     subject: str | None = None
     key_id: str | None = None

@@ -53,6 +53,7 @@ def test_verify_fails_on_body_tamper() -> None:
         )
 
         assert result.valid is False
+        assert result.code == "SIG_CONTENT_DIGEST_MISMATCH"
         assert result.reason is not None
         assert "digest" in result.reason.lower()
 
@@ -78,6 +79,7 @@ def test_verify_fails_on_subject_mismatch() -> None:
         )
 
         assert result.valid is False
+        assert result.code == "SIG_EXPECTED_SUBJECT_MISMATCH"
         assert result.reason is not None
         assert "subject mismatch" in result.reason.lower()
 
@@ -104,5 +106,6 @@ def test_verify_fails_on_invalid_signed_component_set() -> None:
         )
 
         assert result.valid is False
+        assert result.code == "SIG_SIGNED_COMPONENTS_INVALID"
         assert result.reason is not None
         assert "component set" in result.reason.lower()

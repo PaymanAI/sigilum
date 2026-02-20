@@ -82,6 +82,11 @@ All protected API endpoints require signed headers. Requests are signed with Ed2
 Signed identity headers include `sigilum-namespace`, `sigilum-subject`, `sigilum-agent-key`, and `sigilum-agent-cert`.
 Use a stable `sigilum-subject` principal id; gateway policy may apply subject-level controls using this value.
 
+`VerifyHTTPSignature` returns deterministic failure metadata for automation:
+
+- `Code` (stable machine code such as `SIG_CONTENT_DIGEST_MISMATCH`)
+- `Reason` (human-readable detail)
+
 ## Auth note
 
 Signed headers prove agent identity. Some endpoints also require additional auth:

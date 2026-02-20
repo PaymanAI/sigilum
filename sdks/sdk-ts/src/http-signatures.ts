@@ -278,21 +278,35 @@ export function signHttpRequest(
 export function verifyHttpSignature(
   request: VerifySignatureInput,
 ): VerifySignatureResult {
+  const invalid = (code: string, reason: string): VerifySignatureResult => ({
+    valid: false,
+    code,
+    reason,
+  });
+
   try {
     const headers = new Headers(request.headers as any);
     const signatureInput = headers.get("signature-input");
     const signatureHeader = headers.get("signature");
 
     if (!signatureInput || !signatureHeader) {
-      return { valid: false, reason: "Missing Signature-Input or Signature header" };
+      return invalid("SIG_MISSING_SIGNATURE_HEADERS", "Missing Signature-Input or Signature header");
     }
 
-    const parsedInput = parseSignatureInputHeader(signatureInput);
+    let parsedInput: SignatureInputParts;
+    try {
+      parsedInput = parseSignatureInputHeader(signatureInput);
+    } catch (error) {
+      return invalid(
+        "SIG_SIGNATURE_INPUT_INVALID",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     if (!Number.isFinite(parsedInput.created) || parsedInput.created <= 0) {
-      return { valid: false, reason: "Invalid Signature-Input created timestamp" };
+      return invalid("SIG_CREATED_INVALID", "Invalid Signature-Input created timestamp");
     }
     if (parsedInput.alg.toLowerCase() !== "ed25519") {
-      return { valid: false, reason: "Unsupported signature algorithm" };
+      return invalid("SIG_ALGORITHM_UNSUPPORTED", "Unsupported signature algorithm");
     }
 
     const strict = request.strict;
@@ -300,17 +314,25 @@ export function verifyHttpSignature(
       const now = strict.now ?? Math.floor(Date.now() / 1000);
       const age = now - parsedInput.created;
       if (age < 0 || age > strict.maxAgeSeconds) {
-        return { valid: false, reason: "Signature expired or not yet valid" };
+        return invalid("SIG_TIMESTAMP_OUT_OF_RANGE", "Signature expired or not yet valid");
       }
     }
     if (strict?.nonceStore) {
       if (strict.nonceStore.has(parsedInput.nonce)) {
-        return { valid: false, reason: "Replay detected: nonce already seen" };
+        return invalid("SIG_REPLAY_DETECTED", "Replay detected: nonce already seen");
       }
       strict.nonceStore.add(parsedInput.nonce);
     }
 
-    const signature = parseSignatureHeader(signatureHeader);
+    let signature: Uint8Array;
+    try {
+      signature = parseSignatureHeader(signatureHeader);
+    } catch (error) {
+      return invalid(
+        "SIG_SIGNATURE_HEADER_INVALID",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     const method = request.method.toUpperCase();
     const url = normalizeUrl(request.url);
     const signatureParams = buildSignatureParams({
@@ -320,83 +342,108 @@ export function verifyHttpSignature(
       nonce: parsedInput.nonce,
     });
 
-    const signingBase = buildSigningBase({
-      components: parsedInput.components,
-      method,
-      url,
-      headers,
-      signatureParams,
-    });
+    let signingBase: string;
+    try {
+      signingBase = buildSigningBase({
+        components: parsedInput.components,
+        method,
+        url,
+        headers,
+        signatureParams,
+      });
+    } catch (error) {
+      return invalid(
+        "SIG_SIGNING_BASE_INVALID",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
 
     const certificateHeader = headers.get("sigilum-agent-cert");
     if (!certificateHeader) {
-      return { valid: false, reason: "Missing sigilum-agent-cert header" };
+      return invalid("SIG_CERT_HEADER_MISSING", "Missing sigilum-agent-cert header");
     }
-    const certificate = decodeCertificateHeader(certificateHeader);
+    let certificate: SigilumCertificate;
+    try {
+      certificate = decodeCertificateHeader(certificateHeader);
+    } catch (error) {
+      return invalid(
+        "SIG_CERT_HEADER_INVALID",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
 
     if (!verifyCertificate(certificate)) {
-      return { valid: false, reason: "Invalid agent certificate" };
+      return invalid("SIG_CERT_INVALID", "Invalid agent certificate");
     }
 
     const publicKeyHeader = headers.get("sigilum-agent-key");
     if (!publicKeyHeader) {
-      return { valid: false, reason: "Missing sigilum-agent-key header" };
+      return invalid("SIG_KEY_HEADER_MISSING", "Missing sigilum-agent-key header");
     }
 
     if (certificate.publicKey !== publicKeyHeader) {
-      return { valid: false, reason: "Certificate public key mismatch" };
+      return invalid("SIG_KEY_MISMATCH", "Certificate public key mismatch");
     }
 
     const namespaceHeader = headers.get("sigilum-namespace");
     if (!namespaceHeader || namespaceHeader !== certificate.namespace) {
-      return { valid: false, reason: "Namespace header mismatch" };
+      return invalid("SIG_NAMESPACE_MISMATCH", "Namespace header mismatch");
     }
     const subjectHeader = headers.get("sigilum-subject")?.trim();
     if (!subjectHeader) {
-      return { valid: false, reason: "Missing sigilum-subject header" };
+      return invalid("SIG_SUBJECT_MISSING", "Missing sigilum-subject header");
     }
     if (!hasComponent(parsedInput.components, "sigilum-subject")) {
-      return { valid: false, reason: "Missing sigilum-subject in signed components" };
+      return invalid("SIG_SUBJECT_COMPONENT_MISSING", "Missing sigilum-subject in signed components");
     }
 
     const bodyBytes = normalizeBody(request.body);
     const hasBody = Boolean(bodyBytes && bodyBytes.length > 0);
     if (!hasValidSignedComponentSet(parsedInput.components, hasBody)) {
-      return { valid: false, reason: "Invalid signed component set" };
+      return invalid("SIG_SIGNED_COMPONENTS_INVALID", "Invalid signed component set");
     }
 
     if (request.expectedNamespace && request.expectedNamespace !== namespaceHeader) {
-      return {
-        valid: false,
-        reason: `Namespace mismatch: expected ${request.expectedNamespace}, got ${namespaceHeader}`,
-      };
+      return invalid(
+        "SIG_EXPECTED_NAMESPACE_MISMATCH",
+        `Namespace mismatch: expected ${request.expectedNamespace}, got ${namespaceHeader}`,
+      );
     }
     if (request.expectedSubject && request.expectedSubject !== subjectHeader) {
-      return {
-        valid: false,
-        reason: `Subject mismatch: expected ${request.expectedSubject}, got ${subjectHeader}`,
-      };
+      return invalid(
+        "SIG_EXPECTED_SUBJECT_MISMATCH",
+        `Subject mismatch: expected ${request.expectedSubject}, got ${subjectHeader}`,
+      );
     }
 
     if (parsedInput.keyId !== certificate.keyId) {
-      return { valid: false, reason: "keyid mismatch" };
+      return invalid("SIG_KEY_ID_MISMATCH", "keyid mismatch");
     }
 
     if (bodyBytes && bodyBytes.length > 0) {
       const expectedDigest = computeContentDigest(bodyBytes);
       if (headers.get("content-digest") !== expectedDigest) {
-        return { valid: false, reason: "Content digest mismatch" };
+        return invalid("SIG_CONTENT_DIGEST_MISMATCH", "Content digest mismatch");
       }
     }
 
+    let publicKey: Uint8Array;
+    try {
+      publicKey = parsePublicKey(publicKeyHeader);
+    } catch (error) {
+      return invalid(
+        "SIG_KEY_HEADER_INVALID",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     const valid = ed.verify(
       signature,
       new TextEncoder().encode(signingBase),
-      parsePublicKey(publicKeyHeader),
+      publicKey,
     );
 
     if (!valid) {
-      return { valid: false, reason: "Signature verification failed" };
+      return invalid("SIG_VERIFICATION_FAILED", "Signature verification failed");
     }
 
     return {
@@ -406,9 +453,6 @@ export function verifyHttpSignature(
       keyId: certificate.keyId,
     };
   } catch (error) {
-    return {
-      valid: false,
-      reason: error instanceof Error ? error.message : String(error),
-    };
+    return invalid("SIG_INTERNAL_ERROR", error instanceof Error ? error.message : String(error));
   }
 }

@@ -114,6 +114,7 @@ export interface VerifySignatureInput {
 
 export interface VerifySignatureResult {
   valid: boolean;
+  code?: string;
   namespace?: string;
   subject?: string;
   keyId?: string;
