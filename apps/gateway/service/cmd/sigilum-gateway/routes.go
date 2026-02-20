@@ -86,7 +86,7 @@ func registerHealthRoute(
 }
 
 func registerMetricsRoute(mux *http.ServeMux, cfg config.Config) {
-	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/metrics", withRequestTimeout(cfg.AdminRequestTimeout, func(w http.ResponseWriter, r *http.Request) {
 		setCORSHeaders(w, r, cfg.AllowedOrigins)
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -102,7 +102,7 @@ func registerMetricsRoute(mux *http.ServeMux, cfg config.Config) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write([]byte(gatewayMetricRegistry.renderPrometheus()))
-	})
+	}))
 }
 
 func registerAdminRoutes(
@@ -112,7 +112,7 @@ func registerAdminRoutes(
 	catalogStore *catalog.Store,
 	mcpClient *mcpruntime.Client,
 ) {
-	mux.HandleFunc("/api/admin/connections", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/admin/connections", withRequestTimeout(cfg.AdminRequestTimeout, func(w http.ResponseWriter, r *http.Request) {
 		setCORSHeaders(w, r, cfg.AllowedOrigins)
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -150,9 +150,9 @@ func registerAdminRoutes(
 		default:
 			writeMethodNotAllowed(w)
 		}
-	})
+	}))
 
-	mux.HandleFunc("/api/admin/connections/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/admin/connections/", withRequestTimeout(cfg.AdminRequestTimeout, func(w http.ResponseWriter, r *http.Request) {
 		setCORSHeaders(w, r, cfg.AllowedOrigins)
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -324,9 +324,9 @@ func registerAdminRoutes(
 		default:
 			writeNotFound(w, "admin action not found")
 		}
-	})
+	}))
 
-	mux.HandleFunc("/api/admin/credential-variables", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/admin/credential-variables", withRequestTimeout(cfg.AdminRequestTimeout, func(w http.ResponseWriter, r *http.Request) {
 		setCORSHeaders(w, r, cfg.AllowedOrigins)
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -362,9 +362,9 @@ func registerAdminRoutes(
 		default:
 			writeMethodNotAllowed(w)
 		}
-	})
+	}))
 
-	mux.HandleFunc("/api/admin/credential-variables/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/admin/credential-variables/", withRequestTimeout(cfg.AdminRequestTimeout, func(w http.ResponseWriter, r *http.Request) {
 		setCORSHeaders(w, r, cfg.AllowedOrigins)
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -390,9 +390,9 @@ func registerAdminRoutes(
 		default:
 			writeMethodNotAllowed(w)
 		}
-	})
+	}))
 
-	mux.HandleFunc("/api/admin/service-api-keys/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/admin/service-api-keys/", withRequestTimeout(cfg.AdminRequestTimeout, func(w http.ResponseWriter, r *http.Request) {
 		setCORSHeaders(w, r, cfg.AllowedOrigins)
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -449,9 +449,9 @@ func registerAdminRoutes(
 		default:
 			writeMethodNotAllowed(w)
 		}
-	})
+	}))
 
-	mux.HandleFunc("/api/admin/service-catalog", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/admin/service-catalog", withRequestTimeout(cfg.AdminRequestTimeout, func(w http.ResponseWriter, r *http.Request) {
 		setCORSHeaders(w, r, cfg.AllowedOrigins)
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -487,7 +487,7 @@ func registerAdminRoutes(
 		default:
 			writeMethodNotAllowed(w)
 		}
-	})
+	}))
 }
 
 func registerRuntimeRoutes(
@@ -498,18 +498,18 @@ func registerRuntimeRoutes(
 	connectorService *connectors.Service,
 	mcpClient *mcpruntime.Client,
 ) {
-	mux.HandleFunc("/proxy/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/proxy/", withRequestTimeout(cfg.ProxyRequestTimeout, func(w http.ResponseWriter, r *http.Request) {
 		handleProxyRequest(w, r, nonceCache, claimsCache, connectorService, cfg)
-	})
-	mux.HandleFunc("/mcp/", func(w http.ResponseWriter, r *http.Request) {
+	}))
+	mux.HandleFunc("/mcp/", withRequestTimeout(cfg.MCPRequestTimeout, func(w http.ResponseWriter, r *http.Request) {
 		handleMCPRequest(w, r, nonceCache, claimsCache, connectorService, mcpClient, cfg)
-	})
-	mux.HandleFunc("/slack", func(w http.ResponseWriter, r *http.Request) {
+	}))
+	mux.HandleFunc("/slack", withRequestTimeout(cfg.ProxyRequestTimeout, func(w http.ResponseWriter, r *http.Request) {
 		handleProxyRequest(w, r, nonceCache, claimsCache, connectorService, cfg)
-	})
-	mux.HandleFunc("/slack/", func(w http.ResponseWriter, r *http.Request) {
+	}))
+	mux.HandleFunc("/slack/", withRequestTimeout(cfg.ProxyRequestTimeout, func(w http.ResponseWriter, r *http.Request) {
 		handleProxyRequest(w, r, nonceCache, claimsCache, connectorService, cfg)
-	})
+	}))
 }
 
 func registerRootRoute(mux *http.ServeMux) {

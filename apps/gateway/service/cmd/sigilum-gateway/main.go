@@ -142,11 +142,14 @@ func main() {
 	)
 	log.Printf("gateway replay protection storage=file nonce_ttl=%s nonce_store=%s", cfg.NonceTTL, nonceStorePath)
 	log.Printf(
-		"gateway runtime claims_cache_ttl=%s claims_refresh_interval=%s mcp_discovery_cache_ttl=%s mcp_discovery_stale_if_error=%s max_request_body_bytes=%d shutdown_timeout=%s slack_alias_connection_id=%s rotation_enforcement=%s rotation_grace=%s log_proxy_requests=%t",
+		"gateway runtime claims_cache_ttl=%s claims_refresh_interval=%s mcp_discovery_cache_ttl=%s mcp_discovery_stale_if_error=%s admin_timeout=%s proxy_timeout=%s mcp_timeout=%s max_request_body_bytes=%d shutdown_timeout=%s slack_alias_connection_id=%s rotation_enforcement=%s rotation_grace=%s log_proxy_requests=%t",
 		cfg.ClaimsCacheTTL,
 		cfg.ClaimsCacheRefreshInterval,
 		cfg.MCPDiscoveryCacheTTL,
 		cfg.MCPDiscoveryStaleIfError,
+		cfg.AdminRequestTimeout,
+		cfg.ProxyRequestTimeout,
+		cfg.MCPRequestTimeout,
 		cfg.MaxRequestBodyBytes,
 		cfg.ShutdownTimeout,
 		slackAliasConnectionID,

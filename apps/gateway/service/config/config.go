@@ -46,6 +46,9 @@ type Config struct {
 	TimestampTolerance         time.Duration
 	NonceTTL                   time.Duration
 	ShutdownTimeout            time.Duration
+	AdminRequestTimeout        time.Duration
+	ProxyRequestTimeout        time.Duration
+	MCPRequestTimeout          time.Duration
 }
 
 func Load() (Config, error) {
@@ -81,6 +84,9 @@ func Load() (Config, error) {
 		TimestampTolerance:         5 * time.Minute,
 		NonceTTL:                   10 * time.Minute,
 		ShutdownTimeout:            15 * time.Second,
+		AdminRequestTimeout:        20 * time.Second,
+		ProxyRequestTimeout:        120 * time.Second,
+		MCPRequestTimeout:          90 * time.Second,
 		RegistryRequestTimeout:     60 * time.Second,
 	}
 
@@ -159,6 +165,21 @@ func Load() (Config, error) {
 		return Config{}, err
 	} else {
 		cfg.ShutdownTimeout = time.Duration(seconds) * time.Second
+	}
+	if seconds, err := getEnvInt("GATEWAY_ADMIN_TIMEOUT_SECONDS", int(cfg.AdminRequestTimeout/time.Second)); err != nil {
+		return Config{}, err
+	} else {
+		cfg.AdminRequestTimeout = time.Duration(seconds) * time.Second
+	}
+	if seconds, err := getEnvInt("GATEWAY_PROXY_TIMEOUT_SECONDS", int(cfg.ProxyRequestTimeout/time.Second)); err != nil {
+		return Config{}, err
+	} else {
+		cfg.ProxyRequestTimeout = time.Duration(seconds) * time.Second
+	}
+	if seconds, err := getEnvInt("GATEWAY_MCP_TIMEOUT_SECONDS", int(cfg.MCPRequestTimeout/time.Second)); err != nil {
+		return Config{}, err
+	} else {
+		cfg.MCPRequestTimeout = time.Duration(seconds) * time.Second
 	}
 	if seconds, err := getEnvInt("GATEWAY_CLAIMS_CACHE_TTL_SECONDS", int(cfg.ClaimsCacheTTL/time.Second)); err != nil {
 		return Config{}, err

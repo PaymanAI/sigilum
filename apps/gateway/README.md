@@ -37,6 +37,7 @@ Gateway service code is organized under `apps/gateway/service`:
 - Uses explicit MCP session lifecycle states (`initialize_required` -> `ready` -> `reinitialize_pending`) with bounded recovery/retry behavior.
 - Discovers MCP tools (`/api/admin/connections/{id}/discover`) and stores discovery metadata locally.
 - Applies MCP discovery cache policy with TTL and stale-if-error fallback; forced refresh is available via `refresh=force`.
+- Applies route-class timeouts for admin, proxy, and MCP runtime requests.
 - Exposes filtered MCP tools at runtime:
   - `GET /mcp/{connection_id}/tools`
   - `GET /mcp/{connection_id}/tools/{tool}/explain`
@@ -319,6 +320,9 @@ Key variables:
 - `GATEWAY_ADMIN_TOKEN` - admin token used in `token`/`hybrid` admin access mode.
 - `GATEWAY_MCP_DISCOVERY_CACHE_TTL_SECONDS` - MCP discovery cache freshness window (default `300`).
 - `GATEWAY_MCP_DISCOVERY_STALE_IF_ERROR_SECONDS` - stale cache fallback window after TTL when refresh fails (default `3600`).
+- `GATEWAY_ADMIN_TIMEOUT_SECONDS` - timeout for admin/metrics handlers (default `20`).
+- `GATEWAY_PROXY_TIMEOUT_SECONDS` - timeout for `/proxy/*` and `/slack*` runtime handlers (default `120`).
+- `GATEWAY_MCP_TIMEOUT_SECONDS` - timeout for `/mcp/*` runtime handlers (default `90`).
 - Default local port block:
   - Envoy ingress: `38000`
   - Gateway service: `38100`

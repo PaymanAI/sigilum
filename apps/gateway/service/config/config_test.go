@@ -185,6 +185,27 @@ func TestLoadParsesClaimsCacheMaxApproved(t *testing.T) {
 	}
 }
 
+func TestLoadParsesRouteTimeouts(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_ADMIN_TIMEOUT_SECONDS", "25")
+	t.Setenv("GATEWAY_PROXY_TIMEOUT_SECONDS", "180")
+	t.Setenv("GATEWAY_MCP_TIMEOUT_SECONDS", "75")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.AdminRequestTimeout != 25*time.Second {
+		t.Fatalf("expected admin timeout 25s, got %s", cfg.AdminRequestTimeout)
+	}
+	if cfg.ProxyRequestTimeout != 180*time.Second {
+		t.Fatalf("expected proxy timeout 180s, got %s", cfg.ProxyRequestTimeout)
+	}
+	if cfg.MCPRequestTimeout != 75*time.Second {
+		t.Fatalf("expected mcp timeout 75s, got %s", cfg.MCPRequestTimeout)
+	}
+}
+
 func TestLoadParsesMCPDiscoveryCachePolicy(t *testing.T) {
 	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
 	t.Setenv("GATEWAY_MCP_DISCOVERY_CACHE_TTL_SECONDS", "120")
