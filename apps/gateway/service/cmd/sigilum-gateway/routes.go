@@ -274,31 +274,53 @@ func registerAdminRoutes(
 				writeConnectionError(w, err)
 				return
 			}
+			refreshMode, err := parseMCPDiscoveryRefreshMode(r.URL.Query().Get("refresh"), mcpDiscoveryRefreshModeForce)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, errorResponse{
+					Error: err.Error(),
+					Code:  "INVALID_REFRESH_MODE",
+				})
+				return
+			}
 			discoveryStart := time.Now()
-			discovery, err := mcpClient.Discover(r.Context(), proxyCfg)
+			resolution, err := resolveMCPDiscovery(
+				r.Context(),
+				connectionID,
+				proxyCfg,
+				connectorService,
+				mcpClient,
+				cfg.MCPDiscoveryCacheTTL,
+				cfg.MCPDiscoveryStaleIfError,
+				refreshMode,
+				discoveryStart,
+			)
 			if err != nil {
 				gatewayMetricRegistry.recordMCPDiscovery("error")
 				gatewayMetricRegistry.observeUpstream("mcp", "error", time.Since(discoveryStart))
 				gatewayMetricRegistry.recordUpstreamError("MCP_DISCOVERY_FAILED")
-				conn.MCPDiscovery.LastDiscoveredAt = time.Now().UTC()
-				conn.MCPDiscovery.LastDiscoveryError = err.Error()
-				if _, saveErr := connectorService.SaveMCPDiscovery(connectionID, conn.MCPDiscovery); saveErr != nil {
-					log.Printf("warning: failed to persist mcp discovery error for %s: %v", connectionID, saveErr)
-				}
 				writeJSON(w, http.StatusBadGateway, errorResponse{
 					Error: fmt.Sprintf("mcp discovery failed: %v", err),
 					Code:  "MCP_DISCOVERY_FAILED",
 				})
 				return
 			}
-			gatewayMetricRegistry.recordMCPDiscovery("success")
-			gatewayMetricRegistry.observeUpstream("mcp", "success", time.Since(discoveryStart))
-			updated, err := connectorService.SaveMCPDiscovery(connectionID, discovery)
-			if err != nil {
-				writeConnectionError(w, err)
-				return
+
+			if resolution.AttemptedRefresh {
+				if resolution.RefreshError != nil {
+					gatewayMetricRegistry.recordMCPDiscovery(string(mcpDiscoverySourceStaleIfError))
+					gatewayMetricRegistry.observeUpstream("mcp", "error", time.Since(discoveryStart))
+					gatewayMetricRegistry.recordUpstreamError("MCP_DISCOVERY_FAILED")
+				} else {
+					gatewayMetricRegistry.recordMCPDiscovery("success")
+					gatewayMetricRegistry.observeUpstream("mcp", "success", time.Since(discoveryStart))
+				}
+			} else {
+				gatewayMetricRegistry.recordMCPDiscovery(string(resolution.Source))
 			}
-			writeJSON(w, http.StatusOK, updated.MCPDiscovery)
+			if resolution.Source != "" {
+				w.Header().Set("X-Sigilum-MCP-Discovery", string(resolution.Source))
+			}
+			writeJSON(w, http.StatusOK, resolution.Connection.MCPDiscovery)
 		default:
 			writeNotFound(w, "admin action not found")
 		}

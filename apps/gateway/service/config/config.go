@@ -26,6 +26,8 @@ type Config struct {
 	ClaimsCacheTTL             time.Duration
 	ClaimsCacheRefreshInterval time.Duration
 	ClaimsCacheMaxApproved     int
+	MCPDiscoveryCacheTTL       time.Duration
+	MCPDiscoveryStaleIfError   time.Duration
 	SigilumNamespace           string
 	SigilumHomeDir             string
 	ServiceAPIKey              string
@@ -63,6 +65,8 @@ func Load() (Config, error) {
 		ClaimsCacheTTL:             30 * time.Second,
 		ClaimsCacheRefreshInterval: 10 * time.Second,
 		ClaimsCacheMaxApproved:     10_000,
+		MCPDiscoveryCacheTTL:       5 * time.Minute,
+		MCPDiscoveryStaleIfError:   time.Hour,
 		TrustedProxyCIDRs:          []*net.IPNet{},
 		LogProxyRequests:           true,
 		AutoRegisterClaims:         true,
@@ -170,6 +174,16 @@ func Load() (Config, error) {
 		return Config{}, err
 	} else {
 		cfg.ClaimsCacheMaxApproved = value
+	}
+	if seconds, err := getEnvIntMin("GATEWAY_MCP_DISCOVERY_CACHE_TTL_SECONDS", int(cfg.MCPDiscoveryCacheTTL/time.Second), 0); err != nil {
+		return Config{}, err
+	} else {
+		cfg.MCPDiscoveryCacheTTL = time.Duration(seconds) * time.Second
+	}
+	if seconds, err := getEnvIntMin("GATEWAY_MCP_DISCOVERY_STALE_IF_ERROR_SECONDS", int(cfg.MCPDiscoveryStaleIfError/time.Second), 0); err != nil {
+		return Config{}, err
+	} else {
+		cfg.MCPDiscoveryStaleIfError = time.Duration(seconds) * time.Second
 	}
 	if cfg.ClaimsCacheRefreshInterval > cfg.ClaimsCacheTTL {
 		cfg.ClaimsCacheRefreshInterval = cfg.ClaimsCacheTTL

@@ -204,30 +204,62 @@ func handleMCPRequest(
 		})
 	}
 
-	tools := proxyCfg.Connection.MCPDiscovery.Tools
-	if shouldAutoDiscoverMCPTools(proxyCfg.Connection) {
-		discoveryStart := time.Now()
-		discovery, err := mcpClient.Discover(r.Context(), proxyCfg)
-		if err != nil {
-			gatewayMetricRegistry.recordMCPDiscovery("error")
+	refreshMode, err := parseMCPDiscoveryRefreshMode(r.URL.Query().Get("refresh"), mcpDiscoveryRefreshModeAuto)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{
+			Error: err.Error(),
+			Code:  "INVALID_REFRESH_MODE",
+		})
+		return
+	}
+
+	discoveryStart := time.Now()
+	discoveryResolution, err := resolveMCPDiscovery(
+		r.Context(),
+		connectionID,
+		proxyCfg,
+		connectorService,
+		mcpClient,
+		cfg.MCPDiscoveryCacheTTL,
+		cfg.MCPDiscoveryStaleIfError,
+		refreshMode,
+		discoveryStart,
+	)
+	if err != nil {
+		gatewayMetricRegistry.recordMCPDiscovery("error")
+		gatewayMetricRegistry.observeUpstream("mcp", "error", time.Since(discoveryStart))
+		gatewayMetricRegistry.recordUpstreamError("MCP_DISCOVERY_FAILED")
+		writeJSON(w, http.StatusBadGateway, errorResponse{
+			Error: fmt.Sprintf("mcp discovery failed: %v", err),
+			Code:  "MCP_DISCOVERY_FAILED",
+		})
+		return
+	}
+
+	if discoveryResolution.AttemptedRefresh {
+		if discoveryResolution.RefreshError != nil {
+			gatewayMetricRegistry.recordMCPDiscovery(string(mcpDiscoverySourceStaleIfError))
 			gatewayMetricRegistry.observeUpstream("mcp", "error", time.Since(discoveryStart))
 			gatewayMetricRegistry.recordUpstreamError("MCP_DISCOVERY_FAILED")
-			writeJSON(w, http.StatusBadGateway, errorResponse{
-				Error: fmt.Sprintf("mcp discovery failed: %v", err),
-				Code:  "MCP_DISCOVERY_FAILED",
+			logGatewayDecisionIf(cfg.LogProxyRequests, "mcp_discovery_stale_if_error", map[string]any{
+				"request_id":  requestID,
+				"connection":  connectionID,
+				"reason_code": "MCP_DISCOVERY_STALE_IF_ERROR",
+				"error":       discoveryResolution.RefreshError,
 			})
-			return
+		} else {
+			gatewayMetricRegistry.recordMCPDiscovery("success")
+			gatewayMetricRegistry.observeUpstream("mcp", "success", time.Since(discoveryStart))
 		}
-		gatewayMetricRegistry.recordMCPDiscovery("success")
-		gatewayMetricRegistry.observeUpstream("mcp", "success", time.Since(discoveryStart))
-		updated, err := connectorService.SaveMCPDiscovery(connectionID, discovery)
-		if err != nil {
-			writeConnectionError(w, err)
-			return
-		}
-		tools = updated.MCPDiscovery.Tools
-		proxyCfg.Connection = updated
+	} else {
+		gatewayMetricRegistry.recordMCPDiscovery(string(discoveryResolution.Source))
 	}
+
+	if discoveryResolution.Source != "" {
+		w.Header().Set("X-Sigilum-MCP-Discovery", string(discoveryResolution.Source))
+	}
+	proxyCfg.Connection = discoveryResolution.Connection
+	tools := proxyCfg.Connection.MCPDiscovery.Tools
 
 	effectivePolicy := mcpruntime.EffectiveToolPolicy(
 		proxyCfg.Connection.MCPToolPolicy,
@@ -243,9 +275,10 @@ func handleMCPRequest(
 		}
 		filteredTools := mcpruntime.FilterTools(tools, effectivePolicy)
 		writeJSON(w, http.StatusOK, map[string]any{
-			"connection_id": connectionID,
-			"subject":       identity.Subject,
-			"tools":         filteredTools,
+			"connection_id":          connectionID,
+			"subject":                identity.Subject,
+			"discovery_cache_status": string(discoveryResolution.Source),
+			"tools":                  filteredTools,
 		})
 	case "call":
 		if r.Method != http.MethodPost {
@@ -283,9 +316,10 @@ func handleMCPRequest(
 		gatewayMetricRegistry.observeUpstream("mcp", "success", time.Since(toolCallStart))
 
 		writeJSON(w, http.StatusOK, map[string]any{
-			"connection_id": connectionID,
-			"tool":          toolName,
-			"result":        json.RawMessage(result),
+			"connection_id":          connectionID,
+			"tool":                   toolName,
+			"discovery_cache_status": string(discoveryResolution.Source),
+			"result":                 json.RawMessage(result),
 		})
 	default:
 		writeNotFound(w, "mcp action not found")

@@ -36,6 +36,7 @@ Gateway service code is organized under `apps/gateway/service`:
 - Supports MCP connections (`protocol: "mcp"`) with streamable HTTP transport.
 - Uses explicit MCP session lifecycle states (`initialize_required` -> `ready` -> `reinitialize_pending`) with bounded recovery/retry behavior.
 - Discovers MCP tools (`/api/admin/connections/{id}/discover`) and stores discovery metadata locally.
+- Applies MCP discovery cache policy with TTL and stale-if-error fallback; forced refresh is available via `refresh=force`.
 - Exposes filtered MCP tools at runtime:
   - `GET /mcp/{connection_id}/tools`
   - `POST /mcp/{connection_id}/tools/{tool}/call`
@@ -65,8 +66,10 @@ Service catalog templates now support both HTTP and MCP provider definitions:
   - requires upstream auth secret configuration (`auth_secret_key` + secret material)
 - `protocol: "mcp"`
   - runtime paths: `/mcp/{connection_id}/tools` and `/mcp/{connection_id}/tools/{tool}/call`
+  - runtime `refresh` query modes: `auto` (default cache policy) or `force` (bypass cache and refresh discovery)
   - optional auth secret configuration (only required when MCP upstream requires credentials)
-  - supports discovery (`POST /api/admin/connections/{id}/discover`) and per-subject tool policy filtering
+  - supports discovery (`POST /api/admin/connections/{id}/discover`) with `refresh=force` (default) or `refresh=auto`
+  - applies per-subject tool policy filtering
 - Shared credential variable references (`{{KEY}}`) are resolved for both HTTP and MCP connections.
 
 ## Request Flow (Proxy)
@@ -121,8 +124,8 @@ Canonical schema:
     - `/<proxy>/proxy/{connection_id}/...`
     - `/<proxy>/slack/...`
 - MCP Runtime:
-  - `GET /mcp/{connection_id}/tools`
-  - `POST /mcp/{connection_id}/tools/{tool}/call`
+  - `GET /mcp/{connection_id}/tools` (`refresh=auto|force`, default `auto`)
+  - `POST /mcp/{connection_id}/tools/{tool}/call` (`refresh=auto|force`, default `auto`)
 - Admin:
   - `GET /api/admin/connections`
   - `POST /api/admin/connections`
@@ -131,7 +134,7 @@ Canonical schema:
   - `DELETE /api/admin/connections/{id}`
   - `POST /api/admin/connections/{id}/rotate`
   - `POST /api/admin/connections/{id}/test`
-  - `POST /api/admin/connections/{id}/discover`
+  - `POST /api/admin/connections/{id}/discover` (`refresh=auto|force`, default `force`)
   - `GET /api/admin/credential-variables`
   - `POST /api/admin/credential-variables`
   - `DELETE /api/admin/credential-variables/{key}`
@@ -311,6 +314,8 @@ Key variables:
 - `GATEWAY_REQUIRE_SIGNED_ADMIN_CHECKS` - require Sigilum-signed, claim-approved caller on admin `test/discover` routes (default `true`).
 - `GATEWAY_ADMIN_ACCESS_MODE` - admin API trust model: `hybrid` (default), `loopback`, or `token`.
 - `GATEWAY_ADMIN_TOKEN` - admin token used in `token`/`hybrid` admin access mode.
+- `GATEWAY_MCP_DISCOVERY_CACHE_TTL_SECONDS` - MCP discovery cache freshness window (default `300`).
+- `GATEWAY_MCP_DISCOVERY_STALE_IF_ERROR_SECONDS` - stale cache fallback window after TTL when refresh fails (default `3600`).
 - Default local port block:
   - Envoy ingress: `38000`
   - Gateway service: `38100`

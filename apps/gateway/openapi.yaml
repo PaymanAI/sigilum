@@ -146,6 +146,15 @@ paths:
           type: string
     post:
       summary: Run MCP discovery for a connection
+      parameters:
+        - in: query
+          name: refresh
+          required: false
+          description: Refresh mode (`force` bypasses cache, `auto` uses cache policy).
+          schema:
+            type: string
+            enum: [auto, force]
+            default: force
       responses:
         "200":
           description: Discovery metadata
@@ -197,6 +206,15 @@ paths:
           type: string
     get:
       summary: List filtered MCP tools for the signed subject
+      parameters:
+        - in: query
+          name: refresh
+          required: false
+          description: Discovery refresh mode (`auto` uses cache, `force` bypasses cache).
+          schema:
+            type: string
+            enum: [auto, force]
+            default: auto
       responses:
         "200":
           description: Tool list
@@ -218,6 +236,15 @@ paths:
           type: string
     post:
       summary: Call an MCP tool
+      parameters:
+        - in: query
+          name: refresh
+          required: false
+          description: Discovery refresh mode (`auto` uses cache, `force` bypasses cache).
+          schema:
+            type: string
+            enum: [auto, force]
+            default: auto
       requestBody:
         required: false
         content:

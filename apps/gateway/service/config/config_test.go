@@ -184,3 +184,29 @@ func TestLoadParsesClaimsCacheMaxApproved(t *testing.T) {
 		t.Fatalf("expected claims cache max approved 321, got %d", cfg.ClaimsCacheMaxApproved)
 	}
 }
+
+func TestLoadParsesMCPDiscoveryCachePolicy(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_MCP_DISCOVERY_CACHE_TTL_SECONDS", "120")
+	t.Setenv("GATEWAY_MCP_DISCOVERY_STALE_IF_ERROR_SECONDS", "900")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.MCPDiscoveryCacheTTL != 120*time.Second {
+		t.Fatalf("expected mcp discovery cache ttl 120s, got %s", cfg.MCPDiscoveryCacheTTL)
+	}
+	if cfg.MCPDiscoveryStaleIfError != 900*time.Second {
+		t.Fatalf("expected mcp discovery stale-if-error window 900s, got %s", cfg.MCPDiscoveryStaleIfError)
+	}
+}
+
+func TestLoadRejectsNegativeMCPDiscoveryStaleIfError(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_MCP_DISCOVERY_STALE_IF_ERROR_SECONDS", "-1")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected negative stale-if-error window to fail config load")
+	}
+}
