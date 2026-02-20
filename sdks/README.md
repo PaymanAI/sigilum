@@ -7,21 +7,21 @@ All language SDKs live under this folder.
 - `sdk-ts/` - TypeScript/Node SDK package (`@sigilum/sdk`)
 - `sdk-python/` - Python SDK package (`sigilum`)
 - `sdk-go/` - Go SDK module (`sigilum.local/sdk-go`)
-- `sdk-java/` - Java SDK (Maven)
+- `sdk-java/` - Java SDK placeholder (not yet supported)
 - `test-vectors/` - language-agnostic shared test vectors
 
 ## Compatibility Matrix
 
-| SDK | Runtime | Package/Module | Install | Import |
-| --- | --- | --- | --- | --- |
-| TypeScript | Node.js >= 20 | `@sigilum/sdk` | `pnpm add @sigilum/sdk` | `import * as sigilum from "@sigilum/sdk"` |
-| Python | Python >= 3.11 | `sigilum` | `pip install sigilum` | `import sigilum` |
-| Go | Go 1.23 | `sigilum.local/sdk-go` | `go get sigilum.local/sdk-go/sigilum` | `import "sigilum.local/sdk-go/sigilum"` |
-| Java | JDK 21 | `id.sigilum:sdk-java` | Add Maven dependency | `import id.sigilum.sdk.Sigilum` |
+| SDK | Runtime | Package/Module | Install | Import | Status |
+| --- | --- | --- | --- | --- | --- |
+| TypeScript | Node.js >= 20 | `@sigilum/sdk` | `pnpm add @sigilum/sdk` | `import * as sigilum from "@sigilum/sdk"` | Supported |
+| Python | Python >= 3.11 | `sigilum` | `pip install sigilum` | `import sigilum` | Supported |
+| Go | Go 1.23 | `sigilum.local/sdk-go` | `go get sigilum.local/sdk-go/sigilum` | `import "sigilum.local/sdk-go/sigilum"` | Supported |
+| Java | JDK 21 | `id.sigilum:sdk-java` | N/A (implementation not shipped) | N/A | Not yet supported |
 
 ## Common Contract
 
-All SDKs implement the same signed-header profile for API requests:
+Supported SDKs implement the same signed-header profile for API requests:
 
 - RFC 9421-style `Signature-Input` and `Signature`
 - Ed25519 signatures
@@ -55,8 +55,8 @@ Run tests per SDK package:
   - `python -m pytest sdks/sdk-python/tests`
 - Go:
   - `go test ./...` (from `sdks/sdk-go`)
-- Java:
-  - `mvn test` (from `sdks/sdk-java`)
+
+Java SDK is currently a placeholder package and does not ship executable source/tests yet.
 
 Shared signing conformance vectors used by SDK tests:
 

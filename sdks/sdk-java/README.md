@@ -1,49 +1,25 @@
-# Sigilum Java SDK
+# Sigilum Java SDK (Not Yet Supported)
 
-Local-first identity for AI agents and services.
+This directory is currently a placeholder for the future Java SDK implementation.
 
-## Runtime
+## Current Status
 
-- JDK 21
+- `sdk-java` is **not supported** for production use.
+- No Java source implementation is currently shipped (`src/main/java` is absent).
+- Maven metadata (`pom.xml`) exists only to reserve project structure and coordinates.
 
-## SDK surface
+## What To Use Today
 
-- `Sigilum.initIdentity` / `Sigilum.loadIdentity` / `Sigilum.listNamespaces`
-- `Sigilum.signHttpRequest` for agent-side RFC 9421 signing
-- `Sigilum.verifyHttpSignature` for service-side verification
-- `Sigilum.certify` namespace-scoped request bindings
+Use one of the supported SDKs instead:
 
-## Quick start
+- TypeScript: `sdks/sdk-ts`
+- Go: `sdks/sdk-go`
+- Python: `sdks/sdk-python`
 
-```java
-import id.sigilum.sdk.Sigilum;
-import java.util.Map;
+## Support Gate
 
-public class Main {
-  public static void main(String[] args) {
-Sigilum.InitIdentityOptions init = new Sigilum.InitIdentityOptions();
-init.namespace = "alice";
-Sigilum.initIdentity(init);
+Java support should only be marked as available after all of the following are true:
 
-Sigilum.CertifyOptions certify = new Sigilum.CertifyOptions();
-certify.namespace = "alice";
-Sigilum.SigilumBindings bindings = Sigilum.certify(certify);
-
-bindings.fetch(
-  "/v1/namespaces/" + bindings.namespace,
-  "GET",
-  Map.of(),
-  null
-);
-  }
-}
-```
-
-All protected API endpoints require signed headers. The SDK signs requests with Ed25519 using RFC 9421-style `Signature-Input` and `Signature`, including `sigilum-namespace`, `sigilum-subject`, `sigilum-agent-key`, and `sigilum-agent-cert`.
-Use a stable `sigilum-subject` principal id; gateway policy can use it for subject-level controls.
-
-## Auth note
-
-Signed headers prove agent identity. Some endpoints also require additional auth:
-
-- Example: `POST /v1/claims` requires `Authorization: Bearer <service_api_key>`
+- Java SDK source implementation is restored in-repo.
+- Shared RFC 9421 conformance vectors pass in Java alongside TS/Go/Python.
+- Java SDK README and examples reflect executable, tested APIs.

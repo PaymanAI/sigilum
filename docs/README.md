@@ -25,4 +25,4 @@ This folder contains all long-form project documentation.
 - [`sdks/sdk-ts/README.md`](../sdks/sdk-ts/README.md) - TypeScript SDK.
 - [`sdks/sdk-python/README.md`](../sdks/sdk-python/README.md) - Python SDK.
 - [`sdks/sdk-go/README.md`](../sdks/sdk-go/README.md) - Go SDK.
-- [`sdks/sdk-java/README.md`](../sdks/sdk-java/README.md) - Java SDK.
+- [`sdks/sdk-java/README.md`](../sdks/sdk-java/README.md) - Java SDK placeholder status.

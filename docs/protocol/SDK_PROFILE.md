@@ -1,6 +1,6 @@
 # Sigilum SDK Profile v1
 
-This profile defines the cross-language minimum contract for Sigilum SDKs (TypeScript, Python, Go, Java).
+This profile defines the cross-language minimum contract for Sigilum SDKs (TypeScript, Python, Go, with Java planned).
 
 ## Goal
 

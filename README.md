@@ -75,7 +75,7 @@ What to expect on first successful run:
 - Node.js `>=20`
 - pnpm `10.29.3` (via Corepack recommended)
 - Go `>=1.23` (SDK and gateway)
-- Java `21` + Maven `>=3.9` (Java SDK tests)
+- Java `21` + Maven `>=3.9` (optional; Java SDK is currently a placeholder)
 - Python `>=3.11` (optional, for Python SDK tests)
 
 ## Local Setup
@@ -270,9 +270,7 @@ Go SDK:
 
 Java SDK:
 
-```bash
-(cd sdks/sdk-java && mvn test)
-```
+- `sdks/sdk-java` is currently a placeholder and is not yet supported for runtime use.
 
 Python SDK (optional):
 
@@ -302,7 +300,7 @@ find apps/api/.wrangler/state -name '*.sqlite' -print
 - `apps/` - runnable applications.
 - `config/` - shared TypeScript config package (`@sigilum/config`).
 - `contracts/` - smart contracts and Foundry project.
-- `sdks/` - language SDKs (TS, Python, Go, Java) and shared SDK test vectors.
+- `sdks/` - language SDKs (TS, Python, Go; Java placeholder) and shared SDK test vectors.
 - `releases/` - release artifacts and metadata.
 
 ## Quick Links

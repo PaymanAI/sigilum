@@ -150,7 +150,7 @@ sigilum down
 Runs local diagnostics:
 
 - required tools (`node`, `pnpm`, `go`, `curl`)
-- optional Java/Maven presence for SDK tests
+- optional Java/Maven presence for future Java SDK work
 - wrangler config/template checks
 - local identity/key-file checks
 - API/gateway health checks
