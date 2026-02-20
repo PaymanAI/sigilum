@@ -1,12 +1,23 @@
 #!/usr/bin/env node
 import { initIdentity, listNamespaces } from "./identity-store.js";
+import { pathToFileURL } from "node:url";
 
-function printHelp(): void {
-  console.log(`Sigilum CLI
+type CLIOutput = {
+  stdout(line: string): void;
+  stderr(line: string): void;
+};
+
+const defaultOutput: CLIOutput = {
+  stdout: (line) => console.log(line),
+  stderr: (line) => console.error(line),
+};
+
+function printHelp(output: CLIOutput = defaultOutput): void {
+  output.stdout(`Sigilum CLI
 
 Usage:
-  sigilum init <namespace> [--force] [--home <path>]
-  sigilum list [--home <path>]
+  sigilum init <namespace> [--force] [--home <path>] [--json]
+  sigilum list [--home <path>] [--json]
 
 Environment:
   SIGILUM_HOME        Override identity home directory (default: ~/.sigilum)
@@ -25,24 +36,39 @@ function readFlagValue(args: string[], flag: string): string | undefined {
   return args[index + 1];
 }
 
-function run(): void {
-  const args = process.argv.slice(2);
+function hasFlag(args: string[], flag: string): boolean {
+  return args.includes(flag);
+}
+
+export function runCLI(args: string[], output: CLIOutput = defaultOutput): void {
   const command = args[0];
 
   if (!command || command === "-h" || command === "--help") {
-    printHelp();
+    printHelp(output);
     return;
   }
 
   if (command === "list") {
     const homeDir = readFlagValue(args, "--home");
     const namespaces = listNamespaces(homeDir);
+    if (hasFlag(args, "--json")) {
+      output.stdout(
+        JSON.stringify({
+          command: "list",
+          homeDir: homeDir ?? null,
+          count: namespaces.length,
+          namespaces,
+        }),
+      );
+      return;
+    }
+
     if (namespaces.length === 0) {
-      console.log("No identities found.");
+      output.stdout("No identities found.");
       return;
     }
     for (const namespace of namespaces) {
-      console.log(namespace);
+      output.stdout(namespace);
     }
     return;
   }
@@ -62,21 +88,46 @@ function run(): void {
       force,
     });
 
-    console.log(result.created ? "Created Sigilum identity" : "Loaded existing Sigilum identity");
-    console.log(`namespace: ${result.namespace}`);
-    console.log(`did: ${result.did}`);
-    console.log(`keyId: ${result.keyId}`);
-    console.log(`publicKey: ${result.publicKey}`);
-    console.log(`identityPath: ${result.identityPath}`);
+    if (hasFlag(args, "--json")) {
+      output.stdout(
+        JSON.stringify({
+          command: "init",
+          created: result.created,
+          namespace: result.namespace,
+          did: result.did,
+          keyId: result.keyId,
+          publicKey: result.publicKey,
+          identityPath: result.identityPath,
+        }),
+      );
+      return;
+    }
+
+    output.stdout(result.created ? "Created Sigilum identity" : "Loaded existing Sigilum identity");
+    output.stdout(`namespace: ${result.namespace}`);
+    output.stdout(`did: ${result.did}`);
+    output.stdout(`keyId: ${result.keyId}`);
+    output.stdout(`publicKey: ${result.publicKey}`);
+    output.stdout(`identityPath: ${result.identityPath}`);
     return;
   }
 
   throw new Error(`Unknown command: ${command}`);
 }
 
-try {
-  run();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+function run(): void {
+  runCLI(process.argv.slice(2), defaultOutput);
+}
+
+function isEntrypoint(): boolean {
+  return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
+}
+
+if (isEntrypoint()) {
+  try {
+    run();
+  } catch (error) {
+    defaultOutput.stderr(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
 }

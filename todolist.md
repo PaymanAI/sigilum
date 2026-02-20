@@ -25,6 +25,7 @@ Reference: `world_class_review.md`
 - [x] `GW-014` Add MCP tool policy explainability endpoint (`why allowed/denied`).
 - [x] `SDK-002` Expand shared RFC9421 conformance vectors and run in all SDKs.
 - [x] `SDK-006` Restore Java SDK source implementation or mark unsupported in matrix.
+- [x] `SDK-011` Improve CLI UX for `init/list` with `--json` and stable output for automation.
 - [x] `SCR-005` Add checksum/signature verification to release install path.
 - [x] `SCR-006` Extract shared script library to remove duplicated shell logic.
 - [x] `SCR-009` Add shellcheck + script CI checks.

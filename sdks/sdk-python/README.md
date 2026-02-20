@@ -18,6 +18,13 @@ pip install sigilum
 sigilum init <human_namespace>
 ```
 
+Machine-readable CLI output for automation:
+
+```bash
+sigilum init <human_namespace> --json
+sigilum list --json
+```
+
 ## 2) Certify any agent in one line
 
 ```python

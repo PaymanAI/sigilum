@@ -24,6 +24,13 @@ Examples:
 sigilum init johndee
 ```
 
+Machine-readable CLI output for automation:
+
+```bash
+sigilum init johndee --json
+sigilum list --json
+```
+
 ## 2. Certify any agent in one line
 
 ```ts
