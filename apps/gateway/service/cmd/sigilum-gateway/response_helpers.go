@@ -212,23 +212,33 @@ func buildProxyAuthRequiredMarkdown(input proxyAuthRequiredMarkdownInput) string
 
 	var nextStep string
 	if input.ClaimRegistration.Enabled && input.ClaimRegistration.Err == nil {
-		status := strings.ToLower(strings.TrimSpace(input.ClaimRegistration.Result.Status))
-		switch status {
-		case "pending":
-			nextStep = "Namespace owner approval is required. Approve the pending request, then retry."
-		case "approved":
-			nextStep = "Access appears approved already. Retry the request now."
-		case "rejected":
-			nextStep = "Request was rejected by policy or owner action. Review policy/limits before retrying."
-		default:
-			nextStep = "Review claim status in the dashboard/API and approve access if needed."
+		code := strings.ToUpper(strings.TrimSpace(input.ClaimRegistration.Result.Code))
+		if code == "SIGNATURE_NAMESPACE_MISMATCH" {
+			nextStep = fmt.Sprintf(
+				"Gateway signer namespace does not match %s. Restart gateway with --namespace %s (or set GATEWAY_SIGILUM_NAMESPACE=%s), then retry.",
+				namespace,
+				namespace,
+				namespace,
+			)
+		} else {
+			status := strings.ToLower(strings.TrimSpace(input.ClaimRegistration.Result.Status))
+			switch status {
+			case "pending":
+				nextStep = "Namespace owner approval is required now. Ask the user to approve/re-approve this agent key for the service, then retry."
+			case "approved":
+				nextStep = "Access appears approved in the latest claim response. Retry once; if denial continues, ask the user to re-approve and verify namespace/key match."
+			case "rejected":
+				nextStep = "Request was rejected or revoked by policy/owner action. Ask the user to approve again after policy review."
+			default:
+				nextStep = "Review claim status in dashboard/API and ask the user to approve/re-approve access if needed."
+			}
 		}
 	} else {
-		nextStep = "Review access policy and submit/approve the claim before retrying."
+		nextStep = "Review access policy and ask the user to approve/re-approve the claim before retrying."
 	}
 
 	return strings.TrimSpace(fmt.Sprintf(`
-# AUTH_FORBIDDEN: Sigilum Authorization Required
+# HTTP 403 AUTH_FORBIDDEN: Sigilum Authorization Required
 
 ~~~text
 +--------------------------------------------------------------------------+
@@ -237,6 +247,9 @@ func buildProxyAuthRequiredMarkdown(input proxyAuthRequiredMarkdownInput) string
 |  Sigilum verified your signature, but this key is not approved for       |
 |  the target service yet. This block protects service credentials and      |
 |  prevents unauthorized tool or API execution.                            |
+|                                                                          |
+|  IMPORTANT: this can happen for first-time access OR when a previous     |
+|  approval was revoked/expired. Treat as "authorization required now".    |
 +--------------------------------------------------------------------------+
 ~~~
 
@@ -252,6 +265,16 @@ func buildProxyAuthRequiredMarkdown(input proxyAuthRequiredMarkdownInput) string
 
 ## Why this matters
 Sigilum is intentionally fail-closed here. Only approved keys can use service credentials.
+
+## Authorization Interpretation
+- Gateway returned HTTP 403 AUTH_FORBIDDEN.
+- This means this key currently has **no active approval** for this service.
+- Prior approval might have been revoked/expired, so re-approval can be required.
+
+## Agent Instruction
+- Do **not** report this as a gateway restart bug.
+- Tell the user authorization is required now and ask them to approve/re-approve this agent key.
+- After user approval, retry the same request.
 
 ## Next Step
 %s

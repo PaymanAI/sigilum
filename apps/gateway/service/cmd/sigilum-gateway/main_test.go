@@ -479,8 +479,14 @@ func TestWriteProxyAuthRequiredMarkdown(t *testing.T) {
 	if !strings.Contains(body, "AUTH_FORBIDDEN") {
 		t.Fatalf("expected AUTH_FORBIDDEN marker in markdown body")
 	}
+	if !strings.Contains(body, "HTTP 403") {
+		t.Fatalf("expected explicit HTTP 403 marker in markdown body")
+	}
 	if !strings.Contains(body, "SECURE ACCESS BLOCKED") {
 		t.Fatalf("expected warning banner in markdown body")
+	}
+	if !strings.Contains(body, "revoked/expired") {
+		t.Fatalf("expected revoked/expired guidance in markdown body")
 	}
 	if !strings.Contains(body, "cl_test_123") {
 		t.Fatalf("expected claim id details in markdown body")
