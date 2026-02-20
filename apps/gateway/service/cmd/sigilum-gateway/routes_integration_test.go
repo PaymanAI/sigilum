@@ -120,3 +120,46 @@ func TestAdminRoutesAllowLoopbackAndPersistCatalogUpdates(t *testing.T) {
 		t.Fatalf("expected empty services list after update, got %d entries", len(loaded.Services))
 	}
 }
+
+func TestAdminRouteMethodNotAllowedReturnsJSON(t *testing.T) {
+	fixture := newAdminRouterFixture(t)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/service-catalog", nil)
+	req.RemoteAddr = "127.0.0.1:53002"
+	recorder := httptest.NewRecorder()
+
+	fixture.mux.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected HTTP 405, got %d", recorder.Code)
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response body, got decode error: %v", err)
+	}
+	if payload.Code != "METHOD_NOT_ALLOWED" {
+		t.Fatalf("expected METHOD_NOT_ALLOWED code, got %q", payload.Code)
+	}
+}
+
+func TestHealthRouteMethodNotAllowedReturnsJSON(t *testing.T) {
+	mux := http.NewServeMux()
+	registerHealthRoute(mux, config.Config{
+		AllowedOrigins: map[string]struct{}{"https://allowed.example": {}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/health", nil)
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected HTTP 405, got %d", recorder.Code)
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response body, got decode error: %v", err)
+	}
+	if payload.Code != "METHOD_NOT_ALLOWED" {
+		t.Fatalf("expected METHOD_NOT_ALLOWED code, got %q", payload.Code)
+	}
+}

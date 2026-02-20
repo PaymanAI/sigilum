@@ -29,6 +29,20 @@ type statusRecorder struct {
 	bytesWritten int
 }
 
+var corsAllowedHeaderSet = map[string]struct{}{
+	"authorization":         {},
+	"content-digest":        {},
+	"content-type":          {},
+	"signature":             {},
+	"signature-input":       {},
+	"sigilum-agent-cert":    {},
+	"sigilum-agent-key":     {},
+	"sigilum-namespace":     {},
+	"sigilum-subject":       {},
+	"x-request-id":          {},
+	"x-sigilum-admin-token": {},
+}
+
 func (r *statusRecorder) WriteHeader(code int) {
 	r.status = code
 	r.ResponseWriter.WriteHeader(code)
@@ -119,15 +133,115 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
+func writeMethodNotAllowed(w http.ResponseWriter) {
+	writeJSON(w, http.StatusMethodNotAllowed, errorResponse{
+		Error: "method not allowed",
+		Code:  "METHOD_NOT_ALLOWED",
+	})
+}
+
+func writeNotFound(w http.ResponseWriter, message string) {
+	errorMessage := strings.TrimSpace(message)
+	if errorMessage == "" {
+		errorMessage = "resource not found"
+	}
+	writeJSON(w, http.StatusNotFound, errorResponse{
+		Error: errorMessage,
+		Code:  "NOT_FOUND",
+	})
+}
+
+func setVaryHeaders(existing string, values ...string) string {
+	seen := map[string]struct{}{}
+	out := []string{}
+	if trimmed := strings.TrimSpace(existing); trimmed != "" {
+		for _, part := range strings.Split(trimmed, ",") {
+			value := strings.TrimSpace(part)
+			if value == "" {
+				continue
+			}
+			lower := strings.ToLower(value)
+			if _, ok := seen[lower]; ok {
+				continue
+			}
+			seen[lower] = struct{}{}
+			out = append(out, value)
+		}
+	}
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		if _, ok := seen[lower]; ok {
+			continue
+		}
+		seen[lower] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return strings.Join(out, ", ")
+}
+
+func resolveAllowedCORSHeaders(requested string) string {
+	headers := []string{
+		"Content-Type",
+		"Authorization",
+		"X-Sigilum-Admin-Token",
+		"X-Request-Id",
+		"Signature-Input",
+		"Signature",
+		"Content-Digest",
+		"Sigilum-Namespace",
+		"Sigilum-Subject",
+		"Sigilum-Agent-Key",
+		"Sigilum-Agent-Cert",
+	}
+
+	seen := map[string]struct{}{}
+	for _, header := range headers {
+		seen[strings.ToLower(header)] = struct{}{}
+	}
+
+	for _, part := range strings.Split(strings.TrimSpace(requested), ",") {
+		header := strings.TrimSpace(part)
+		if header == "" {
+			continue
+		}
+		lower := strings.ToLower(header)
+		if _, ok := corsAllowedHeaderSet[lower]; !ok {
+			continue
+		}
+		if _, ok := seen[lower]; ok {
+			continue
+		}
+		headers = append(headers, header)
+		seen[lower] = struct{}{}
+	}
+
+	return strings.Join(headers, ", ")
+}
+
 func setCORSHeaders(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}) {
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
 	if origin != "" {
-		w.Header().Set("Vary", "Origin")
+		w.Header().Set(
+			"Vary",
+			setVaryHeaders(
+				w.Header().Get("Vary"),
+				"Origin",
+				"Access-Control-Request-Method",
+				"Access-Control-Request-Headers",
+			),
+		)
 		if _, ok := allowedOrigins[origin]; ok {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set(
+				"Access-Control-Allow-Headers",
+				resolveAllowedCORSHeaders(r.Header.Get("Access-Control-Request-Headers")),
+			)
 			w.Header().Set("Access-Control-Max-Age", "86400")
 		}
 	}

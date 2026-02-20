@@ -220,7 +220,7 @@ func handleMCPRequest(
 	switch action {
 	case "list":
 		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			writeMethodNotAllowed(w)
 			return
 		}
 		filteredTools := mcpruntime.FilterTools(tools, effectivePolicy)
@@ -231,7 +231,7 @@ func handleMCPRequest(
 		})
 	case "call":
 		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			writeMethodNotAllowed(w)
 			return
 		}
 		if !mcpruntime.ToolAllowed(toolName, tools, effectivePolicy) {
@@ -263,7 +263,7 @@ func handleMCPRequest(
 			"result":        json.RawMessage(result),
 		})
 	default:
-		http.NotFound(w, r)
+		writeNotFound(w, "mcp action not found")
 		return
 	}
 

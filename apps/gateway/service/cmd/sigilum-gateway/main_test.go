@@ -394,6 +394,9 @@ func TestSetCORSHeadersSkipsDisallowedOrigin(t *testing.T) {
 	if got := headers.Get("Access-Control-Allow-Methods"); got != "" {
 		t.Fatalf("expected no allow-methods header for disallowed origin, got %q", got)
 	}
+	if got := headers.Get("Access-Control-Allow-Headers"); got != "" {
+		t.Fatalf("expected no allow-headers header for disallowed origin, got %q", got)
+	}
 }
 
 func TestSetCORSHeadersSetsHeadersForAllowedOrigin(t *testing.T) {
@@ -411,6 +414,13 @@ func TestSetCORSHeadersSetsHeadersForAllowedOrigin(t *testing.T) {
 	}
 	if got := headers.Get("Access-Control-Allow-Methods"); got == "" {
 		t.Fatalf("expected allow-methods header for allowed origin")
+	}
+	allowedHeaders := strings.ToLower(headers.Get("Access-Control-Allow-Headers"))
+	if !strings.Contains(allowedHeaders, "x-sigilum-admin-token") {
+		t.Fatalf("expected CORS allow-headers to include X-Sigilum-Admin-Token, got %q", headers.Get("Access-Control-Allow-Headers"))
+	}
+	if !strings.Contains(allowedHeaders, "signature-input") {
+		t.Fatalf("expected CORS allow-headers to include Signature-Input, got %q", headers.Get("Access-Control-Allow-Headers"))
 	}
 }
 

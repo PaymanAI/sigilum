@@ -5,8 +5,8 @@ Reference: `world_class_review.md`
 ## In Progress Queue
 
 - [x] `SDK-001` Enforce identical strict signature verification profile across TS/Go/Python SDKs.
-- [ ] `GW-016` Normalize gateway method-not-allowed and route failures to stable JSON errors.
-- [ ] `GW-018` Harden gateway CORS contract for admin and signed request headers.
+- [x] `GW-016` Normalize gateway method-not-allowed and route failures to stable JSON errors.
+- [x] `GW-018` Harden gateway CORS contract for admin and signed request headers.
 - [ ] `SCR-001` Harden gateway pairing bridge shutdown/retry/relay-safety behavior.
 
 ## Next Queue

@@ -27,7 +27,7 @@ func registerHealthRoute(mux *http.ServeMux, cfg config.Config) {
 			return
 		}
 		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			writeMethodNotAllowed(w)
 			return
 		}
 		writeJSON(w, http.StatusOK, healthResponse{Status: "ok"})
@@ -77,7 +77,7 @@ func registerAdminRoutes(
 			maybePrewarmMCPDiscovery(conn.ID, conn, connectorService, mcpClient)
 			writeJSON(w, http.StatusCreated, conn)
 		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			writeMethodNotAllowed(w)
 		}
 	})
 
@@ -127,7 +127,7 @@ func registerAdminRoutes(
 				maybePrewarmMCPDiscovery(connectionID, conn, connectorService, mcpClient)
 				writeJSON(w, http.StatusOK, conn)
 			default:
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				writeMethodNotAllowed(w)
 			}
 			return
 		}
@@ -136,7 +136,7 @@ func registerAdminRoutes(
 		switch action {
 		case "rotate":
 			if r.Method != http.MethodPost {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				writeMethodNotAllowed(w)
 				return
 			}
 			var input connectors.RotateSecretInput
@@ -152,7 +152,7 @@ func registerAdminRoutes(
 			writeJSON(w, http.StatusOK, conn)
 		case "test":
 			if r.Method != http.MethodPost {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				writeMethodNotAllowed(w)
 				return
 			}
 			body, err := readLimitedRequestBody(r, cfg.MaxRequestBodyBytes)
@@ -186,7 +186,7 @@ func registerAdminRoutes(
 			})
 		case "discover":
 			if r.Method != http.MethodPost {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				writeMethodNotAllowed(w)
 				return
 			}
 			conn, err := connectorService.GetConnection(connectionID)
@@ -223,7 +223,7 @@ func registerAdminRoutes(
 			}
 			writeJSON(w, http.StatusOK, updated.MCPDiscovery)
 		default:
-			http.NotFound(w, r)
+			writeNotFound(w, "admin action not found")
 		}
 	})
 
@@ -261,7 +261,7 @@ func registerAdminRoutes(
 			}
 			writeJSON(w, http.StatusOK, value)
 		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			writeMethodNotAllowed(w)
 		}
 	})
 
@@ -289,7 +289,7 @@ func registerAdminRoutes(
 			}
 			writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "key": key})
 		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			writeMethodNotAllowed(w)
 		}
 	})
 
@@ -348,7 +348,7 @@ func registerAdminRoutes(
 				"key_prefix":    truncateKeyPrefix(key, 8),
 			})
 		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			writeMethodNotAllowed(w)
 		}
 	})
 
@@ -386,7 +386,7 @@ func registerAdminRoutes(
 			}
 			writeJSON(w, http.StatusOK, payload)
 		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			writeMethodNotAllowed(w)
 		}
 	})
 }
@@ -416,7 +416,7 @@ func registerRuntimeRoutes(
 func registerRootRoute(mux *http.ServeMux) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			writeMethodNotAllowed(w)
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
