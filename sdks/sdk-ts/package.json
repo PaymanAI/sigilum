@@ -1,6 +1,6 @@
 {
   "name": "@sigilum/sdk",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Sigilum SDK — one-line local agent identity and RFC 9421 request signatures",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,7 +21,9 @@
       "default": "./dist/cli.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",

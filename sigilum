@@ -21,12 +21,75 @@ setup_colors() {
 
 setup_colors
 
-print_version() {
+resolve_version_value() {
   if [[ -f "$ROOT_DIR/VERSION" ]]; then
-    printf 'sigilum %s\n' "$(cat "$ROOT_DIR/VERSION")"
-  else
-    printf 'sigilum (development)\n'
+    tr -d '\r\n' < "$ROOT_DIR/VERSION"
+    return 0
   fi
+  if [[ -f "$ROOT_DIR/.version" ]]; then
+    tr -d '\r\n' < "$ROOT_DIR/.version"
+    return 0
+  fi
+  printf 'development'
+}
+
+print_version() {
+  printf 'sigilum %s\n' "$(resolve_version_value)"
+}
+
+read_version_file() {
+  local file_path="$1"
+  if [[ ! -f "$file_path" ]]; then
+    printf 'missing'
+    return 0
+  fi
+  local value
+  value="$(tr -d '\r\n' < "$file_path")"
+  if [[ -z "$value" ]]; then
+    printf 'missing'
+  else
+    printf '%s' "$value"
+  fi
+}
+
+print_version_row() {
+  local component="$1"
+  local version="$2"
+  printf '  %-24s %s\n' "$component" "$version"
+}
+
+print_versions() {
+  local dashboard_version_file="${ROOT_DIR}/apps/dashboard.version"
+  if [[ -f "${ROOT_DIR}/apps/dashboard/.version" ]]; then
+    dashboard_version_file="${ROOT_DIR}/apps/dashboard/.version"
+  fi
+
+  printf '%sSigilum Component Versions%s\n' "${CLR_BOLD}${CLR_CYAN}" "${CLR_RESET}"
+  print_version_row "sigilum" "$(resolve_version_value)"
+  print_version_row "root" "$(read_version_file "${ROOT_DIR}/.version")"
+  print_version_row "apps" "$(read_version_file "${ROOT_DIR}/apps/.version")"
+  print_version_row "api" "$(read_version_file "${ROOT_DIR}/apps/api/.version")"
+  print_version_row "gateway" "$(read_version_file "${ROOT_DIR}/apps/gateway/.version")"
+  print_version_row "dashboard" "$(read_version_file "${dashboard_version_file}")"
+  print_version_row "demo-native" "$(read_version_file "${ROOT_DIR}/apps/demo-service-native/.version")"
+  print_version_row "demo-gateway" "$(read_version_file "${ROOT_DIR}/apps/demo-service-gateway/.version")"
+  print_version_row "sdks" "$(read_version_file "${ROOT_DIR}/sdks/.version")"
+  print_version_row "sdk-ts" "$(read_version_file "${ROOT_DIR}/sdks/sdk-ts/.version")"
+  print_version_row "sdk-go" "$(read_version_file "${ROOT_DIR}/sdks/sdk-go/.version")"
+  print_version_row "sdk-java" "$(read_version_file "${ROOT_DIR}/sdks/sdk-java/.version")"
+  print_version_row "sdk-python" "$(read_version_file "${ROOT_DIR}/sdks/sdk-python/.version")"
+  print_version_row "openclaw" "$(read_version_file "${ROOT_DIR}/openclaw/.version")"
+  print_version_row "contracts" "$(read_version_file "${ROOT_DIR}/contracts/.version")"
+  print_version_row "config" "$(read_version_file "${ROOT_DIR}/config/.version")"
+}
+
+announce_runtime_version() {
+  local command_name="$1"
+  printf '%s[i]%s sigilum %s (%s)\n' \
+    "${CLR_BOLD}${CLR_CYAN}" \
+    "${CLR_RESET}" \
+    "$(resolve_version_value)" \
+    "$command_name" >&2
 }
 
 usage() {
@@ -38,6 +101,9 @@ ${CLR_BOLD}${CLR_YELLOW}✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧✧�
 
 ${CLR_BOLD}${CLR_CYAN}Usage:${CLR_RESET}
   ${CLR_BOLD}sigilum${CLR_RESET} ${CLR_DIM}[global options] <command> [args]${CLR_RESET}
+
+${CLR_BOLD}${CLR_CYAN}Version:${CLR_RESET}
+  ${CLR_BOLD}$(resolve_version_value)${CLR_RESET}
 
 ${CLR_BOLD}${CLR_CYAN}Global options:${CLR_RESET}
   ${CLR_BOLD}--namespace <value>${CLR_RESET}            ${CLR_DIM}Set GATEWAY_SIGILUM_NAMESPACE${CLR_RESET}
@@ -53,6 +119,8 @@ ${CLR_BOLD}${CLR_CYAN}Global options:${CLR_RESET}
   ${CLR_BOLD}-h, --help${CLR_RESET}                     ${CLR_DIM}Show help${CLR_RESET}
 
 ${CLR_BOLD}${CLR_CYAN}Commands:${CLR_RESET}
+  ${CLR_BOLD}version${CLR_RESET}                        ${CLR_DIM}Show sigilum version${CLR_RESET}
+  ${CLR_BOLD}versions${CLR_RESET}                       ${CLR_DIM}Show component versions${CLR_RESET}
   ${CLR_BOLD}install${CLR_RESET} [options]              ${CLR_DIM}Install sigilum command into your shell (symlink/alias)${CLR_RESET}
   ${CLR_BOLD}auth${CLR_RESET} <args>                    ${CLR_DIM}Manage namespace-owner auth token bootstrap (login/refresh)${CLR_RESET}
   ${CLR_BOLD}login${CLR_RESET} [options]                ${CLR_DIM}Alias for: sigilum auth login${CLR_RESET}
@@ -67,6 +135,8 @@ ${CLR_BOLD}${CLR_CYAN}Commands:${CLR_RESET}
   ${CLR_BOLD}help${CLR_RESET} [command]                 ${CLR_DIM}Show top-level or command-specific help${CLR_RESET}
 
 ${CLR_BOLD}${CLR_CYAN}Examples:${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum version${CLR_RESET}
+  ${CLR_BOLD}${CLR_YELLOW}sigilum versions${CLR_RESET}
   ${CLR_BOLD}${CLR_YELLOW}sigilum install${CLR_RESET}
   ${CLR_BOLD}${CLR_YELLOW}sigilum auth login --mode oss-local --namespace johndee${CLR_RESET}
   ${CLR_BOLD}${CLR_YELLOW}sigilum auth refresh --mode oss-local --namespace johndee${CLR_RESET}
@@ -391,9 +461,15 @@ export_if_set "UPSTREAM_PORT" "$UPSTREAM_PORT_OPT"
 command="$1"
 shift || true
 
+announce_runtime_version "$command"
+
 case "$command" in
   version)
     print_version
+    exit 0
+    ;;
+  versions)
+    print_versions
     exit 0
     ;;
   install)
@@ -469,6 +545,12 @@ case "$command" in
         auth|login)
           ensure_script "$ROOT_DIR/scripts/sigilum-auth.sh"
           exec "$ROOT_DIR/scripts/sigilum-auth.sh" --help "$@"
+          ;;
+        version)
+          print_version
+          ;;
+        versions)
+          print_versions
           ;;
         gateway)
           gateway_usage

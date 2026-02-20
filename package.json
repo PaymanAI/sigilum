@@ -1,6 +1,6 @@
 {
   "name": "sigilum",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "description": "Identity for AI Agents — the consent layer for the agentic web",
   "packageManager": "pnpm@10.29.3",

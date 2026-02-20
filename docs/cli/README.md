@@ -36,6 +36,12 @@ Top-level help:
 sigilum --help
 ```
 
+Component versions:
+
+```bash
+sigilum versions
+```
+
 Service help:
 
 ```bash
