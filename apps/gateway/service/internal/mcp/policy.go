@@ -7,6 +7,24 @@ import (
 	"sigilum.local/gateway/internal/connectors"
 )
 
+const (
+	ToolDecisionAllowed                 = "MCP_TOOL_ALLOWED"
+	ToolDecisionNameRequired            = "MCP_TOOL_NAME_REQUIRED"
+	ToolDecisionNotDiscovered           = "MCP_TOOL_NOT_DISCOVERED"
+	ToolDecisionDeniedByAllowlist       = "MCP_TOOL_DENIED_ALLOWLIST"
+	ToolDecisionDeniedByDenylist        = "MCP_TOOL_DENIED_DENYLIST"
+	ToolDecisionDeniedByMaxToolsExposed = "MCP_TOOL_DENIED_MAX_TOOLS_EXPOSED"
+)
+
+type ToolDecision struct {
+	Tool            string                   `json:"tool"`
+	Allowed         bool                     `json:"allowed"`
+	ReasonCode      string                   `json:"reason_code"`
+	ToolDiscovered  bool                     `json:"tool_discovered"`
+	EffectivePolicy connectors.MCPToolPolicy `json:"effective_policy"`
+	ExposedTools    []string                 `json:"exposed_tools,omitempty"`
+}
+
 func EffectiveToolPolicy(
 	base connectors.MCPToolPolicy,
 	subject string,
@@ -86,6 +104,63 @@ func ToolAllowed(toolName string, tools []connectors.MCPTool, policy connectors.
 		}
 	}
 	return false
+}
+
+func ExplainToolDecision(toolName string, tools []connectors.MCPTool, policy connectors.MCPToolPolicy) ToolDecision {
+	name := strings.TrimSpace(toolName)
+	effectivePolicy := normalizePolicy(policy)
+	exposedTools := FilterTools(tools, effectivePolicy)
+	decision := ToolDecision{
+		Tool:            name,
+		Allowed:         false,
+		ReasonCode:      ToolDecisionNotDiscovered,
+		ToolDiscovered:  false,
+		EffectivePolicy: effectivePolicy,
+		ExposedTools:    toolNames(exposedTools),
+	}
+	if name == "" {
+		decision.ReasonCode = ToolDecisionNameRequired
+		return decision
+	}
+
+	for _, tool := range tools {
+		if strings.TrimSpace(tool.Name) == name {
+			decision.ToolDiscovered = true
+			break
+		}
+	}
+	if !decision.ToolDiscovered {
+		return decision
+	}
+
+	denySet := toSet(effectivePolicy.Denylist)
+	if _, denied := denySet[name]; denied {
+		decision.ReasonCode = ToolDecisionDeniedByDenylist
+		return decision
+	}
+
+	allowSet := toSet(effectivePolicy.Allowlist)
+	if len(allowSet) > 0 {
+		if _, allowed := allowSet[name]; !allowed {
+			decision.ReasonCode = ToolDecisionDeniedByAllowlist
+			return decision
+		}
+	}
+
+	for _, tool := range exposedTools {
+		if tool.Name == name {
+			decision.Allowed = true
+			decision.ReasonCode = ToolDecisionAllowed
+			return decision
+		}
+	}
+
+	if effectivePolicy.MaxToolsExposed > 0 {
+		decision.ReasonCode = ToolDecisionDeniedByMaxToolsExposed
+	} else {
+		decision.ReasonCode = ToolDecisionNotDiscovered
+	}
+	return decision
 }
 
 func normalizePolicy(policy connectors.MCPToolPolicy) connectors.MCPToolPolicy {
@@ -176,4 +251,22 @@ func minPositive(a int, b int) int {
 		return a
 	}
 	return b
+}
+
+func toolNames(tools []connectors.MCPTool) []string {
+	if len(tools) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		name := strings.TrimSpace(tool.Name)
+		if name == "" {
+			continue
+		}
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	return names
 }

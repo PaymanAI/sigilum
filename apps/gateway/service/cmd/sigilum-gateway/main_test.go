@@ -352,6 +352,16 @@ func TestResolveMCPRouteCall(t *testing.T) {
 	}
 }
 
+func TestResolveMCPRouteExplain(t *testing.T) {
+	connectionID, action, tool, ok := resolveMCPRoute("/mcp/linear/tools/linear.searchIssues/explain")
+	if !ok {
+		t.Fatal("expected valid mcp explain route")
+	}
+	if connectionID != "linear" || action != "explain" || tool != "linear.searchIssues" {
+		t.Fatalf("unexpected route parse: connection=%s action=%s tool=%s", connectionID, action, tool)
+	}
+}
+
 func TestShouldAutoDiscoverMCPTools(t *testing.T) {
 	cases := []struct {
 		name     string

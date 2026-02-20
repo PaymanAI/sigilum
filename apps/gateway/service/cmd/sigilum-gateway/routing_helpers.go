@@ -51,7 +51,7 @@ func resolveMCPRoute(requestPath string) (connectionID string, action string, to
 	if len(parts) == 2 {
 		return connectionID, "list", "", true
 	}
-	if len(parts) == 4 && parts[3] == "call" {
+	if len(parts) == 4 && (parts[3] == "call" || parts[3] == "explain") {
 		decoded, err := url.PathUnescape(parts[2])
 		if err != nil {
 			return "", "", "", false
@@ -60,7 +60,7 @@ func resolveMCPRoute(requestPath string) (connectionID string, action string, to
 		if toolName == "" {
 			return "", "", "", false
 		}
-		return connectionID, "call", toolName, true
+		return connectionID, parts[3], toolName, true
 	}
 	return "", "", "", false
 }

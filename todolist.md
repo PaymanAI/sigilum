@@ -21,6 +21,7 @@ Reference: `world_class_review.md`
 - [x] `GW-022` Add health/readiness/liveness split endpoints.
 - [x] `GW-019` Publish gateway API schema (OpenAPI) for admin/runtime endpoints.
 - [x] `GW-013` Add MCP discovery caching policy (TTL + stale-if-error + forced refresh API).
+- [x] `GW-014` Add MCP tool policy explainability endpoint (`why allowed/denied`).
 - [x] `SDK-002` Expand shared RFC9421 conformance vectors and run in all SDKs.
 - [x] `SDK-006` Restore Java SDK source implementation or mark unsupported in matrix.
 - [x] `SCR-005` Add checksum/signature verification to release install path.

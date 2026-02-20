@@ -39,6 +39,7 @@ Gateway service code is organized under `apps/gateway/service`:
 - Applies MCP discovery cache policy with TTL and stale-if-error fallback; forced refresh is available via `refresh=force`.
 - Exposes filtered MCP tools at runtime:
   - `GET /mcp/{connection_id}/tools`
+  - `GET /mcp/{connection_id}/tools/{tool}/explain`
   - `POST /mcp/{connection_id}/tools/{tool}/call`
 - Applies tool filtering policies by `sigilum-subject` via connection-level and subject-level allow/deny rules.
 - Provides admin APIs for local connector configuration and credential rotation metadata.
@@ -65,7 +66,7 @@ Service catalog templates now support both HTTP and MCP provider definitions:
   - request path: `/proxy/{connection_id}/...`
   - requires upstream auth secret configuration (`auth_secret_key` + secret material)
 - `protocol: "mcp"`
-  - runtime paths: `/mcp/{connection_id}/tools` and `/mcp/{connection_id}/tools/{tool}/call`
+  - runtime paths: `/mcp/{connection_id}/tools`, `/mcp/{connection_id}/tools/{tool}/explain`, and `/mcp/{connection_id}/tools/{tool}/call`
   - runtime `refresh` query modes: `auto` (default cache policy) or `force` (bypass cache and refresh discovery)
   - optional auth secret configuration (only required when MCP upstream requires credentials)
   - supports discovery (`POST /api/admin/connections/{id}/discover`) with `refresh=force` (default) or `refresh=auto`
@@ -125,6 +126,7 @@ Canonical schema:
     - `/<proxy>/slack/...`
 - MCP Runtime:
   - `GET /mcp/{connection_id}/tools` (`refresh=auto|force`, default `auto`)
+  - `GET /mcp/{connection_id}/tools/{tool}/explain` (`refresh=auto|force`, default `auto`)
   - `POST /mcp/{connection_id}/tools/{tool}/call` (`refresh=auto|force`, default `auto`)
 - Admin:
   - `GET /api/admin/connections`

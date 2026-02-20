@@ -149,7 +149,7 @@ func handleMCPRequest(
 	connectionID, action, toolName, ok := resolveMCPRoute(r.URL.Path)
 	if !ok {
 		writeJSON(w, http.StatusBadRequest, errorResponse{
-			Error: "invalid mcp path, expected /mcp/{connection_id}/tools or /mcp/{connection_id}/tools/{tool}/call",
+			Error: "invalid mcp path, expected /mcp/{connection_id}/tools, /mcp/{connection_id}/tools/{tool}/call, or /mcp/{connection_id}/tools/{tool}/explain",
 		})
 		return
 	}
@@ -279,6 +279,23 @@ func handleMCPRequest(
 			"subject":                identity.Subject,
 			"discovery_cache_status": string(discoveryResolution.Source),
 			"tools":                  filteredTools,
+		})
+	case "explain":
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w)
+			return
+		}
+		decision := mcpruntime.ExplainToolDecision(toolName, tools, effectivePolicy)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"connection_id":          connectionID,
+			"subject":                identity.Subject,
+			"tool":                   decision.Tool,
+			"allowed":                decision.Allowed,
+			"reason_code":            decision.ReasonCode,
+			"tool_discovered":        decision.ToolDiscovered,
+			"effective_policy":       decision.EffectivePolicy,
+			"exposed_tools":          decision.ExposedTools,
+			"discovery_cache_status": string(discoveryResolution.Source),
 		})
 	case "call":
 		if r.Method != http.MethodPost {
