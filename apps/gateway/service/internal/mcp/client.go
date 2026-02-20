@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -29,6 +30,7 @@ const (
 	maxSessionRecoveryAttempts = 1
 	maxRPCRequestAttempts      = 2
 	initialRPCRetryBackoff     = 100 * time.Millisecond
+	rpcRetryJitterRatio        = 0.2
 )
 
 type sessionState string
@@ -317,14 +319,21 @@ func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.Proxy
 			lastBody = responseBody
 			lastErr = err
 
-			if err == nil && !shouldRetryRPCStatus(statusCode) {
+			shouldRetry, _ := classifyRetryableRPCFailure(statusCode, err)
+			if err != nil && !shouldRetry {
+				return 0, "", nil, err
+			}
+			if err == nil && !shouldRetry {
 				return statusCode, contentType, responseBody, nil
 			}
 			if attempt == maxRPCRequestAttempts {
 				break
 			}
-			if !sleepWithContext(ctx, backoff) {
-				return 0, "", nil, context.Cause(ctx)
+			if !sleepWithContext(ctx, jitterRPCBackoff(backoff)) {
+				if cause := context.Cause(ctx); cause != nil {
+					return 0, "", nil, cause
+				}
+				return 0, "", nil, ctx.Err()
 			}
 			backoff *= 2
 		}
@@ -448,6 +457,101 @@ func shouldRetryRPCStatus(statusCode int) bool {
 		statusCode == http.StatusBadGateway ||
 		statusCode == http.StatusServiceUnavailable ||
 		statusCode == http.StatusGatewayTimeout
+}
+
+func classifyRetryableRPCFailure(statusCode int, err error) (bool, string) {
+	if err != nil {
+		return classifyRetryableRPCError(err)
+	}
+	if shouldRetryRPCStatus(statusCode) {
+		return true, retryClassForStatus(statusCode)
+	}
+	if statusCode == 0 {
+		return false, "no_status"
+	}
+	return false, "http_non_retryable"
+}
+
+func classifyRetryableRPCError(err error) (bool, string) {
+	if err == nil {
+		return false, "none"
+	}
+	if errors.Is(err, context.Canceled) {
+		return false, "context_canceled"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true, "context_deadline_exceeded"
+	}
+
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		if urlErr.Timeout() {
+			return true, "network_timeout"
+		}
+		if temporaryError(urlErr) {
+			return true, "network_temporary"
+		}
+		return false, "network_non_retryable"
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		if netErr.Timeout() {
+			return true, "network_timeout"
+		}
+		if temporaryError(netErr) {
+			return true, "network_temporary"
+		}
+		return false, "network_non_retryable"
+	}
+
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true, "network_operation_error"
+	}
+	if errors.Is(err, io.EOF) {
+		return true, "io_eof"
+	}
+	return false, "error_non_retryable"
+}
+
+func temporaryError(err error) bool {
+	type temporary interface {
+		Temporary() bool
+	}
+	t, ok := err.(temporary)
+	return ok && t.Temporary()
+}
+
+func retryClassForStatus(statusCode int) string {
+	switch statusCode {
+	case http.StatusTooManyRequests:
+		return "http_429"
+	case http.StatusBadGateway:
+		return "http_502"
+	case http.StatusServiceUnavailable:
+		return "http_503"
+	case http.StatusGatewayTimeout:
+		return "http_504"
+	default:
+		return "http_retryable"
+	}
+}
+
+func jitterRPCBackoff(base time.Duration) time.Duration {
+	if base <= 0 {
+		return 0
+	}
+	jitterWindow := int64(float64(base) * rpcRetryJitterRatio)
+	if jitterWindow <= 0 {
+		return base
+	}
+	delta := rand.Int63n((2 * jitterWindow) + 1)
+	adjustment := time.Duration(delta - jitterWindow)
+	if base+adjustment <= 0 {
+		return base
+	}
+	return base + adjustment
 }
 
 func sleepWithContext(ctx context.Context, duration time.Duration) bool {

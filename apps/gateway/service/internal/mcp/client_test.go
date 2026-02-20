@@ -3,8 +3,11 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -759,3 +762,90 @@ func TestExtractRPCPayloadParsesSSEEventData(t *testing.T) {
 		t.Fatalf("unexpected payload: %#v", parsed)
 	}
 }
+
+func TestClassifyRetryableRPCFailureByStatus(t *testing.T) {
+	cases := []struct {
+		status   int
+		retry    bool
+		category string
+	}{
+		{status: http.StatusTooManyRequests, retry: true, category: "http_429"},
+		{status: http.StatusBadGateway, retry: true, category: "http_502"},
+		{status: http.StatusServiceUnavailable, retry: true, category: "http_503"},
+		{status: http.StatusGatewayTimeout, retry: true, category: "http_504"},
+		{status: http.StatusBadRequest, retry: false, category: "http_non_retryable"},
+	}
+
+	for _, tc := range cases {
+		retry, category := classifyRetryableRPCFailure(tc.status, nil)
+		if retry != tc.retry || category != tc.category {
+			t.Fatalf(
+				"status=%d expected retry=%t category=%s, got retry=%t category=%s",
+				tc.status,
+				tc.retry,
+				tc.category,
+				retry,
+				category,
+			)
+		}
+	}
+}
+
+func TestClassifyRetryableRPCFailureByError(t *testing.T) {
+	cases := []struct {
+		name     string
+		err      error
+		retry    bool
+		category string
+	}{
+		{name: "canceled", err: context.Canceled, retry: false, category: "context_canceled"},
+		{name: "deadline exceeded", err: context.DeadlineExceeded, retry: true, category: "context_deadline_exceeded"},
+		{
+			name: "url timeout",
+			err: &url.Error{
+				Op:  "POST",
+				URL: "https://example.com/mcp",
+				Err: timeoutTemporaryError{},
+			},
+			retry:    true,
+			category: "network_timeout",
+		},
+		{name: "io eof", err: io.EOF, retry: true, category: "io_eof"},
+		{name: "generic", err: errors.New("boom"), retry: false, category: "error_non_retryable"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			retry, category := classifyRetryableRPCFailure(0, tc.err)
+			if retry != tc.retry || category != tc.category {
+				t.Fatalf(
+					"expected retry=%t category=%s, got retry=%t category=%s",
+					tc.retry,
+					tc.category,
+					retry,
+					category,
+				)
+			}
+		})
+	}
+}
+
+func TestJitterRPCBackoffWithinBounds(t *testing.T) {
+	base := 100 * time.Millisecond
+	lowerBound := 80 * time.Millisecond
+	upperBound := 120 * time.Millisecond
+	for i := 0; i < 100; i++ {
+		backoff := jitterRPCBackoff(base)
+		if backoff < lowerBound || backoff > upperBound {
+			t.Fatalf("expected jittered backoff in [%s, %s], got %s", lowerBound, upperBound, backoff)
+		}
+	}
+}
+
+type timeoutTemporaryError struct{}
+
+func (timeoutTemporaryError) Error() string { return "timeout" }
+
+func (timeoutTemporaryError) Timeout() bool { return true }
+
+func (timeoutTemporaryError) Temporary() bool { return true }

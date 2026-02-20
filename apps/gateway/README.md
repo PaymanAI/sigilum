@@ -35,6 +35,7 @@ Gateway service code is organized under `apps/gateway/service`:
 - Injects connector auth headers (Bearer or custom header-key mode) and strips Sigilum signing headers before upstream forwarding.
 - Supports MCP connections (`protocol: "mcp"`) with streamable HTTP transport.
 - Uses explicit MCP session lifecycle states (`initialize_required` -> `ready` -> `reinitialize_pending`) with bounded recovery/retry behavior.
+- Retries MCP runtime requests only for retryable transport/status classes (network timeout/temporary failures, `429`, `502`, `503`, `504`) with bounded exponential backoff and jitter.
 - Discovers MCP tools (`/api/admin/connections/{id}/discover`) and stores discovery metadata locally.
 - Applies MCP discovery cache policy with TTL and stale-if-error fallback; forced refresh is available via `refresh=force`.
 - Applies route-class timeouts for admin, proxy, and MCP runtime requests.
