@@ -109,7 +109,11 @@ func main() {
 	}
 	claimsCache.Start()
 	defer claimsCache.Close()
-	mcpClient := mcpruntime.NewClient(20 * time.Second)
+	mcpClient := mcpruntime.NewClientWithOptions(mcpruntime.ClientOptions{
+		Timeout:                 cfg.MCPRequestTimeout,
+		CircuitFailureThreshold: cfg.MCPCircuitBreakerFailures,
+		CircuitCooldown:         cfg.MCPCircuitBreakerCooldown,
+	})
 
 	mux := http.NewServeMux()
 	registerHealthRoute(mux, cfg, connectorService)
@@ -143,7 +147,7 @@ func main() {
 	)
 	log.Printf("gateway replay protection storage=file nonce_ttl=%s nonce_store=%s", cfg.NonceTTL, nonceStorePath)
 	log.Printf(
-		"gateway runtime claims_cache_ttl=%s claims_refresh_interval=%s mcp_discovery_cache_ttl=%s mcp_discovery_stale_if_error=%s admin_timeout=%s proxy_timeout=%s mcp_timeout=%s claim_registration_rate_limit_per_minute=%d mcp_tool_call_rate_limit_per_minute=%d max_request_body_bytes=%d shutdown_timeout=%s slack_alias_connection_id=%s rotation_enforcement=%s rotation_grace=%s log_proxy_requests=%t",
+		"gateway runtime claims_cache_ttl=%s claims_refresh_interval=%s mcp_discovery_cache_ttl=%s mcp_discovery_stale_if_error=%s admin_timeout=%s proxy_timeout=%s mcp_timeout=%s mcp_circuit_breaker_failures=%d mcp_circuit_breaker_cooldown=%s claim_registration_rate_limit_per_minute=%d mcp_tool_call_rate_limit_per_minute=%d max_request_body_bytes=%d shutdown_timeout=%s slack_alias_connection_id=%s rotation_enforcement=%s rotation_grace=%s log_proxy_requests=%t",
 		cfg.ClaimsCacheTTL,
 		cfg.ClaimsCacheRefreshInterval,
 		cfg.MCPDiscoveryCacheTTL,
@@ -151,6 +155,8 @@ func main() {
 		cfg.AdminRequestTimeout,
 		cfg.ProxyRequestTimeout,
 		cfg.MCPRequestTimeout,
+		cfg.MCPCircuitBreakerFailures,
+		cfg.MCPCircuitBreakerCooldown,
 		cfg.ClaimRegistrationRateLimit,
 		cfg.MCPToolCallRateLimit,
 		cfg.MaxRequestBodyBytes,

@@ -265,3 +265,37 @@ func TestLoadAllowsDisablingRateLimits(t *testing.T) {
 		t.Fatalf("expected mcp tool call rate limit 0, got %d", cfg.MCPToolCallRateLimit)
 	}
 }
+
+func TestLoadParsesMCPCircuitBreakerSettings(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_MCP_CIRCUIT_BREAKER_FAILURES", "4")
+	t.Setenv("GATEWAY_MCP_CIRCUIT_BREAKER_COOLDOWN_SECONDS", "25")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.MCPCircuitBreakerFailures != 4 {
+		t.Fatalf("expected mcp circuit breaker failures 4, got %d", cfg.MCPCircuitBreakerFailures)
+	}
+	if cfg.MCPCircuitBreakerCooldown != 25*time.Second {
+		t.Fatalf("expected mcp circuit breaker cooldown 25s, got %s", cfg.MCPCircuitBreakerCooldown)
+	}
+}
+
+func TestLoadAllowsDisablingMCPCircuitBreaker(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_MCP_CIRCUIT_BREAKER_FAILURES", "0")
+	t.Setenv("GATEWAY_MCP_CIRCUIT_BREAKER_COOLDOWN_SECONDS", "0")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.MCPCircuitBreakerFailures != 0 {
+		t.Fatalf("expected mcp circuit breaker failures 0, got %d", cfg.MCPCircuitBreakerFailures)
+	}
+	if cfg.MCPCircuitBreakerCooldown != 0 {
+		t.Fatalf("expected mcp circuit breaker cooldown 0s, got %s", cfg.MCPCircuitBreakerCooldown)
+	}
+}

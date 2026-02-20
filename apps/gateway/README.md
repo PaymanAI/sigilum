@@ -36,6 +36,7 @@ Gateway service code is organized under `apps/gateway/service`:
 - Supports MCP connections (`protocol: "mcp"`) with streamable HTTP transport.
 - Uses explicit MCP session lifecycle states (`initialize_required` -> `ready` -> `reinitialize_pending`) with bounded recovery/retry behavior.
 - Retries MCP runtime requests only for retryable transport/status classes (network timeout/temporary failures, `429`, `502`, `503`, `504`) with bounded exponential backoff and jitter.
+- Opens a per-connection MCP circuit breaker after repeated upstream failures, then fails fast until cooldown elapses.
 - Discovers MCP tools (`/api/admin/connections/{id}/discover`) and stores discovery metadata locally.
 - Applies MCP discovery cache policy with TTL and stale-if-error fallback; forced refresh is available via `refresh=force`.
 - Applies route-class timeouts for admin, proxy, and MCP runtime requests.
@@ -329,6 +330,8 @@ Key variables:
 - `GATEWAY_ADMIN_TIMEOUT_SECONDS` - timeout for admin/metrics handlers (default `20`).
 - `GATEWAY_PROXY_TIMEOUT_SECONDS` - timeout for `/proxy/*` and `/slack*` runtime handlers (default `120`).
 - `GATEWAY_MCP_TIMEOUT_SECONDS` - timeout for `/mcp/*` runtime handlers (default `90`).
+- `GATEWAY_MCP_CIRCUIT_BREAKER_FAILURES` - consecutive MCP failures before opening circuit (default `3`, set `0` to disable).
+- `GATEWAY_MCP_CIRCUIT_BREAKER_COOLDOWN_SECONDS` - fail-fast cooldown after circuit opens (default `10`, set `0` to disable).
 - `GATEWAY_CLAIM_REGISTRATION_RATE_LIMIT_PER_MINUTE` - claim submit burst limit per `connection_id + namespace` (default `30`, set `0` to disable).
 - `GATEWAY_MCP_TOOL_CALL_RATE_LIMIT_PER_MINUTE` - MCP tool-call burst limit per `connection_id + namespace` (default `120`, set `0` to disable).
 - Default local port block:

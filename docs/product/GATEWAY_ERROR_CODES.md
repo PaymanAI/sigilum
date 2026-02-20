@@ -37,6 +37,7 @@ This reference maps gateway `code` values to operator actions.
 | `MCP_DISCOVERY_FAILED` | MCP discovery refresh failed. | Verify MCP endpoint/auth and rerun discovery. |
 | `MCP_TOOL_FORBIDDEN` | Tool is blocked by effective tool policy. | Use explain endpoint and adjust policy/allowlist as needed. |
 | `MCP_TOOL_RATE_LIMITED` | MCP tool call burst limit was exceeded for this connection/namespace. | Wait one minute, then retry with backoff. |
+| `MCP_CIRCUIT_OPEN` | MCP upstream circuit breaker is open after repeated failures. | Wait for cooldown and investigate upstream stability before retrying. |
 | `MCP_TOOL_CALL_FAILED` | MCP tool execution failed upstream. | Check provider health, tool arguments, and upstream credentials. |
 
 ## Health And Readiness Errors

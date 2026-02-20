@@ -18,6 +18,7 @@ Reference: `world_class_review.md`
 - [x] `GW-011` Refactor MCP session and retry behavior into clear state machine.
 - [x] `GW-006` Introduce graceful shutdown drain metrics and in-flight request accounting.
 - [x] `GW-005` Add per-connection+namespace rate limiting for claim registration and MCP tool bursts.
+- [x] `GW-007` Add MCP upstream circuit breaker behavior for repeated failures.
 - [x] `GW-008` Add bounded MCP retries with jitter and retryable-vs-non-retryable classification.
 - [x] `GW-010` Add timeouts per route class (proxy vs admin vs discovery vs tool call).
 - [x] `GW-020` Add structured gateway decision logs with redaction guarantees.

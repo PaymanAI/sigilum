@@ -51,6 +51,8 @@ type Config struct {
 	MCPRequestTimeout          time.Duration
 	ClaimRegistrationRateLimit int
 	MCPToolCallRateLimit       int
+	MCPCircuitBreakerFailures  int
+	MCPCircuitBreakerCooldown  time.Duration
 }
 
 func Load() (Config, error) {
@@ -91,6 +93,8 @@ func Load() (Config, error) {
 		MCPRequestTimeout:          90 * time.Second,
 		ClaimRegistrationRateLimit: 30,
 		MCPToolCallRateLimit:       120,
+		MCPCircuitBreakerFailures:  3,
+		MCPCircuitBreakerCooldown:  10 * time.Second,
 		RegistryRequestTimeout:     60 * time.Second,
 	}
 
@@ -194,6 +198,16 @@ func Load() (Config, error) {
 		return Config{}, err
 	} else {
 		cfg.MCPToolCallRateLimit = value
+	}
+	if value, err := getEnvIntMin("GATEWAY_MCP_CIRCUIT_BREAKER_FAILURES", cfg.MCPCircuitBreakerFailures, 0); err != nil {
+		return Config{}, err
+	} else {
+		cfg.MCPCircuitBreakerFailures = value
+	}
+	if seconds, err := getEnvIntMin("GATEWAY_MCP_CIRCUIT_BREAKER_COOLDOWN_SECONDS", int(cfg.MCPCircuitBreakerCooldown/time.Second), 0); err != nil {
+		return Config{}, err
+	} else {
+		cfg.MCPCircuitBreakerCooldown = time.Duration(seconds) * time.Second
 	}
 	if seconds, err := getEnvInt("GATEWAY_CLAIMS_CACHE_TTL_SECONDS", int(cfg.ClaimsCacheTTL/time.Second)); err != nil {
 		return Config{}, err

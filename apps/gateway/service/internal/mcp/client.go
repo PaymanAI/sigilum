@@ -31,6 +31,8 @@ const (
 	maxRPCRequestAttempts      = 2
 	initialRPCRetryBackoff     = 100 * time.Millisecond
 	rpcRetryJitterRatio        = 0.2
+	defaultCircuitFailures     = 3
+	defaultCircuitCooldown     = 10 * time.Second
 )
 
 type sessionState string
@@ -47,6 +49,36 @@ type Client struct {
 	sessionsMu sync.RWMutex
 	sessions   map[string]string
 	requestSeq uint64
+
+	circuitMu               sync.Mutex
+	circuits                map[string]circuitState
+	circuitFailureThreshold int
+	circuitCooldown         time.Duration
+	now                     func() time.Time
+}
+
+type ClientOptions struct {
+	Timeout                 time.Duration
+	CircuitFailureThreshold int
+	CircuitCooldown         time.Duration
+}
+
+type circuitState struct {
+	consecutiveFailures int
+	openUntil           time.Time
+}
+
+type CircuitOpenError struct {
+	OpenUntil           time.Time
+	ConsecutiveFailures int
+}
+
+func (e CircuitOpenError) Error() string {
+	return fmt.Sprintf(
+		"mcp circuit breaker open until %s after %d consecutive failures",
+		e.OpenUntil.Format(time.RFC3339),
+		e.ConsecutiveFailures,
+	)
 }
 
 type rpcRequest struct {
@@ -99,9 +131,29 @@ func initializeParams() map[string]any {
 }
 
 func NewClient(timeout time.Duration) *Client {
+	return NewClientWithOptions(ClientOptions{Timeout: timeout})
+}
+
+func NewClientWithOptions(options ClientOptions) *Client {
+	timeout := options.Timeout
 	if timeout <= 0 {
 		timeout = defaultTimeout
 	}
+	failureThreshold := options.CircuitFailureThreshold
+	if failureThreshold == 0 {
+		failureThreshold = defaultCircuitFailures
+	}
+	if failureThreshold < 0 {
+		failureThreshold = 0
+	}
+	cooldown := options.CircuitCooldown
+	if cooldown == 0 {
+		cooldown = defaultCircuitCooldown
+	}
+	if cooldown < 0 {
+		cooldown = 0
+	}
+
 	transport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
@@ -117,7 +169,11 @@ func NewClient(timeout time.Duration) *Client {
 			Timeout:   timeout,
 			Transport: transport,
 		},
-		sessions: make(map[string]string),
+		sessions:                make(map[string]string),
+		circuits:                make(map[string]circuitState, 64),
+		circuitFailureThreshold: failureThreshold,
+		circuitCooldown:         cooldown,
+		now:                     time.Now,
 	}
 }
 
@@ -220,11 +276,23 @@ func (c *Client) listTools(ctx context.Context, endpoint string, cfg connectors.
 	return tools, nil
 }
 
-func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.ProxyConfig, method string, params any) (json.RawMessage, error) {
+func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.ProxyConfig, method string, params any) (result json.RawMessage, err error) {
 	sessionCacheKey := cacheKeyForConnection(endpoint, cfg)
 	if method == "initialize" {
 		c.clearSessionID(sessionCacheKey)
 	}
+	if err = c.enforceCircuitClosed(sessionCacheKey); err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			if !errors.Is(err, context.Canceled) {
+				c.recordCircuitFailure(sessionCacheKey)
+			}
+			return
+		}
+		c.recordCircuitSuccess(sessionCacheKey)
+	}()
 
 	buildRPCPayload := func(rpcMethod string, rpcParams any) ([]byte, error) {
 		payload, err := json.Marshal(rpcRequest{
@@ -776,6 +844,69 @@ func shouldRetryWithBearer(statusCode int, cfg connectors.ProxyConfig) bool {
 		strings.TrimSpace(cfg.Connection.AuthPrefix) == "" &&
 		strings.TrimSpace(cfg.Secret) != "" &&
 		!strings.HasPrefix(strings.TrimSpace(cfg.Secret), "Bearer ")
+}
+
+func (c *Client) enforceCircuitClosed(cacheKey string) error {
+	if c == nil || c.circuitFailureThreshold <= 0 || c.circuitCooldown <= 0 {
+		return nil
+	}
+	now := c.nowTime().UTC()
+
+	c.circuitMu.Lock()
+	defer c.circuitMu.Unlock()
+
+	state := c.circuits[cacheKey]
+	if state.openUntil.IsZero() {
+		return nil
+	}
+	if now.Before(state.openUntil) {
+		return CircuitOpenError{
+			OpenUntil:           state.openUntil,
+			ConsecutiveFailures: state.consecutiveFailures,
+		}
+	}
+	state.openUntil = time.Time{}
+	state.consecutiveFailures = 0
+	c.circuits[cacheKey] = state
+	return nil
+}
+
+func (c *Client) recordCircuitFailure(cacheKey string) {
+	if c == nil || c.circuitFailureThreshold <= 0 || c.circuitCooldown <= 0 {
+		return
+	}
+	now := c.nowTime().UTC()
+	c.circuitMu.Lock()
+	defer c.circuitMu.Unlock()
+
+	state := c.circuits[cacheKey]
+	state.consecutiveFailures++
+	if state.consecutiveFailures >= c.circuitFailureThreshold {
+		state.openUntil = now.Add(c.circuitCooldown)
+	}
+	c.circuits[cacheKey] = state
+}
+
+func (c *Client) recordCircuitSuccess(cacheKey string) {
+	if c == nil || c.circuitFailureThreshold <= 0 || c.circuitCooldown <= 0 {
+		return
+	}
+	c.circuitMu.Lock()
+	defer c.circuitMu.Unlock()
+	state := c.circuits[cacheKey]
+	if state.consecutiveFailures == 0 && state.openUntil.IsZero() {
+		return
+	}
+	state.consecutiveFailures = 0
+	state.openUntil = time.Time{}
+	c.circuits[cacheKey] = state
+}
+
+func (c *Client) nowTime() time.Time {
+	if c == nil || c.now == nil {
+		return time.Now().UTC()
+	}
+	return c.now().UTC()
 }
 
 func (c *Client) getSessionID(endpoint string) string {

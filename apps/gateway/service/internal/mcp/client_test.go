@@ -699,6 +699,89 @@ func TestCallToolFailsWhenSessionRecoveryExhausted(t *testing.T) {
 	}
 }
 
+func TestCallToolCircuitBreakerOpensAfterConsecutiveFailures(t *testing.T) {
+	var (
+		mu            sync.Mutex
+		toolCallCount int
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req rpcRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "decode request failed", http.StatusBadRequest)
+			return
+		}
+
+		switch req.Method {
+		case "initialize":
+			w.Header().Set("Mcp-Session-Id", "circuit-session")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      req.ID,
+				"result": map[string]any{
+					"protocolVersion": "2024-11-05",
+					"serverInfo": map[string]any{
+						"name":    "fixture-mcp",
+						"version": "1.0.0",
+					},
+				},
+			})
+		case "tools/call":
+			mu.Lock()
+			toolCallCount++
+			mu.Unlock()
+			http.Error(w, "temporary upstream overload", http.StatusServiceUnavailable)
+		default:
+			http.Error(w, "unknown method", http.StatusBadRequest)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClientWithOptions(ClientOptions{
+		Timeout:                 5 * time.Second,
+		CircuitFailureThreshold: 2,
+		CircuitCooldown:         time.Hour,
+	})
+	cfg := connectors.ProxyConfig{
+		Connection: connectors.Connection{
+			Protocol: connectors.ConnectionProtocolMCP,
+			BaseURL:  server.URL,
+		},
+	}
+
+	_, firstErr := client.CallTool(context.Background(), cfg, "list_issues", json.RawMessage(`{"limit":1}`))
+	if firstErr == nil {
+		t.Fatal("expected first call to fail")
+	}
+	_, secondErr := client.CallTool(context.Background(), cfg, "list_issues", json.RawMessage(`{"limit":1}`))
+	if secondErr == nil {
+		t.Fatal("expected second call to fail")
+	}
+
+	mu.Lock()
+	beforeThird := toolCallCount
+	mu.Unlock()
+	if beforeThird == 0 {
+		t.Fatal("expected upstream tools/call to be attempted before breaker opens")
+	}
+
+	_, thirdErr := client.CallTool(context.Background(), cfg, "list_issues", json.RawMessage(`{"limit":1}`))
+	if thirdErr == nil {
+		t.Fatal("expected third call to fail fast from circuit breaker")
+	}
+	var circuitErr CircuitOpenError
+	if !errors.As(thirdErr, &circuitErr) {
+		t.Fatalf("expected CircuitOpenError, got %v", thirdErr)
+	}
+
+	mu.Lock()
+	afterThird := toolCallCount
+	mu.Unlock()
+	if afterThird != beforeThird {
+		t.Fatalf("expected no new upstream tools/call attempts after breaker opened, before=%d after=%d", beforeThird, afterThird)
+	}
+}
+
 func TestCacheKeyForConnectionIsolatedByConnectionID(t *testing.T) {
 	endpoint := "https://mcp.example.com/rpc"
 	cfgA := connectors.ProxyConfig{

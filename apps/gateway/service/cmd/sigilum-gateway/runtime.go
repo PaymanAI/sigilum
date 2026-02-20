@@ -336,6 +336,16 @@ func handleMCPRequest(
 		toolCallStart := time.Now()
 		result, callErr := mcpClient.CallTool(r.Context(), proxyCfg, toolName, arguments)
 		if callErr != nil {
+			var circuitErr mcpruntime.CircuitOpenError
+			if errors.As(callErr, &circuitErr) {
+				gatewayMetricRegistry.recordMCPToolCall("circuit_open")
+				gatewayMetricRegistry.recordUpstreamError("MCP_CIRCUIT_OPEN")
+				writeJSON(w, http.StatusServiceUnavailable, errorResponse{
+					Error: "mcp upstream circuit breaker is open after repeated failures; retry after cooldown",
+					Code:  "MCP_CIRCUIT_OPEN",
+				})
+				return
+			}
 			gatewayMetricRegistry.recordMCPToolCall("error")
 			gatewayMetricRegistry.observeUpstream("mcp", "error", time.Since(toolCallStart))
 			gatewayMetricRegistry.recordUpstreamError("MCP_TOOL_CALL_FAILED")
