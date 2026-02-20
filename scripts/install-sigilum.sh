@@ -4,6 +4,38 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLI_PATH="${ROOT_DIR}/sigilum"
 
+CLR_RESET=""
+CLR_BOLD=""
+CLR_DIM=""
+CLR_RED=""
+CLR_GREEN=""
+CLR_YELLOW=""
+CLR_CYAN=""
+
+setup_colors() {
+  if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" ]]; then
+    CLR_RESET=$'\033[0m'
+    CLR_BOLD=$'\033[1m'
+    CLR_DIM=$'\033[2m'
+    CLR_RED=$'\033[31m'
+    CLR_GREEN=$'\033[32m'
+    CLR_YELLOW=$'\033[33m'
+    CLR_CYAN=$'\033[36m'
+  fi
+}
+
+log_ok() {
+  printf '%s[ok]%s %s\n' "${CLR_BOLD}${CLR_GREEN}" "${CLR_RESET}" "$1"
+}
+
+log_error() {
+  printf '%s[ERROR]%s %s\n' "${CLR_BOLD}${CLR_RED}" "${CLR_RESET}" "$1" >&2
+}
+
+print_kv() {
+  printf '  %s%-9s%s %s\n' "${CLR_BOLD}" "$1" "${CLR_RESET}" "$2"
+}
+
 usage() {
   cat <<'EOF'
 Install Sigilum CLI into your shell environment.
@@ -86,8 +118,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+setup_colors
+
 if [[ ! -x "$CLI_PATH" ]]; then
-  echo "sigilum launcher not found or not executable: ${CLI_PATH}" >&2
+  log_error "sigilum launcher not found or not executable: ${CLI_PATH}"
   exit 1
 fi
 
@@ -106,16 +140,13 @@ if [[ "$WITH_ALIAS" == "true" ]]; then
   append_if_missing "$RC_FILE" "$alias_line" "alias sigilum="
 fi
 
-echo "Sigilum CLI installed."
-echo "  symlink: ${BIN_DIR}/sigilum -> ${CLI_PATH}"
-echo "  rc file: ${RC_FILE}"
+log_ok "Sigilum CLI installed."
+print_kv "symlink:" "${BIN_DIR}/sigilum -> ${CLI_PATH}"
+print_kv "rc file:" "${RC_FILE}"
 if [[ "$WITH_ALIAS" == "true" ]]; then
-  echo "  alias:   enabled"
+  print_kv "alias:" "enabled"
 fi
-echo ""
-echo "Run this to activate in current shell:"
-echo "  source \"${RC_FILE}\""
-echo ""
-echo "Then verify:"
-echo "  sigilum --help"
-
+printf '\n%sRun this to activate in current shell:%s\n' "${CLR_BOLD}${CLR_CYAN}" "${CLR_RESET}"
+printf '  %ssource "%s"%s\n\n' "${CLR_BOLD}${CLR_YELLOW}" "${RC_FILE}" "${CLR_RESET}"
+printf '%sThen verify:%s\n' "${CLR_BOLD}${CLR_CYAN}" "${CLR_RESET}"
+printf '  %ssigilum --help%s\n' "${CLR_BOLD}${CLR_YELLOW}" "${CLR_RESET}"

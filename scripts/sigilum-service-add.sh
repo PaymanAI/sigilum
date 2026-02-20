@@ -51,7 +51,7 @@ process.stdout.write(JSON.stringify(payload));
     -X POST "${GATEWAY_ADMIN_URL}/api/admin/connections" \
     --data "$payload")"
   if [[ "$status" != "201" ]]; then
-    echo "Failed to configure gateway connection via admin API (HTTP ${status})" >&2
+    log_error "Failed to configure gateway connection via admin API (HTTP ${status})"
     cat "$response_file" >&2 || true
     rm -f "$response_file"
     return 1
@@ -99,13 +99,13 @@ configure_gateway_connection() {
 
   if curl -sf "${GATEWAY_ADMIN_URL}/health" >/dev/null 2>&1; then
     gateway_admin_upsert_connection "$connection_id" "$connection_name" "$upstream_base_url" "$auth_mode" "$upstream_header" "$auth_prefix" "$upstream_secret_key" "$upstream_secret"
-    echo "Configured gateway connection via admin API at ${GATEWAY_ADMIN_URL}: ${connection_id}"
+    log_ok "Configured gateway connection via admin API at ${GATEWAY_ADMIN_URL}: ${connection_id}"
     return 0
   fi
 
   require_cmd go
   gateway_cli_upsert_connection "$connection_id" "$connection_name" "$upstream_base_url" "$auth_mode" "$upstream_header" "$auth_prefix" "$upstream_secret_key" "$upstream_secret"
-  echo "Configured gateway connection via CLI store (${GATEWAY_DATA_DIR}): ${connection_id}"
+  log_ok "Configured gateway connection via CLI store (${GATEWAY_DATA_DIR}): ${connection_id}"
 }
 
 add_service() {
@@ -219,7 +219,7 @@ add_service() {
         exit 0
         ;;
       *)
-        echo "Unknown option: $1" >&2
+        log_error "Unknown option: $1"
         usage
         exit 1
         ;;
@@ -227,25 +227,25 @@ add_service() {
   done
 
   if [[ -z "$service_slug" ]]; then
-    echo "--service-slug is required" >&2
+    log_error "--service-slug is required"
     usage
     exit 1
   fi
   if ! is_valid_slug "$service_slug"; then
-    echo "Invalid --service-slug: ${service_slug}" >&2
-    echo "Expected: lowercase [a-z0-9-], 3-64 chars, must start/end with alnum." >&2
+    log_error "Invalid --service-slug: ${service_slug}"
+    log_error "Expected: lowercase [a-z0-9-], 3-64 chars, must start/end with alnum."
     exit 1
   fi
   if ! is_valid_slug "$namespace"; then
-    echo "Invalid --namespace: ${namespace}" >&2
+    log_error "Invalid --namespace: ${namespace}"
     exit 1
   fi
   if [[ "$mode" != "native" && "$mode" != "gateway" ]]; then
-    echo "Invalid --mode: ${mode} (expected native or gateway)" >&2
+    log_error "Invalid --mode: ${mode} (expected native or gateway)"
     exit 1
   fi
   if [[ "$auth_mode" != "bearer" && "$auth_mode" != "header_key" && "$auth_mode" != "query_param" ]]; then
-    echo "Invalid --auth-mode: ${auth_mode} (expected bearer, header_key, or query_param)" >&2
+    log_error "Invalid --auth-mode: ${auth_mode} (expected bearer, header_key, or query_param)"
     exit 1
   fi
   if [[ -z "$service_name" ]]; then
@@ -264,7 +264,7 @@ add_service() {
 
   mkdir -p "$SIGILUM_HOME_DIR"
 
-  echo "Applying local API migrations..."
+  log_step "Applying local API migrations..."
   (
     cd "$ROOT_DIR/apps/api"
     pnpm exec wrangler d1 migrations apply sigilum-api --local >/dev/null
@@ -291,7 +291,7 @@ add_service() {
 
   if [[ "$mode" == "gateway" ]]; then
     if [[ -z "$upstream_base_url" ]]; then
-      echo "--upstream-base-url is required when --mode gateway" >&2
+      log_error "--upstream-base-url is required when --mode gateway"
       exit 1
     fi
     if [[ -z "$upstream_secret_key" ]]; then
@@ -333,7 +333,7 @@ add_service() {
       secret_sources=$((secret_sources + 1))
     fi
     if [[ "$secret_sources" -gt 1 ]]; then
-      echo "Use only one of: --upstream-secret, --upstream-secret-env, --upstream-secret-file" >&2
+      log_error "Use only one of: --upstream-secret, --upstream-secret-env, --upstream-secret-file"
       exit 1
     fi
 
@@ -342,13 +342,13 @@ add_service() {
       UPSTREAM_SECRET="$upstream_secret"
     elif [[ -n "$upstream_secret_env" ]]; then
       if [[ -z "${!upstream_secret_env:-}" ]]; then
-        echo "Environment variable ${upstream_secret_env} is not set" >&2
+        log_error "Environment variable ${upstream_secret_env} is not set"
         exit 1
       fi
       UPSTREAM_SECRET="${!upstream_secret_env}"
     elif [[ -n "$upstream_secret_input_file" ]]; then
       if [[ ! -f "$upstream_secret_input_file" ]]; then
-        echo "Upstream secret file not found: ${upstream_secret_input_file}" >&2
+        log_error "Upstream secret file not found: ${upstream_secret_input_file}"
         exit 1
       fi
       UPSTREAM_SECRET="$(tr -d '\r\n' <"$upstream_secret_input_file")"
@@ -365,43 +365,40 @@ add_service() {
       "$upstream_secret_key" \
       "$UPSTREAM_SECRET"
 
-    echo ""
-    echo "Gateway mode configured:"
-    echo "  connection id: ${service_slug}"
-    echo "  upstream url:  ${upstream_base_url}"
-    echo "  auth mode:     ${auth_mode}"
-    echo "  auth header:   ${upstream_header}"
-    echo "  auth prefix:   ${auth_prefix}"
-    echo "  secret key:    ${upstream_secret_key}"
-    echo "  secret file:   ${persisted_upstream_secret_file}"
+    print_section "Gateway Mode Configured"
+    print_kv "connection id:" "${service_slug}"
+    print_kv "upstream url:" "${upstream_base_url}"
+    print_kv "auth mode:" "${auth_mode}"
+    print_kv "auth header:" "${upstream_header}"
+    print_kv "auth prefix:" "${auth_prefix}"
+    print_kv "secret key:" "${upstream_secret_key}"
+    print_kv "secret file:" "${persisted_upstream_secret_file}"
   fi
 
   local scoped_env
   scoped_env="SIGILUM_SERVICE_API_KEY_$(service_api_key_env_suffix "$service_slug")"
 
-  echo ""
-  echo "Service registration complete."
-  echo "  mode:                 ${mode}"
-  echo "  namespace:            ${namespace}"
-  echo "  service slug:         ${service_slug}"
-  echo "  service name:         ${service_name}"
-  echo "  API key file:         ${api_key_file}"
-  echo "  gateway scoped env:   ${scoped_env}"
+  print_section "Service Registration Complete"
+  print_kv "mode:" "${mode}"
+  print_kv "namespace:" "${namespace}"
+  print_kv "service slug:" "${service_slug}"
+  print_kv "service name:" "${service_name}"
+  print_kv "API key file:" "${api_key_file}"
+  print_kv "gateway env:" "${scoped_env}"
   if [[ "$reveal_secrets" == "true" ]]; then
-    echo "  API key value:        ${SERVICE_API_KEY}"
+    print_kv "API key value:" "${SERVICE_API_KEY}"
   else
-    echo "  API key value:        $(mask_secret "$SERVICE_API_KEY") (hidden; use --reveal-secrets to print)"
+    print_kv "API key value:" "$(mask_secret "$SERVICE_API_KEY") (hidden; use --reveal-secrets to print)"
   fi
-  echo ""
-  echo "Usage hints:"
+  print_section "Usage Hints"
   if [[ "$mode" == "native" ]]; then
-    echo "  native service env:   SIGILUM_API_KEY=\$(cat ${api_key_file})"
-    echo "  gateway env (optional): export ${scoped_env}=\$(cat ${api_key_file})"
-    echo "  gateway also auto-resolves key from: ${api_key_file}"
+    print_kv "native env:" "SIGILUM_API_KEY=\$(cat ${api_key_file})"
+    print_kv "gateway env:" "export ${scoped_env}=\$(cat ${api_key_file})"
+    print_kv "key fallback:" "${api_key_file}"
   else
-    echo "  gateway env (optional): export ${scoped_env}=\$(cat ${api_key_file})"
-    echo "  gateway auto-resolves key from: ${api_key_file}"
-    echo "  upstream secret:      \$(cat ${SIGILUM_HOME_DIR}/gateway-connection-secret-${service_slug})"
+    print_kv "gateway env:" "export ${scoped_env}=\$(cat ${api_key_file})"
+    print_kv "key fallback:" "${api_key_file}"
+    print_kv "upstream secret:" "\$(cat ${SIGILUM_HOME_DIR}/gateway-connection-secret-${service_slug})"
   fi
 }
 

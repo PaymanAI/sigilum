@@ -4,6 +4,40 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
 
+CLR_RESET=""
+CLR_BOLD=""
+CLR_DIM=""
+CLR_RED=""
+CLR_GREEN=""
+CLR_YELLOW=""
+CLR_BLUE=""
+CLR_CYAN=""
+
+setup_colors() {
+  if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" ]]; then
+    CLR_RESET=$'\033[0m'
+    CLR_BOLD=$'\033[1m'
+    CLR_DIM=$'\033[2m'
+    CLR_RED=$'\033[31m'
+    CLR_GREEN=$'\033[32m'
+    CLR_YELLOW=$'\033[33m'
+    CLR_BLUE=$'\033[34m'
+    CLR_CYAN=$'\033[36m'
+  fi
+}
+
+log_info() {
+  printf '%s[i]%s %s\n' "${CLR_BOLD}${CLR_BLUE}" "${CLR_RESET}" "$1"
+}
+
+log_ok() {
+  printf '%s[ok]%s %s\n' "${CLR_BOLD}${CLR_GREEN}" "${CLR_RESET}" "$1"
+}
+
+log_warn() {
+  printf '%s[warn]%s %s\n' "${CLR_BOLD}${CLR_YELLOW}" "${CLR_RESET}" "$1"
+}
+
 usage() {
   cat <<'USAGE'
 Sigilum OpenClaw helpers
@@ -55,6 +89,8 @@ if [[ $# -lt 1 ]]; then
   exit 1
 fi
 
+setup_colors
+
 command="$1"
 shift || true
 
@@ -75,19 +111,21 @@ case "$command" in
     ;;
   status)
     config_path="${OPENCLAW_HOME}/openclaw.json"
-    echo "OpenClaw home: ${OPENCLAW_HOME}"
-    echo "Config: ${config_path}"
+    printf '%sOpenClaw status%s\n' "${CLR_BOLD}${CLR_CYAN}" "${CLR_RESET}"
+    printf '  %shome:%s   %s\n' "${CLR_BOLD}" "${CLR_RESET}" "${OPENCLAW_HOME}"
+    printf '  %sconfig:%s %s\n' "${CLR_BOLD}" "${CLR_RESET}" "${config_path}"
     for path in \
       "${OPENCLAW_HOME}/hooks/sigilum-plugin" \
       "${OPENCLAW_HOME}/hooks/sigilum-authz-notify" \
       "${OPENCLAW_HOME}/skills/sigilum"; do
       if [[ -d "$path" ]]; then
-        echo "[ok]  ${path}"
+        log_ok "${path}"
       else
-        echo "[miss] ${path}"
+        log_warn "missing ${path}"
       fi
     done
     if [[ -f "$config_path" ]]; then
+      log_info "OpenClaw config summary:"
       node - "$config_path" <<'NODE'
 const fs = require("fs");
 const configPath = process.argv[2];
@@ -127,6 +165,8 @@ console.log(`  hook sigilum-plugin enabled: ${plugin?.enabled === true}`);
 console.log(`  hook sigilum-authz-notify enabled: ${notify?.enabled === true}`);
 console.log(`  skill sigilum enabled: ${skill?.enabled === true}`);
 NODE
+    else
+      log_warn "Config file not found: ${config_path}"
     fi
     ;;
   -h|--help|help)

@@ -61,7 +61,7 @@ set_service_secret() {
         exit 0
         ;;
       *)
-        echo "Unknown option: $1" >&2
+        log_error "Unknown option: $1"
         usage
         exit 1
         ;;
@@ -69,11 +69,11 @@ set_service_secret() {
   done
 
   if [[ -z "$service_slug" ]]; then
-    echo "--service-slug is required" >&2
+    log_error "--service-slug is required"
     exit 1
   fi
   if ! is_valid_slug "$service_slug"; then
-    echo "Invalid --service-slug: ${service_slug}" >&2
+    log_error "Invalid --service-slug: ${service_slug}"
     exit 1
   fi
 
@@ -88,7 +88,7 @@ set_service_secret() {
     secret_sources=$((secret_sources + 1))
   fi
   if [[ "$secret_sources" -ne 1 ]]; then
-    echo "Provide exactly one secret source: --upstream-secret, --upstream-secret-env, or --upstream-secret-file" >&2
+    log_error "Provide exactly one secret source: --upstream-secret, --upstream-secret-env, or --upstream-secret-file"
     exit 1
   fi
 
@@ -97,27 +97,27 @@ set_service_secret() {
     resolved_secret="$upstream_secret"
   elif [[ -n "$upstream_secret_env" ]]; then
     if [[ -z "${!upstream_secret_env:-}" ]]; then
-      echo "Environment variable ${upstream_secret_env} is not set" >&2
+      log_error "Environment variable ${upstream_secret_env} is not set"
       exit 1
     fi
     resolved_secret="${!upstream_secret_env}"
   else
     if [[ ! -f "$upstream_secret_input_file" ]]; then
-      echo "Upstream secret file not found: ${upstream_secret_input_file}" >&2
+      log_error "Upstream secret file not found: ${upstream_secret_input_file}"
       exit 1
     fi
     resolved_secret="$(tr -d '\r\n' <"$upstream_secret_input_file")"
   fi
 
   if [[ -z "$resolved_secret" ]]; then
-    echo "Resolved secret is empty." >&2
+    log_error "Resolved secret is empty."
     exit 1
   fi
 
   local connection_json
   if ! connection_json="$(gateway_get_connection_json "$service_slug" 2>/dev/null)"; then
-    echo "Gateway connection not found: ${service_slug}" >&2
-    echo "Create it first with: sigilum service add --service-slug ${service_slug} --mode gateway ..." >&2
+    log_error "Gateway connection not found: ${service_slug}"
+    log_error "Create it first with: sigilum service add --service-slug ${service_slug} --mode gateway ..."
     exit 1
   fi
 
@@ -147,14 +147,14 @@ process.stdout.write(key);
   umask 077
   printf "%s\n" "$resolved_secret" >"$persisted_upstream_secret_file"
 
-  echo "Gateway connection secret updated."
-  echo "  connection id: ${service_slug}"
-  echo "  secret key:    ${upstream_secret_key}"
-  echo "  secret file:   ${persisted_upstream_secret_file}"
+  print_section "Gateway Connection Secret Updated"
+  print_kv "connection id:" "${service_slug}"
+  print_kv "secret key:" "${upstream_secret_key}"
+  print_kv "secret file:" "${persisted_upstream_secret_file}"
   if [[ "$reveal_secrets" == "true" ]]; then
-    echo "  secret value:  ${resolved_secret}"
+    print_kv "secret value:" "${resolved_secret}"
   else
-    echo "  secret value:  $(mask_secret "$resolved_secret") (hidden; use --reveal-secrets to print)"
+    print_kv "secret value:" "$(mask_secret "$resolved_secret") (hidden; use --reveal-secrets to print)"
   fi
 }
 

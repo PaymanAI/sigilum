@@ -42,7 +42,7 @@ list_services() {
         exit 0
         ;;
       *)
-        echo "Unknown option: $1" >&2
+        log_error "Unknown option: $1"
         usage
         exit 1
         ;;
@@ -50,7 +50,7 @@ list_services() {
   done
 
   if ! is_valid_slug "$namespace"; then
-    echo "Invalid --namespace: ${namespace}" >&2
+    log_error "Invalid --namespace: ${namespace}"
     exit 1
   fi
 
@@ -60,11 +60,21 @@ list_services() {
   services_raw="$(run_local_d1_json "$query")"
   connections_raw="$(gateway_list_connections_json 2>/dev/null || printf '{"connections":[]}')"
 
-  SERVICES_RAW="$services_raw" CONNECTIONS_RAW="$connections_raw" OUTPUT_JSON="$output_json" NAMESPACE="$namespace" node <<'NODE'
+  SERVICES_RAW="$services_raw" \
+    CONNECTIONS_RAW="$connections_raw" \
+    OUTPUT_JSON="$output_json" \
+    NAMESPACE="$namespace" \
+    COLOR_HEADER="${CLR_BOLD}${CLR_CYAN}" \
+    COLOR_DIM="${CLR_DIM}" \
+    COLOR_RESET="${CLR_RESET}" \
+    node <<'NODE'
 const servicesRaw = process.env.SERVICES_RAW || "[]";
 const connectionsRaw = process.env.CONNECTIONS_RAW || '{"connections":[]}';
 const namespace = process.env.NAMESPACE || "";
 const outputJson = process.env.OUTPUT_JSON === "true";
+const colorHeader = process.env.COLOR_HEADER || "";
+const colorDim = process.env.COLOR_DIM || "";
+const colorReset = process.env.COLOR_RESET || "";
 
 const parseJson = (value, fallback) => {
   try {
@@ -101,7 +111,7 @@ if (outputJson) {
 }
 
 if (rows.length === 0) {
-  process.stdout.write(`No services registered for namespace "${namespace}".\n`);
+  process.stdout.write(`${colorDim}No services registered for namespace "${namespace}".${colorReset}\n`);
   process.exit(0);
 }
 
@@ -110,7 +120,7 @@ const modeWidth = Math.max("MODE".length, ...rows.map((row) => row.mode.length))
 const keysWidth = Math.max("API_KEYS".length, ...rows.map((row) => String(row.active_api_keys).length));
 
 const pad = (value, width) => value.padEnd(width, " ");
-process.stdout.write(`Services for namespace "${namespace}":\n`);
+process.stdout.write(`${colorHeader}Services for namespace "${namespace}":${colorReset}\n`);
 process.stdout.write(`${pad("SERVICE", slugWidth)}  ${pad("MODE", modeWidth)}  ${pad("API_KEYS", keysWidth)}  NAME\n`);
 for (const row of rows) {
   process.stdout.write(`${pad(row.service_slug, slugWidth)}  ${pad(row.mode, modeWidth)}  ${pad(String(row.active_api_keys), keysWidth)}  ${row.service_name}\n`);

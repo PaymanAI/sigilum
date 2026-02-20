@@ -8,6 +8,44 @@ set -euo pipefail
 : "${ENVOY_INGRESS_PORT:=38000}"
 : "${ENVOY_ADMIN_PORT:=38200}"
 
+CLR_RESET=""
+CLR_BOLD=""
+CLR_DIM=""
+CLR_RED=""
+CLR_GREEN=""
+CLR_YELLOW=""
+CLR_BLUE=""
+CLR_CYAN=""
+
+setup_colors() {
+  if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" ]]; then
+    CLR_RESET=$'\033[0m'
+    CLR_BOLD=$'\033[1m'
+    CLR_DIM=$'\033[2m'
+    CLR_RED=$'\033[31m'
+    CLR_GREEN=$'\033[32m'
+    CLR_YELLOW=$'\033[33m'
+    CLR_BLUE=$'\033[34m'
+    CLR_CYAN=$'\033[36m'
+  fi
+}
+
+log_info() {
+  printf '%s[info]%s %s\n' "${CLR_BOLD}${CLR_BLUE}" "${CLR_RESET}" "$1"
+}
+
+log_ok() {
+  printf '%s[ok]%s %s\n' "${CLR_BOLD}${CLR_GREEN}" "${CLR_RESET}" "$1"
+}
+
+log_warn() {
+  printf '%s[warn]%s %s\n' "${CLR_BOLD}${CLR_YELLOW}" "${CLR_RESET}" "$1"
+}
+
+log_error() {
+  printf '%s[fail]%s %s\n' "${CLR_BOLD}${CLR_RED}" "${CLR_RESET}" "$1" >&2
+}
+
 usage() {
   cat <<'EOF'
 Sigilum Local Shutdown
@@ -43,11 +81,11 @@ kill_listeners_on_port() {
   local pids
   pids="$(listener_pids_for_port "$port")"
   if [[ -z "$pids" ]]; then
-    echo "[ok] ${label}: no listeners on :${port}"
+    log_ok "${label}: no listeners on :${port}"
     return 0
   fi
 
-  echo "[info] stopping ${label} listener(s) on :${port}: ${pids}"
+  log_info "stopping ${label} listener(s) on :${port}: ${pids}"
   if [[ "$(uname -s)" != "Darwin" ]] && command -v fuser >/dev/null 2>&1; then
     fuser -k -TERM -n tcp "${port}" >/dev/null 2>&1 || true
   else
@@ -58,12 +96,12 @@ kill_listeners_on_port() {
     sleep 1
     pids="$(listener_pids_for_port "$port")"
     if [[ -z "$pids" ]]; then
-      echo "[ok] ${label}: stopped"
+      log_ok "${label}: stopped"
       return 0
     fi
   done
 
-  echo "[warn] force-stopping lingering ${label} listener(s) on :${port}: ${pids}"
+  log_warn "force-stopping lingering ${label} listener(s) on :${port}: ${pids}"
   if [[ "$(uname -s)" != "Darwin" ]] && command -v fuser >/dev/null 2>&1; then
     fuser -k -KILL -n tcp "${port}" >/dev/null 2>&1 || true
   else
@@ -73,13 +111,15 @@ kill_listeners_on_port() {
   sleep 1
   pids="$(listener_pids_for_port "$port")"
   if [[ -n "$pids" ]]; then
-    echo "[fail] unable to reclaim ${label} port :${port}; still listening PID(s): ${pids}" >&2
+    log_error "unable to reclaim ${label} port :${port}; still listening PID(s): ${pids}"
     return 1
   fi
 
-  echo "[ok] ${label}: stopped"
+  log_ok "${label}: stopped"
   return 0
 }
+
+setup_colors
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -88,7 +128,7 @@ while [[ $# -gt 0 ]]; do
       exit 0
       ;;
     *)
-      echo "Unknown option: $1" >&2
+      log_error "Unknown option: $1"
       usage >&2
       exit 1
       ;;
@@ -102,4 +142,5 @@ kill_listeners_on_port "$UPSTREAM_PORT" "Demo gateway upstream"
 kill_listeners_on_port "$ENVOY_INGRESS_PORT" "Envoy ingress"
 kill_listeners_on_port "$ENVOY_ADMIN_PORT" "Envoy admin"
 
-echo "Sigilum local stack shutdown complete."
+printf '\n'
+printf '%s%s%s\n' "${CLR_BOLD}${CLR_CYAN}" "Sigilum local stack shutdown complete." "${CLR_RESET}"

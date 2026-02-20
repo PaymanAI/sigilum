@@ -281,7 +281,7 @@ fi
 log_step "Configuring shell environment..."
 
 SIGILUM_HOME_LINE="export SIGILUM_HOME=\"${INSTALL_DIR}\""
-PATH_LINE="export PATH=\"\$SIGILUM_HOME:\$PATH\""
+PATH_LINE="export PATH=\"\$SIGILUM_HOME/bin:\$SIGILUM_HOME:\$PATH\""
 UPDATED_FILES=()
 
 while IFS= read -r rc_file; do
@@ -289,7 +289,7 @@ while IFS= read -r rc_file; do
 
   append_if_missing "$rc_file" "# Sigilum" "# Sigilum"
   append_if_missing "$rc_file" "$SIGILUM_HOME_LINE" "SIGILUM_HOME="
-  append_if_missing "$rc_file" "$PATH_LINE" "SIGILUM_HOME:\$PATH"
+  append_if_missing "$rc_file" "$PATH_LINE" "SIGILUM_HOME/bin:\$SIGILUM_HOME:\$PATH"
 
   UPDATED_FILES+=("$rc_file")
 done < <(detect_rc_files)

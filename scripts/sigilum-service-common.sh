@@ -4,6 +4,58 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+CLR_RESET=""
+CLR_BOLD=""
+CLR_DIM=""
+CLR_RED=""
+CLR_GREEN=""
+CLR_YELLOW=""
+CLR_BLUE=""
+CLR_CYAN=""
+
+setup_colors() {
+  if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" ]]; then
+    CLR_RESET=$'\033[0m'
+    CLR_BOLD=$'\033[1m'
+    CLR_DIM=$'\033[2m'
+    CLR_RED=$'\033[31m'
+    CLR_GREEN=$'\033[32m'
+    CLR_YELLOW=$'\033[33m'
+    CLR_BLUE=$'\033[34m'
+    CLR_CYAN=$'\033[36m'
+  fi
+}
+
+log_step() {
+  printf '%s✧%s %s\n' "${CLR_BOLD}${CLR_YELLOW}" "${CLR_RESET}" "$1"
+}
+
+log_info() {
+  printf '%s[i]%s %s\n' "${CLR_BOLD}${CLR_BLUE}" "${CLR_RESET}" "$1"
+}
+
+log_ok() {
+  printf '%s[ok]%s %s\n' "${CLR_BOLD}${CLR_GREEN}" "${CLR_RESET}" "$1"
+}
+
+log_warn() {
+  printf '%s[warn]%s %s\n' "${CLR_BOLD}${CLR_YELLOW}" "${CLR_RESET}" "$1"
+}
+
+log_error() {
+  printf '%s[ERROR]%s %s\n' "${CLR_BOLD}${CLR_RED}" "${CLR_RESET}" "$1" >&2
+}
+
+print_section() {
+  printf '\n%s%s%s\n' "${CLR_BOLD}${CLR_CYAN}" "$1" "${CLR_RESET}"
+}
+
+print_kv() {
+  local key="$1"
+  local value="$2"
+  printf '  %s%-18s%s %s\n' "${CLR_BOLD}" "$key" "${CLR_RESET}" "$value"
+}
+
 usage() {
   cat <<'EOF'
 Sigilum Local Service CLI
@@ -80,7 +132,7 @@ EOF
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
-    echo "Missing required command: $1" >&2
+    log_error "Missing required command: $1"
     exit 1
   fi
 }
@@ -94,12 +146,12 @@ ensure_api_wrangler_config() {
     return 0
   fi
   if [[ ! -f "$template_path" ]]; then
-    echo "Missing Wrangler config template: ${template_path}" >&2
+    log_error "Missing Wrangler config template: ${template_path}"
     exit 1
   fi
 
   cp "$template_path" "$config_path"
-  echo "Created ${config_path} from template."
+  log_ok "Created ${config_path} from template."
 }
 
 sql_escape() {
@@ -223,10 +275,10 @@ ensure_local_user_service_and_key() {
   run_local_d1 "INSERT OR IGNORE INTO service_api_keys (id, service_id, name, key_prefix, key_hash) SELECT '${key_id_sql}', s.id, '${key_name_sql}', '${key_prefix_sql}', '${key_hash_sql}' FROM services s JOIN users u ON u.id = s.owner_user_id WHERE s.slug = '${slug_sql}' AND u.namespace = '${ns_sql}' LIMIT 1;"
   run_local_d1 "UPDATE service_api_keys SET name = '${key_name_sql}', revoked_at = NULL WHERE service_id IN (SELECT s.id FROM services s JOIN users u ON u.id = s.owner_user_id WHERE s.slug = '${slug_sql}' AND u.namespace = '${ns_sql}' LIMIT 1) AND key_hash = '${key_hash_sql}';"
 
-  echo "Registered service in local API DB:"
-  echo "  namespace: ${namespace}"
-  echo "  service:   ${service_slug}"
-  echo "  key:       ${key_prefix}"
+  print_section "Registered Local API Service"
+  print_kv "namespace:" "${namespace}"
+  print_kv "service:" "${service_slug}"
+  print_kv "key prefix:" "${key_prefix}"
 }
 
 gateway_cli() {
@@ -296,7 +348,7 @@ process.stdout.write(JSON.stringify(payload));
       -X POST "${GATEWAY_ADMIN_URL}/api/admin/connections/${connection_id}/rotate" \
       --data "$payload" || true)"
     if [[ "$status" != "200" ]]; then
-      echo "Failed to rotate gateway secret via admin API (HTTP ${status})" >&2
+      log_error "Failed to rotate gateway secret via admin API (HTTP ${status})"
       cat "$response_file" >&2 || true
       rm -f "$response_file"
       return 1
@@ -309,3 +361,4 @@ process.stdout.write(JSON.stringify(payload));
   gateway_cli rotate --id "$connection_id" --secret "${secret_key}=${secret_value}" >/dev/null
 }
 
+setup_colors
