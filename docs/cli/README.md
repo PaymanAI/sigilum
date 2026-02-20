@@ -165,8 +165,13 @@ Lean-runtime note:
 Basic usage:
 
 ```bash
-sigilum openclaw install --namespace <namespace> --mode <managed|oss-local>
+sigilum openclaw install
 ```
+
+Interactive install prompts for:
+- namespace
+- OpenClaw home directory (`.openclaw`)
+- Sigilum API URL (default `https://api.sigilum.id`)
 
 Common options:
 
@@ -176,6 +181,7 @@ Common options:
 - `--namespace <value>`
 - `--gateway-url <url>`
 - `--api-url <url>`
+- `--interactive` or `--non-interactive`
 - `--key-root <path>`
 - `--runtime-root <path>`
 - `--enable-authz-notify <true|false>` (default `false`)
