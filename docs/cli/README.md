@@ -34,6 +34,9 @@ Release installer verification (`scripts/install-curl.sh`) defaults to checksum 
 - `--checksum-url <url>` or `--checksum-file <path>`: checksum file source
 - `--release-pubkey-file <path>`: verify release checksum signature (`.sha256.sig`)
 - `--require-signature`: fail unless signature verification succeeds
+- network timeout guards:
+  - `CURL_CONNECT_TIMEOUT_SECONDS` (default `5`)
+  - `CURL_MAX_TIME_SECONDS` (default `30`)
 
 ## Help
 
@@ -157,6 +160,9 @@ Runs local diagnostics:
 - OpenClaw config permissions and authz-notify token posture checks
 - machine-readable JSON report mode for automation (`--json`)
 - safe auto-remediation mode for selected checks (`--fix`)
+- HTTP health probes use timeout guards:
+  - `CURL_CONNECT_TIMEOUT_SECONDS` (default `5`)
+  - `CURL_MAX_TIME_SECONDS` (default `15`)
 
 Example:
 

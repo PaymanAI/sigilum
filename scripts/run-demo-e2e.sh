@@ -27,6 +27,8 @@ fi
 : "${SIGILUM_WORKSPACE_DIR:=${ROOT_DIR}/.sigilum-workspace}"
 : "${SIGILUM_E2E_CLEAN_START:=true}"
 : "${SIM_SEED_TOKEN:=}"
+: "${CURL_CONNECT_TIMEOUT_SECONDS:=5}"
+: "${CURL_MAX_TIME_SECONDS:=30}"
 
 API_URL="http://127.0.0.1:${API_PORT}"
 GATEWAY_URL="http://127.0.0.1:${GATEWAY_PORT}"
@@ -63,6 +65,10 @@ generate_seed_token() {
   node -e "const crypto=require('node:crypto'); process.stdout.write('seed_'+crypto.randomBytes(24).toString('hex'));"
 }
 
+curl_with_timeout() {
+  curl --connect-timeout "$CURL_CONNECT_TIMEOUT_SECONDS" --max-time "$CURL_MAX_TIME_SECONDS" "$@"
+}
+
 if [[ -z "${SIM_SEED_TOKEN}" ]]; then
   SIM_SEED_TOKEN="$(generate_seed_token)"
 fi
@@ -74,7 +80,7 @@ wait_for_url() {
   local log_file="${4:-}"
 
   for i in $(seq 1 "${timeout_seconds}"); do
-    if curl -sf "${url}" >/dev/null 2>&1; then
+    if curl_with_timeout -sf "${url}" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -97,12 +103,12 @@ probe_status() {
   local status
 
   if [[ -n "$body" ]]; then
-    status="$(curl -sS -o /dev/null -w "%{http_code}" \
+    status="$(curl_with_timeout -sS -o /dev/null -w "%{http_code}" \
       -H "Content-Type: application/json" \
       -X "$method" "$url" \
       --data "$body" || true)"
   else
-    status="$(curl -sS -o /dev/null -w "%{http_code}" -X "$method" "$url" || true)"
+    status="$(curl_with_timeout -sS -o /dev/null -w "%{http_code}" -X "$method" "$url" || true)"
   fi
 
   if [[ "$status" != "$expected_status" ]]; then
@@ -210,14 +216,14 @@ process.stdout.write(JSON.stringify(payload));
   while [[ "$attempt" -le "$max_attempts" ]]; do
     ensure_stack_alive
 
-    delete_status="$(curl -sS -o /dev/null -w "%{http_code}" \
+    delete_status="$(curl_with_timeout -sS -o /dev/null -w "%{http_code}" \
       -X DELETE "${GATEWAY_URL}/api/admin/connections/${connection_id}" || true)"
     if [[ "$delete_status" != "200" && "$delete_status" != "204" && "$delete_status" != "404" && "$delete_status" != "000" ]]; then
       echo "Warning: delete of existing ${connection_id} returned HTTP ${delete_status}" >&2
     fi
 
     response_file="$(mktemp "${TMPDIR:-/tmp}/sigilum-e2e-connection-XXXXXX.json")"
-    status="$(curl -sS -o "$response_file" -w "%{http_code}" \
+    status="$(curl_with_timeout -sS -o "$response_file" -w "%{http_code}" \
       -H "Content-Type: application/json" \
       -X POST "${GATEWAY_URL}/api/admin/connections" \
       --data "$payload" || true)"
@@ -269,10 +275,10 @@ fi
 
 api_ready="false"
 gateway_ready="false"
-if curl -sf "${API_URL}/health" >/dev/null 2>&1; then
+if curl_with_timeout -sf "${API_URL}/health" >/dev/null 2>&1; then
   api_ready="true"
 fi
-if curl -sf "${GATEWAY_URL}/health" >/dev/null 2>&1; then
+if curl_with_timeout -sf "${GATEWAY_URL}/health" >/dev/null 2>&1; then
   gateway_ready="true"
 fi
 
@@ -322,7 +328,7 @@ UPSTREAM_KEY="$(tr -d '\r\n' <"${UPSTREAM_KEY_FILE}")"
 echo "Ensuring gateway demo connection points at ${UPSTREAM_URL}..."
 ensure_demo_gateway_connection
 
-if curl -sf "${NATIVE_URL}/" >/dev/null 2>&1; then
+if curl_with_timeout -sf "${NATIVE_URL}/" >/dev/null 2>&1; then
   echo "Native demo service already running at ${NATIVE_URL}; reusing."
 else
   echo "Starting demo-service-native on ${NATIVE_URL}..."
@@ -338,7 +344,7 @@ else
   wait_for_url "Native demo service" "${NATIVE_URL}/" 120 "${LOG_DIR}/native.log"
 fi
 
-if curl -sf "${UPSTREAM_URL}/health" >/dev/null 2>&1; then
+if curl_with_timeout -sf "${UPSTREAM_URL}/health" >/dev/null 2>&1; then
   echo "Gateway demo upstream already running at ${UPSTREAM_URL}; reusing."
 else
   echo "Starting demo-service-gateway on ${UPSTREAM_URL}..."

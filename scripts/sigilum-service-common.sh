@@ -137,6 +137,13 @@ require_cmd() {
   fi
 }
 
+CURL_CONNECT_TIMEOUT_SECONDS="${CURL_CONNECT_TIMEOUT_SECONDS:-5}"
+CURL_MAX_TIME_SECONDS="${CURL_MAX_TIME_SECONDS:-30}"
+
+curl_with_timeout() {
+  curl --connect-timeout "$CURL_CONNECT_TIMEOUT_SECONDS" --max-time "$CURL_MAX_TIME_SECONDS" "$@"
+}
+
 ensure_api_wrangler_config() {
   local api_dir="${ROOT_DIR}/apps/api"
   local config_path="${api_dir}/wrangler.toml"
@@ -291,8 +298,8 @@ gateway_cli() {
 }
 
 gateway_list_connections_json() {
-  if curl -sf "${GATEWAY_ADMIN_URL}/health" >/dev/null 2>&1; then
-    curl -sS "${GATEWAY_ADMIN_URL}/api/admin/connections"
+  if curl_with_timeout -sf "${GATEWAY_ADMIN_URL}/health" >/dev/null 2>&1; then
+    curl_with_timeout -sS "${GATEWAY_ADMIN_URL}/api/admin/connections"
     return 0
   fi
   if ! command -v go >/dev/null 2>&1; then
@@ -303,11 +310,11 @@ gateway_list_connections_json() {
 
 gateway_get_connection_json() {
   local connection_id="$1"
-  if curl -sf "${GATEWAY_ADMIN_URL}/health" >/dev/null 2>&1; then
+  if curl_with_timeout -sf "${GATEWAY_ADMIN_URL}/health" >/dev/null 2>&1; then
     local response_file
     response_file="$(mktemp "${TMPDIR:-/tmp}/sigilum-gw-get-XXXXXX.json")"
     local status
-    status="$(curl -sS -o "$response_file" -w "%{http_code}" "${GATEWAY_ADMIN_URL}/api/admin/connections/${connection_id}" || true)"
+    status="$(curl_with_timeout -sS -o "$response_file" -w "%{http_code}" "${GATEWAY_ADMIN_URL}/api/admin/connections/${connection_id}" || true)"
     if [[ "$status" != "200" ]]; then
       rm -f "$response_file"
       return 1
@@ -327,7 +334,7 @@ gateway_rotate_connection_secret() {
   local secret_key="$2"
   local secret_value="$3"
 
-  if curl -sf "${GATEWAY_ADMIN_URL}/health" >/dev/null 2>&1; then
+  if curl_with_timeout -sf "${GATEWAY_ADMIN_URL}/health" >/dev/null 2>&1; then
     local payload
     payload="$(SECRET_KEY="$secret_key" SECRET_VALUE="$secret_value" node -e '
 const payload = {
@@ -343,7 +350,7 @@ process.stdout.write(JSON.stringify(payload));
     local response_file
     response_file="$(mktemp "${TMPDIR:-/tmp}/sigilum-gw-rotate-XXXXXX.json")"
     local status
-    status="$(curl -sS -o "$response_file" -w "%{http_code}" \
+    status="$(curl_with_timeout -sS -o "$response_file" -w "%{http_code}" \
       -H "Content-Type: application/json" \
       -X POST "${GATEWAY_ADMIN_URL}/api/admin/connections/${connection_id}/rotate" \
       --data "$payload" || true)"

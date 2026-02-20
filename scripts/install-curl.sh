@@ -16,6 +16,8 @@ CHECKSUM_URL=""
 CHECKSUM_FILE=""
 RELEASE_PUBKEY_FILE="${SIGILUM_RELEASE_PUBKEY_FILE:-}"
 REQUIRE_SIGNATURE="false"
+CURL_CONNECT_TIMEOUT_SECONDS="${CURL_CONNECT_TIMEOUT_SECONDS:-5}"
+CURL_MAX_TIME_SECONDS="${CURL_MAX_TIME_SECONDS:-30}"
 
 print_banner() {
   cat <<BANNER
@@ -61,9 +63,9 @@ resolve_latest_version() {
   local tag
 
   if command -v curl &>/dev/null; then
-    tag="$(curl -fsSL "$api_url" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/')"
+    tag="$(curl --connect-timeout "$CURL_CONNECT_TIMEOUT_SECONDS" --max-time "$CURL_MAX_TIME_SECONDS" -fsSL "$api_url" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/')"
   elif command -v wget &>/dev/null; then
-    tag="$(wget -qO- "$api_url" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/')"
+    tag="$(wget -qO- --timeout="$CURL_MAX_TIME_SECONDS" "$api_url" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/')"
   else
     log_error "Neither curl nor wget found. Cannot download."
     exit 1
@@ -83,9 +85,9 @@ download_to_file() {
   local dest="$2"
 
   if command -v curl &>/dev/null; then
-    curl -fSL --progress-bar "$source_url" -o "$dest"
+    curl --connect-timeout "$CURL_CONNECT_TIMEOUT_SECONDS" --max-time "$CURL_MAX_TIME_SECONDS" -fSL --progress-bar "$source_url" -o "$dest"
   elif command -v wget &>/dev/null; then
-    wget -q --show-progress "$source_url" -O "$dest"
+    wget -q --show-progress --timeout="$CURL_MAX_TIME_SECONDS" "$source_url" -O "$dest"
   else
     log_error "Neither curl nor wget found."
     exit 1
@@ -144,11 +146,11 @@ download_release_checksum_signature() {
   printf '  %s%s%s\n' "${CLR_DIM}" "$url" "${CLR_RESET}"
 
   if command -v curl &>/dev/null; then
-    curl -fSL --progress-bar "$url" -o "$dest" >/dev/null 2>&1
+    curl --connect-timeout "$CURL_CONNECT_TIMEOUT_SECONDS" --max-time "$CURL_MAX_TIME_SECONDS" -fSL --progress-bar "$url" -o "$dest" >/dev/null 2>&1
     return $?
   fi
   if command -v wget &>/dev/null; then
-    wget -q "$url" -O "$dest" >/dev/null 2>&1
+    wget -q --timeout="$CURL_MAX_TIME_SECONDS" "$url" -O "$dest" >/dev/null 2>&1
     return $?
   fi
   log_error "Neither curl nor wget found."

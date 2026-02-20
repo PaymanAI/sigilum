@@ -12,7 +12,7 @@ Design rule:
 | Script | Invoked as | Purpose |
 |---|---|---|
 | `sigilum` | `sigilum ...` | Top-level CLI router. Handles global env flags and dispatches to the right script/module. |
-| `scripts/install-curl.sh` | `curl ... | bash` | Release install path from GitHub Releases tarballs. |
+| `scripts/install-curl.sh` | `curl ... | bash` | Release install path from GitHub Releases tarballs (network downloads are timeout-guarded). |
 | `scripts/install-sigilum.sh` | `sigilum install` | Source-checkout install path (symlink + shell PATH wiring). |
 
 ## Core CLI command scripts
@@ -21,10 +21,10 @@ Design rule:
 |---|---|---|
 | `scripts/sigilum-auth.sh` | `sigilum auth ...` | Namespace-owner JWT login/refresh/show (managed and oss-local flows). |
 | `scripts/sigilum-openclaw.sh` | `sigilum openclaw ...` | OpenClaw command surface (`install`, `uninstall`, `status`). |
-| `scripts/sigilum-doctor.sh` | `sigilum doctor` | Local diagnostics: tools, runtime status, OpenClaw posture, health checks, machine-readable output via `--json`, and safe remediations via `--fix`. |
+| `scripts/sigilum-doctor.sh` | `sigilum doctor` | Local diagnostics: tools, runtime status, OpenClaw posture, health checks, machine-readable output via `--json`, and safe remediations via `--fix` (HTTP probes are timeout-guarded). |
 | `scripts/sigilum-down.sh` | `sigilum down` | Stops local listeners on known Sigilum development ports. |
 | `scripts/run-local-api-gateway.sh` | `sigilum up` | Starts local API + gateway stack and bootstraps local defaults. |
-| `scripts/run-demo-e2e.sh` | `sigilum e2e-tests` | Full local e2e bring-up, seeding, simulator validation. |
+| `scripts/run-demo-e2e.sh` | `sigilum e2e-tests` | Full local e2e bring-up, seeding, simulator validation (all curl probes/requests use connect+max timeout guards). |
 | `scripts/test-agent-simulator.mjs` | `sigilum agent-simulator` | Auth behavior simulator against running API/gateway/services. |
 | `scripts/gateway-pair-bridge.mjs` | `sigilum gateway pair ...` | Managed dashboard pairing bridge (session/pair-code relay). |
 

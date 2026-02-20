@@ -8,6 +8,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 : "${OPENCLAW_HOME:=$HOME/.openclaw}"
 : "${GATEWAY_SIGILUM_NAMESPACE:=johndee}"
 : "${GATEWAY_SIGILUM_HOME:=${ROOT_DIR}/.sigilum-workspace}"
+: "${CURL_CONNECT_TIMEOUT_SECONDS:=5}"
+: "${CURL_MAX_TIME_SECONDS:=15}"
 
 OPENCLAW_CONFIG_PATH="${OPENCLAW_CONFIG_PATH:-${OPENCLAW_HOME}/openclaw.json}"
 IDENTITY_PATH="${GATEWAY_SIGILUM_HOME}/identities/${GATEWAY_SIGILUM_NAMESPACE}/identity.json"
@@ -122,6 +124,10 @@ rule() {
 
 has_cmd() {
   command -v "$1" >/dev/null 2>&1
+}
+
+curl_with_timeout() {
+  curl --connect-timeout "$CURL_CONNECT_TIMEOUT_SECONDS" --max-time "$CURL_MAX_TIME_SECONDS" "$@"
 }
 
 shorten_path() {
@@ -343,7 +349,7 @@ check_http_ok() {
   local label="$1"
   local url="$2"
   local status
-  status="$(curl -sS -o /dev/null -w "%{http_code}" "$url" || true)"
+  status="$(curl_with_timeout -sS -o /dev/null -w "%{http_code}" "$url" || true)"
   if [[ "$status" == "200" ]]; then
     record_ok "$label" "${url} (HTTP 200)"
   else

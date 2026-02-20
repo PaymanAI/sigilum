@@ -35,6 +35,7 @@ Reference: `world_class_review.md`
 - [x] `SDK-012` Add copy-paste “hello signed request” quickstarts that are identical across languages.
 - [x] `SCR-005` Add checksum/signature verification to release install path.
 - [x] `SCR-006` Extract shared script library to remove duplicated shell logic.
+- [x] `SCR-003` Add timeout guards for network subprocess calls in core scripts.
 - [x] `SCR-009` Add shellcheck + script CI checks.
 - [x] `SCR-010` Make `sigilum doctor` emit machine-readable JSON and human-friendly summary.
 - [x] `SCR-011` Add `sigilum doctor --fix` for safe automated remediations.

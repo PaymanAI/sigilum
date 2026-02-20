@@ -15,9 +15,9 @@ gateway_admin_upsert_connection() {
   local upstream_secret="$8"
 
   local get_status
-  get_status="$(curl -sS -o /dev/null -w "%{http_code}" "${GATEWAY_ADMIN_URL}/api/admin/connections/${connection_id}" || true)"
+  get_status="$(curl_with_timeout -sS -o /dev/null -w "%{http_code}" "${GATEWAY_ADMIN_URL}/api/admin/connections/${connection_id}" || true)"
   if [[ "$get_status" == "200" ]]; then
-    curl -sS -X DELETE "${GATEWAY_ADMIN_URL}/api/admin/connections/${connection_id}" >/dev/null
+    curl_with_timeout -sS -X DELETE "${GATEWAY_ADMIN_URL}/api/admin/connections/${connection_id}" >/dev/null
   fi
 
   local payload
@@ -46,7 +46,7 @@ process.stdout.write(JSON.stringify(payload));
   local response_file
   response_file="$(mktemp "${TMPDIR:-/tmp}/sigilum-gw-admin-XXXXXX.json")"
   local status
-  status="$(curl -sS -o "$response_file" -w "%{http_code}" \
+  status="$(curl_with_timeout -sS -o "$response_file" -w "%{http_code}" \
     -H "Content-Type: application/json" \
     -X POST "${GATEWAY_ADMIN_URL}/api/admin/connections" \
     --data "$payload")"
@@ -97,7 +97,7 @@ configure_gateway_connection() {
   local upstream_secret_key="$7"
   local upstream_secret="$8"
 
-  if curl -sf "${GATEWAY_ADMIN_URL}/health" >/dev/null 2>&1; then
+  if curl_with_timeout -sf "${GATEWAY_ADMIN_URL}/health" >/dev/null 2>&1; then
     gateway_admin_upsert_connection "$connection_id" "$connection_name" "$upstream_base_url" "$auth_mode" "$upstream_header" "$auth_prefix" "$upstream_secret_key" "$upstream_secret"
     log_ok "Configured gateway connection via admin API at ${GATEWAY_ADMIN_URL}: ${connection_id}"
     return 0
