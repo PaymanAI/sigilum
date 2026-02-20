@@ -85,28 +85,50 @@ async function listGatewayConnections(
 }
 
 function selectActiveSecureMCPConnections(connections: GatewayConnection[]): string[] {
-  const ids = connections
-    .filter((connection) => {
-      const id = String(connection.id || "").trim();
-      const protocol = String(connection.protocol || "").trim().toLowerCase();
-      const status = String(connection.status || "").trim().toLowerCase();
-      return (
-        id.startsWith("sigilum-secure-") &&
-        protocol === "mcp" &&
-        (status === "" || status === "active")
-      );
-    })
+  const ids = selectActiveSecureConnections(connections)
+    .filter((connection) => String(connection.protocol || "").trim().toLowerCase() === "mcp")
     .map((connection) => String(connection.id || "").trim())
     .filter((id) => id.length > 0);
   return [...new Set(ids)].sort();
 }
 
-async function listActiveSigilumMCPConnections(
+function selectActiveSecureConnections(connections: GatewayConnection[]): GatewayConnection[] {
+  return connections.filter((connection) => {
+    const id = String(connection.id || "").trim();
+    const status = String(connection.status || "").trim().toLowerCase();
+    return (
+      id.startsWith("sigilum-secure-") &&
+      (status === "" || status === "active")
+    );
+  });
+}
+
+function providerAliasMap(connections: GatewayConnection[]): Array<{ provider: string; connectionID: string; protocol: string }> {
+  const byProvider = new Map<string, { provider: string; connectionID: string; protocol: string }>();
+  for (const connection of selectActiveSecureConnections(connections)) {
+    const connectionID = String(connection.id || "").trim();
+    if (!connectionID) continue;
+    const provider = providerFromConnectionID(connectionID);
+    if (!provider) continue;
+    const protocol = String(connection.protocol || "").trim().toLowerCase() || "unknown";
+    if (!byProvider.has(provider)) {
+      byProvider.set(provider, { provider, connectionID, protocol });
+      continue;
+    }
+    const current = byProvider.get(provider)!;
+    if (current.protocol !== "mcp" && protocol === "mcp") {
+      byProvider.set(provider, { provider, connectionID, protocol });
+    }
+  }
+  return [...byProvider.values()].sort((left, right) => left.provider.localeCompare(right.provider));
+}
+
+async function listActiveSigilumConnections(
   gatewayURL: string,
   gatewayAdminToken: string,
-): Promise<string[]> {
+): Promise<GatewayConnection[]> {
   const connections = await listGatewayConnections(gatewayURL, gatewayAdminToken);
-  return selectActiveSecureMCPConnections(connections);
+  return selectActiveSecureConnections(connections);
 }
 
 function providerFromConnectionID(connectionID: string): string {
@@ -118,7 +140,9 @@ function providerFromConnectionID(connectionID: string): string {
   return id.slice(prefix.length).trim();
 }
 
-function buildGatewayPolicyMessage(gatewayURL: string, mcpConnections: string[]): string {
+function buildGatewayPolicyMessage(gatewayURL: string, secureConnections: GatewayConnection[]): string {
+  const mcpConnections = selectActiveSecureMCPConnections(secureConnections);
+  const aliases = providerAliasMap(secureConnections);
   const lines: string[] = [
     "Sigilum gateway-first policy:",
     "- Use Sigilum gateway as the default provider path.",
@@ -127,6 +151,9 @@ function buildGatewayPolicyMessage(gatewayURL: string, mcpConnections: string[])
     "  2) Run signed runtime check via helper: gateway-admin.sh tools <connection_id>",
     "  3) Answer from HTTP_STATUS (200=yes, 401/403=auth required, 404=missing connection)",
     "  4) If APPROVAL_REQUIRED=true, include APPROVAL_NAMESPACE + APPROVAL_AGENT_ID + APPROVAL_PUBLIC_KEY in the approval request to the user.",
+    "  5) Do not truncate helper output to first lines; parse full output including APPROVAL_* fields.",
+    "- Negative-answer gate: before saying \"no integration\", \"no access\", or requesting direct provider credentials, run the signed tools check first.",
+    "- Do not infer gateway restart bugs from 401/403 alone; treat APPROVAL_REQUIRED=true as authorization-required-now (new/revoked/expired).",
     "- Do not ask for direct provider API keys unless gateway connection is missing/disabled/test fails.",
     `- Gateway URL: ${normalizeGatewayBaseURL(gatewayURL) || "<unset>"}`,
     "- Enforce per-agent registration: runtime checks must be signed and claim-gated.",
@@ -135,6 +162,15 @@ function buildGatewayPolicyMessage(gatewayURL: string, mcpConnections: string[])
     "  - GET /mcp/{connection_id}/tools",
     "  - POST /mcp/{connection_id}/tools/{tool}/call",
   ];
+
+  if (aliases.length > 0) {
+    lines.push("- Provider alias map (authoritative for this session):");
+    for (const alias of aliases) {
+      lines.push(`  - ${alias.provider} -> ${alias.connectionID} (${alias.protocol})`);
+    }
+  } else {
+    lines.push("- Provider alias map: none discovered.");
+  }
 
   if (mcpConnections.length > 0) {
     lines.push("- Active Sigilum MCP connections:");
@@ -177,16 +213,16 @@ const handler: HookHandler = async (event) => {
       }
     }
 
-    let mcpConnections: string[] = [];
+    let secureConnections: GatewayConnection[] = [];
     try {
-      mcpConnections = await listActiveSigilumMCPConnections(cfg.gatewayUrl, cfg.gatewayAdminToken);
+      secureConnections = await listActiveSigilumConnections(cfg.gatewayUrl, cfg.gatewayAdminToken);
     } catch (err) {
       console.error(
         "[sigilum-plugin] mcp discovery inventory failed:",
         err instanceof Error ? err.message : String(err),
       );
     }
-    event.messages.push(buildGatewayPolicyMessage(cfg.gatewayUrl, mcpConnections));
+    event.messages.push(buildGatewayPolicyMessage(cfg.gatewayUrl, secureConnections));
 
     if (!cfg.autoBootstrapAgents) {
       return;

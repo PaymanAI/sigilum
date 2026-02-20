@@ -13,7 +13,7 @@ export interface SigilumPluginConfig {
 
 const DEFAULT_API_URL = "https://api.sigilum.id";
 const DEFAULT_GATEWAY_URL = "http://localhost:38100";
-const DEFAULT_DASHBOARD_URL = "https://sigilum.id/dashboard";
+const DEFAULT_DASHBOARD_URL = "https://sigilum.id";
 const DEFAULT_KEY_ROOT = path.join(os.homedir(), ".openclaw", ".sigilum", "keys");
 const DEFAULT_AGENT_ID = "default";
 

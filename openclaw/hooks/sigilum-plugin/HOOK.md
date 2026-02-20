@@ -18,6 +18,8 @@ What it does:
    - use signed runtime checks (`/mcp/{connection_id}/tools`) for capability checks
    - enforce claim-gated access per agent key
    - when approval is required (`401/403`), include helper `APPROVAL_*` fields (namespace/agent/public-key/service) in user-facing instructions
+   - apply a negative-answer gate: before saying "no access/integration", run a signed check first
+   - include a live provider alias map (`provider -> sigilum-secure-...`) from active gateway connections
    - avoid `/api/admin/*` for capability checks
    - do not request direct provider API keys unless gateway path fails
 5. Lists active `sigilum-secure-*` MCP gateway connections (including `sigilum-secure-linear` when present).
@@ -38,7 +40,7 @@ What it does:
             "SIGILUM_GATEWAY_URL": "http://localhost:38100",
             "SIGILUM_GATEWAY_ADMIN_TOKEN": "<optional-admin-token>",
             "SIGILUM_API_URL": "http://localhost:8787",
-            "SIGILUM_DASHBOARD_URL": "https://sigilum.id/dashboard",
+            "SIGILUM_DASHBOARD_URL": "https://sigilum.id",
             "SIGILUM_KEY_ROOT": "/Users/you/.openclaw/.sigilum/keys",
             "SIGILUM_AUTO_BOOTSTRAP_AGENTS": "true"
           }

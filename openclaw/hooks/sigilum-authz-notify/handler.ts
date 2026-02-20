@@ -68,7 +68,7 @@ function resolveDashboardUrl(event: HookEvent): string {
   return (
     asString(process.env.SIGILUM_DASHBOARD_URL) ||
     asString(hookEnv.SIGILUM_DASHBOARD_URL) ||
-    "https://sigilum.id/dashboard"
+    "https://sigilum.id"
   );
 }
 
