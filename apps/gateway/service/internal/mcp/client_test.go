@@ -147,6 +147,79 @@ func TestDiscoverAndCallTool(t *testing.T) {
 	}
 }
 
+func TestRPCRequestsUseUniqueIDs(t *testing.T) {
+	var (
+		mu         sync.Mutex
+		requestIDs []string
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req rpcRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "decode request failed", http.StatusBadRequest)
+			return
+		}
+
+		mu.Lock()
+		requestIDs = append(requestIDs, req.ID)
+		mu.Unlock()
+
+		switch req.Method {
+		case "initialize":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      req.ID,
+				"result": map[string]any{
+					"protocolVersion": "2024-11-05",
+					"serverInfo": map[string]any{
+						"name":    "test-mcp",
+						"version": "1.0.0",
+					},
+				},
+			})
+		case "tools/list":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      req.ID,
+				"result": map[string]any{
+					"tools": []map[string]any{},
+				},
+			})
+		default:
+			http.Error(w, "unknown method", http.StatusBadRequest)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(5 * time.Second)
+	cfg := connectors.ProxyConfig{
+		Connection: connectors.Connection{
+			Protocol: connectors.ConnectionProtocolMCP,
+			BaseURL:  server.URL,
+		},
+	}
+
+	if _, err := client.Discover(context.Background(), cfg); err != nil {
+		t.Fatalf("discover failed: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(requestIDs) < 2 {
+		t.Fatalf("expected at least initialize + tools/list requests, got %d", len(requestIDs))
+	}
+	seen := map[string]struct{}{}
+	for _, id := range requestIDs {
+		if strings.TrimSpace(id) == "" {
+			t.Fatal("expected non-empty rpc request id")
+		}
+		if _, ok := seen[id]; ok {
+			t.Fatalf("expected unique rpc request ids, found duplicate %q", id)
+		}
+		seen[id] = struct{}{}
+	}
+}
+
 func TestDiscoverWithQueryParamAuth(t *testing.T) {
 	var mu sync.Mutex
 	handlerErr := ""

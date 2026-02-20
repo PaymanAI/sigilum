@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"sigilum.local/gateway/internal/connectors"
@@ -31,6 +32,7 @@ type Client struct {
 	httpClient *http.Client
 	sessionsMu sync.RWMutex
 	sessions   map[string]string
+	requestSeq uint64
 }
 
 type rpcRequest struct {
@@ -213,7 +215,7 @@ func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.Proxy
 	buildRPCPayload := func(rpcMethod string, rpcParams any) ([]byte, error) {
 		payload, err := json.Marshal(rpcRequest{
 			JSONRPC: "2.0",
-			ID:      "sigilum-gateway",
+			ID:      c.nextRequestID(),
 			Method:  rpcMethod,
 			Params:  rpcParams,
 		})
@@ -592,4 +594,12 @@ func (c *Client) clearSessionID(endpoint string) {
 	c.sessionsMu.Lock()
 	defer c.sessionsMu.Unlock()
 	delete(c.sessions, endpoint)
+}
+
+func (c *Client) nextRequestID() string {
+	if c == nil {
+		return "sigilum-gateway"
+	}
+	next := atomic.AddUint64(&c.requestSeq, 1)
+	return fmt.Sprintf("sigilum-gateway-%d", next)
 }

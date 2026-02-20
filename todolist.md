@@ -8,6 +8,7 @@ Reference: `world_class_review.md`
 - [x] `GW-016` Normalize gateway method-not-allowed and route failures to stable JSON errors.
 - [x] `GW-018` Harden gateway CORS contract for admin and signed request headers.
 - [x] `SCR-001` Harden gateway pairing bridge shutdown/retry/relay-safety behavior.
+- [x] `GW-012` Use unique MCP JSON-RPC request IDs for traceability/interoperability.
 
 ## Next Queue
 
