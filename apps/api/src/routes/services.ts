@@ -113,9 +113,9 @@ servicesRouter.post("/", async (c) => {
     }
   }
 
-  // Check slug uniqueness
-  const existing = await c.env.DB.prepare("SELECT id FROM services WHERE slug = ?")
-    .bind(body.slug)
+  // Check slug uniqueness for this owner only (same provider slug can exist in other namespaces).
+  const existing = await c.env.DB.prepare("SELECT id FROM services WHERE owner_user_id = ? AND slug = ?")
+    .bind(payload.userId, body.slug)
     .first();
   if (existing) {
     return c.json(createErrorResponse("A service with this slug already exists", "CONFLICT"), 409);
