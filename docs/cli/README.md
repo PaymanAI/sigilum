@@ -189,6 +189,11 @@ Optional flags:
 - `--reconnect-ms <ms>`: websocket reconnect delay (default `2000`)
 - `--connect-timeout-ms <ms>`: preflight/connect timeout (default `5000`)
 
+Success output contract:
+
+- `success: pairing bridge ready (...)` confirms API/gateway preflight and active relay scope.
+- `next: keep this process running while dashboard setup is active` gives the required operator next step.
+
 Important:
 
 - `--api-url` must point to the Sigilum API service, not the dashboard app.

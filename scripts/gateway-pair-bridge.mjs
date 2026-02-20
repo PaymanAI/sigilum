@@ -384,6 +384,10 @@ async function run() {
   console.log("[sigilum] preflight: validating api and gateway admin endpoints");
   await preflight(cfg);
   console.log("[sigilum] preflight: ok");
+  console.log(
+    `[sigilum] success: pairing bridge ready (session=${cfg.sessionId}, namespace=${cfg.namespace}, gateway_admin=${cfg.gatewayAdminUrl})`,
+  );
+  console.log("[sigilum] next: keep this process running while dashboard setup is active");
 
   while (!shuttingDown) {
     try {
@@ -407,7 +411,9 @@ async function run() {
             clearTimeout(connectTimer);
             connectTimer = null;
           }
-          console.log("[sigilum] gateway pairing websocket connected");
+          console.log(
+            `[sigilum] websocket connected (session=${cfg.sessionId}, namespace=${cfg.namespace})`,
+          );
           heartbeatTimer = setInterval(() => {
             if (ws.readyState !== 1) return;
             try {
