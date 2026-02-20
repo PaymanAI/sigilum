@@ -15,6 +15,7 @@ This reference maps gateway `code` values to operator actions.
 | `AUTH_CLAIMS_UNAVAILABLE` | Gateway claims cache is unavailable. | Check gateway/API connectivity and service API key configuration. |
 | `AUTH_CLAIMS_LOOKUP_FAILED` | Claims lookup failed. | Verify Sigilum API health, credentials, and namespace configuration. |
 | `AUTH_CLAIM_REQUIRED` | Caller is not approved for the target service. | Complete approval flow, then retry the same request. |
+| `AUTH_CLAIM_SUBMIT_RATE_LIMITED` | Auto-claim registration burst limit was exceeded. | Wait one minute, then retry once or complete approval manually. |
 | `AUTH_FORBIDDEN` | Generic auth-denied fallback. | Inspect request signature + approval posture and retry after remediation. |
 
 ## Admin Errors
@@ -35,6 +36,7 @@ This reference maps gateway `code` values to operator actions.
 | `INVALID_REFRESH_MODE` | `refresh` query value is invalid. | Use `refresh=auto` or `refresh=force`. |
 | `MCP_DISCOVERY_FAILED` | MCP discovery refresh failed. | Verify MCP endpoint/auth and rerun discovery. |
 | `MCP_TOOL_FORBIDDEN` | Tool is blocked by effective tool policy. | Use explain endpoint and adjust policy/allowlist as needed. |
+| `MCP_TOOL_RATE_LIMITED` | MCP tool call burst limit was exceeded for this connection/namespace. | Wait one minute, then retry with backoff. |
 | `MCP_TOOL_CALL_FAILED` | MCP tool execution failed upstream. | Check provider health, tool arguments, and upstream credentials. |
 
 ## Health And Readiness Errors

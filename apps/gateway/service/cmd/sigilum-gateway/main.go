@@ -68,6 +68,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
 	}
+	configureGatewayRateLimiters(cfg)
 
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		log.Fatalf("failed to create data directory %q: %v", cfg.DataDir, err)
@@ -142,7 +143,7 @@ func main() {
 	)
 	log.Printf("gateway replay protection storage=file nonce_ttl=%s nonce_store=%s", cfg.NonceTTL, nonceStorePath)
 	log.Printf(
-		"gateway runtime claims_cache_ttl=%s claims_refresh_interval=%s mcp_discovery_cache_ttl=%s mcp_discovery_stale_if_error=%s admin_timeout=%s proxy_timeout=%s mcp_timeout=%s max_request_body_bytes=%d shutdown_timeout=%s slack_alias_connection_id=%s rotation_enforcement=%s rotation_grace=%s log_proxy_requests=%t",
+		"gateway runtime claims_cache_ttl=%s claims_refresh_interval=%s mcp_discovery_cache_ttl=%s mcp_discovery_stale_if_error=%s admin_timeout=%s proxy_timeout=%s mcp_timeout=%s claim_registration_rate_limit_per_minute=%d mcp_tool_call_rate_limit_per_minute=%d max_request_body_bytes=%d shutdown_timeout=%s slack_alias_connection_id=%s rotation_enforcement=%s rotation_grace=%s log_proxy_requests=%t",
 		cfg.ClaimsCacheTTL,
 		cfg.ClaimsCacheRefreshInterval,
 		cfg.MCPDiscoveryCacheTTL,
@@ -150,6 +151,8 @@ func main() {
 		cfg.AdminRequestTimeout,
 		cfg.ProxyRequestTimeout,
 		cfg.MCPRequestTimeout,
+		cfg.ClaimRegistrationRateLimit,
+		cfg.MCPToolCallRateLimit,
 		cfg.MaxRequestBodyBytes,
 		cfg.ShutdownTimeout,
 		slackAliasConnectionID,

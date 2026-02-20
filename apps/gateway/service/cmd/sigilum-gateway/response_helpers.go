@@ -25,16 +25,18 @@ type proxyAuthRequiredMarkdownInput struct {
 var errRequestBodyTooLarge = errors.New("request body exceeds configured limit")
 
 const (
-	codeAuthForbidden          = "AUTH_FORBIDDEN"
-	codeAuthHeadersInvalid     = "AUTH_HEADERS_INVALID"
-	codeAuthSignatureInvalid   = "AUTH_SIGNATURE_INVALID"
-	codeAuthSignedComponents   = "AUTH_SIGNED_COMPONENTS_INVALID"
-	codeAuthIdentityInvalid    = "AUTH_IDENTITY_INVALID"
-	codeAuthNonceInvalid       = "AUTH_NONCE_INVALID"
-	codeAuthReplayDetected     = "AUTH_REPLAY_DETECTED"
-	codeAuthClaimsUnavailable  = "AUTH_CLAIMS_UNAVAILABLE"
-	codeAuthClaimsLookupFailed = "AUTH_CLAIMS_LOOKUP_FAILED"
-	codeAuthClaimRequired      = "AUTH_CLAIM_REQUIRED"
+	codeAuthForbidden              = "AUTH_FORBIDDEN"
+	codeAuthHeadersInvalid         = "AUTH_HEADERS_INVALID"
+	codeAuthSignatureInvalid       = "AUTH_SIGNATURE_INVALID"
+	codeAuthSignedComponents       = "AUTH_SIGNED_COMPONENTS_INVALID"
+	codeAuthIdentityInvalid        = "AUTH_IDENTITY_INVALID"
+	codeAuthNonceInvalid           = "AUTH_NONCE_INVALID"
+	codeAuthReplayDetected         = "AUTH_REPLAY_DETECTED"
+	codeAuthClaimsUnavailable      = "AUTH_CLAIMS_UNAVAILABLE"
+	codeAuthClaimsLookupFailed     = "AUTH_CLAIMS_LOOKUP_FAILED"
+	codeAuthClaimRequired          = "AUTH_CLAIM_REQUIRED"
+	codeAuthClaimSubmitRateLimited = "AUTH_CLAIM_SUBMIT_RATE_LIMITED"
+	codeMCPToolRateLimited         = "MCP_TOOL_RATE_LIMITED"
 )
 
 const defaultGatewayDocsURL = "https://github.com/PaymanAI/sigilum/blob/main/docs/product/GATEWAY_ERROR_CODES.md"

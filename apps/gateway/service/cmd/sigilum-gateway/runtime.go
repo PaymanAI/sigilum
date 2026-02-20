@@ -310,6 +310,22 @@ func handleMCPRequest(
 			})
 			return
 		}
+		if !allowMCPToolCall(connectionID, identity.Namespace) {
+			gatewayMetricRegistry.recordMCPToolCall("rate_limited")
+			logGatewayDecisionIf(cfg.LogProxyRequests, "mcp_tool_call_denied", map[string]any{
+				"request_id":  requestID,
+				"connection":  connectionID,
+				"subject":     identity.Subject,
+				"tool":        toolName,
+				"decision":    "deny",
+				"reason_code": codeMCPToolRateLimited,
+			})
+			writeJSON(w, http.StatusTooManyRequests, errorResponse{
+				Error: "mcp tool call rate limit exceeded for this connection and namespace; retry in one minute",
+				Code:  codeMCPToolRateLimited,
+			})
+			return
+		}
 
 		arguments, parseErr := resolveToolArguments(body)
 		if parseErr != nil {

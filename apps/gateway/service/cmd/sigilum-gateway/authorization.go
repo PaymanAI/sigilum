@@ -236,6 +236,25 @@ func enforceClaimAuthorization(
 			Enabled: cfg.AutoRegisterClaims,
 		}
 		if cfg.AutoRegisterClaims {
+			if !allowClaimRegistration(connectionID, identity.Namespace) {
+				logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_claim_submit", map[string]any{
+					"request_id":  requestID,
+					"connection":  connectionID,
+					"namespace":   identity.Namespace,
+					"subject":     identity.Subject,
+					"remote_ip":   remoteIP,
+					"decision":    "deny",
+					"reason_code": codeAuthClaimSubmitRateLimited,
+				})
+				writeProxyAuthError(
+					w,
+					http.StatusTooManyRequests,
+					codeAuthClaimSubmitRateLimited,
+					"claim registration rate limit exceeded for this connection and namespace; retry in one minute",
+				)
+				return false
+			}
+
 			submitResult, submitErr := claimsCache.SubmitClaim(r.Context(), claimcache.SubmitClaimInput{
 				Service:   connectionID,
 				Namespace: identity.Namespace,

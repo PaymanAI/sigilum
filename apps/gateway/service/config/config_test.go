@@ -231,3 +231,37 @@ func TestLoadRejectsNegativeMCPDiscoveryStaleIfError(t *testing.T) {
 		t.Fatal("expected negative stale-if-error window to fail config load")
 	}
 }
+
+func TestLoadParsesRateLimitControls(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_CLAIM_REGISTRATION_RATE_LIMIT_PER_MINUTE", "12")
+	t.Setenv("GATEWAY_MCP_TOOL_CALL_RATE_LIMIT_PER_MINUTE", "55")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.ClaimRegistrationRateLimit != 12 {
+		t.Fatalf("expected claim registration rate limit 12, got %d", cfg.ClaimRegistrationRateLimit)
+	}
+	if cfg.MCPToolCallRateLimit != 55 {
+		t.Fatalf("expected mcp tool call rate limit 55, got %d", cfg.MCPToolCallRateLimit)
+	}
+}
+
+func TestLoadAllowsDisablingRateLimits(t *testing.T) {
+	t.Setenv("GATEWAY_MASTER_KEY", "test-master-key")
+	t.Setenv("GATEWAY_CLAIM_REGISTRATION_RATE_LIMIT_PER_MINUTE", "0")
+	t.Setenv("GATEWAY_MCP_TOOL_CALL_RATE_LIMIT_PER_MINUTE", "0")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.ClaimRegistrationRateLimit != 0 {
+		t.Fatalf("expected claim registration rate limit 0, got %d", cfg.ClaimRegistrationRateLimit)
+	}
+	if cfg.MCPToolCallRateLimit != 0 {
+		t.Fatalf("expected mcp tool call rate limit 0, got %d", cfg.MCPToolCallRateLimit)
+	}
+}

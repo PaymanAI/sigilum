@@ -39,6 +39,7 @@ Gateway service code is organized under `apps/gateway/service`:
 - Discovers MCP tools (`/api/admin/connections/{id}/discover`) and stores discovery metadata locally.
 - Applies MCP discovery cache policy with TTL and stale-if-error fallback; forced refresh is available via `refresh=force`.
 - Applies route-class timeouts for admin, proxy, and MCP runtime requests.
+- Applies per-connection+namespace rate limits for claim registration attempts and MCP tool-call bursts.
 - Exposes filtered MCP tools at runtime:
   - `GET /mcp/{connection_id}/tools`
   - `GET /mcp/{connection_id}/tools/{tool}/explain`
@@ -109,6 +110,7 @@ Gateway returns deterministic auth failure codes so clients can react without pa
 - `AUTH_CLAIMS_UNAVAILABLE`: gateway claim cache is unavailable.
 - `AUTH_CLAIMS_LOOKUP_FAILED`: claim cache lookup failed.
 - `AUTH_CLAIM_REQUIRED`: caller is not currently approved for the requested service.
+- `AUTH_CLAIM_SUBMIT_RATE_LIMITED`: auto-claim registration is temporarily rate-limited for this connection+namespace.
 - `AUTH_FORBIDDEN`: generic auth denial fallback code.
 
 ## Admin/API Surface
@@ -327,6 +329,8 @@ Key variables:
 - `GATEWAY_ADMIN_TIMEOUT_SECONDS` - timeout for admin/metrics handlers (default `20`).
 - `GATEWAY_PROXY_TIMEOUT_SECONDS` - timeout for `/proxy/*` and `/slack*` runtime handlers (default `120`).
 - `GATEWAY_MCP_TIMEOUT_SECONDS` - timeout for `/mcp/*` runtime handlers (default `90`).
+- `GATEWAY_CLAIM_REGISTRATION_RATE_LIMIT_PER_MINUTE` - claim submit burst limit per `connection_id + namespace` (default `30`, set `0` to disable).
+- `GATEWAY_MCP_TOOL_CALL_RATE_LIMIT_PER_MINUTE` - MCP tool-call burst limit per `connection_id + namespace` (default `120`, set `0` to disable).
 - Default local port block:
   - Envoy ingress: `38000`
   - Gateway service: `38100`

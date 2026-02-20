@@ -49,6 +49,8 @@ type Config struct {
 	AdminRequestTimeout        time.Duration
 	ProxyRequestTimeout        time.Duration
 	MCPRequestTimeout          time.Duration
+	ClaimRegistrationRateLimit int
+	MCPToolCallRateLimit       int
 }
 
 func Load() (Config, error) {
@@ -87,6 +89,8 @@ func Load() (Config, error) {
 		AdminRequestTimeout:        20 * time.Second,
 		ProxyRequestTimeout:        120 * time.Second,
 		MCPRequestTimeout:          90 * time.Second,
+		ClaimRegistrationRateLimit: 30,
+		MCPToolCallRateLimit:       120,
 		RegistryRequestTimeout:     60 * time.Second,
 	}
 
@@ -180,6 +184,16 @@ func Load() (Config, error) {
 		return Config{}, err
 	} else {
 		cfg.MCPRequestTimeout = time.Duration(seconds) * time.Second
+	}
+	if value, err := getEnvIntMin("GATEWAY_CLAIM_REGISTRATION_RATE_LIMIT_PER_MINUTE", cfg.ClaimRegistrationRateLimit, 0); err != nil {
+		return Config{}, err
+	} else {
+		cfg.ClaimRegistrationRateLimit = value
+	}
+	if value, err := getEnvIntMin("GATEWAY_MCP_TOOL_CALL_RATE_LIMIT_PER_MINUTE", cfg.MCPToolCallRateLimit, 0); err != nil {
+		return Config{}, err
+	} else {
+		cfg.MCPToolCallRateLimit = value
 	}
 	if seconds, err := getEnvInt("GATEWAY_CLAIMS_CACHE_TTL_SECONDS", int(cfg.ClaimsCacheTTL/time.Second)); err != nil {
 		return Config{}, err
