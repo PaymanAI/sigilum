@@ -111,7 +111,7 @@ func main() {
 	mcpClient := mcpruntime.NewClient(20 * time.Second)
 
 	mux := http.NewServeMux()
-	registerHealthRoute(mux, cfg)
+	registerHealthRoute(mux, cfg, connectorService)
 	registerMetricsRoute(mux, cfg)
 	registerAdminRoutes(mux, cfg, connectorService, catalogStore, mcpClient)
 	registerRuntimeRoutes(mux, cfg, nonceCache, claimsCache, connectorService, mcpClient)

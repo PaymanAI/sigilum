@@ -146,7 +146,7 @@ func TestHealthRouteMethodNotAllowedReturnsJSON(t *testing.T) {
 	mux := http.NewServeMux()
 	registerHealthRoute(mux, config.Config{
 		AllowedOrigins: map[string]struct{}{"https://allowed.example": {}},
-	})
+	}, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/health", nil)
 	recorder := httptest.NewRecorder()
@@ -161,5 +161,79 @@ func TestHealthRouteMethodNotAllowedReturnsJSON(t *testing.T) {
 	}
 	if payload.Code != "METHOD_NOT_ALLOWED" {
 		t.Fatalf("expected METHOD_NOT_ALLOWED code, got %q", payload.Code)
+	}
+}
+
+func TestHealthLiveRouteReturnsOK(t *testing.T) {
+	mux := http.NewServeMux()
+	registerHealthRoute(mux, config.Config{
+		AllowedOrigins: map[string]struct{}{"https://allowed.example": {}},
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected HTTP 200, got %d", recorder.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response body, got decode error: %v", err)
+	}
+	if payload["status"] != "ok" || payload["check"] != "liveness" {
+		t.Fatalf("expected liveness payload, got %#v", payload)
+	}
+}
+
+func TestHealthReadyRouteReturnsServiceUnavailableWhenDependenciesMissing(t *testing.T) {
+	mux := http.NewServeMux()
+	registerHealthRoute(mux, config.Config{
+		AllowedOrigins: map[string]struct{}{"https://allowed.example": {}},
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected HTTP 503, got %d", recorder.Code)
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response body, got decode error: %v", err)
+	}
+	if payload.Code != "NOT_READY" {
+		t.Fatalf("expected NOT_READY code, got %q", payload.Code)
+	}
+}
+
+func TestHealthReadyRouteReturnsOKWhenDependenciesReady(t *testing.T) {
+	connectorService, err := connectors.NewService(filepath.Join(t.TempDir(), "gateway-data"), "test-master-key")
+	if err != nil {
+		t.Fatalf("create connector service: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = connectorService.Close()
+	})
+
+	mux := http.NewServeMux()
+	registerHealthRoute(mux, config.Config{
+		AllowedOrigins: map[string]struct{}{"https://allowed.example": {}},
+	}, connectorService)
+
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected HTTP 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response body, got decode error: %v", err)
+	}
+	if payload["status"] != "ok" || payload["check"] != "readiness" {
+		t.Fatalf("expected readiness payload, got %#v", payload)
 	}
 }

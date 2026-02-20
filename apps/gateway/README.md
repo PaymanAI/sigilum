@@ -109,6 +109,8 @@ Gateway returns deterministic auth failure codes so clients can react without pa
 
 - Health:
   - `GET /health`
+  - `GET /health/live`
+  - `GET /health/ready`
   - `GET /metrics` (Prometheus text format; admin access policy enforced)
 - Proxy:
   - `/{proxy routes}`

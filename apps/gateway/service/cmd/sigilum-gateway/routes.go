@@ -19,7 +19,18 @@ import (
 	mcpruntime "sigilum.local/gateway/internal/mcp"
 )
 
-func registerHealthRoute(mux *http.ServeMux, cfg config.Config) {
+func registerHealthRoute(
+	mux *http.ServeMux,
+	cfg config.Config,
+	connectorService *connectors.Service,
+) {
+	writeHealth := func(w http.ResponseWriter, r *http.Request, check string, statusCode int, status string) {
+		writeJSON(w, statusCode, map[string]any{
+			"status": status,
+			"check":  check,
+		})
+	}
+
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		setCORSHeaders(w, r, cfg.AllowedOrigins)
 		if r.Method == http.MethodOptions {
@@ -30,7 +41,47 @@ func registerHealthRoute(mux *http.ServeMux, cfg config.Config) {
 			writeMethodNotAllowed(w)
 			return
 		}
-		writeJSON(w, http.StatusOK, healthResponse{Status: "ok"})
+		writeHealth(w, r, "health", http.StatusOK, "ok")
+	})
+
+	mux.HandleFunc("/health/live", func(w http.ResponseWriter, r *http.Request) {
+		setCORSHeaders(w, r, cfg.AllowedOrigins)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w)
+			return
+		}
+		writeHealth(w, r, "liveness", http.StatusOK, "ok")
+	})
+
+	mux.HandleFunc("/health/ready", func(w http.ResponseWriter, r *http.Request) {
+		setCORSHeaders(w, r, cfg.AllowedOrigins)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w)
+			return
+		}
+		if connectorService == nil {
+			writeJSON(w, http.StatusServiceUnavailable, errorResponse{
+				Error: "gateway dependencies are not initialized",
+				Code:  "NOT_READY",
+			})
+			return
+		}
+		if _, err := connectorService.ListConnections(); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, errorResponse{
+				Error: "gateway dependencies are not ready",
+				Code:  "NOT_READY",
+			})
+			return
+		}
+		writeHealth(w, r, "readiness", http.StatusOK, "ok")
 	})
 }
 
