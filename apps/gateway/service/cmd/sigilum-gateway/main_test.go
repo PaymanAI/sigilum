@@ -17,6 +17,7 @@ import (
 	"sigilum.local/gateway/config"
 	claimcache "sigilum.local/gateway/internal/claims"
 	"sigilum.local/gateway/internal/connectors"
+	"sigilum.local/sdk-go/sigilum"
 )
 
 func TestValidateSignatureComponentsNoBody(t *testing.T) {
@@ -564,8 +565,8 @@ func TestWriteProxyAuthRequiredMarkdown(t *testing.T) {
 		t.Fatalf("expected markdown response content-type, got %q", contentType)
 	}
 	body := recorder.Body.String()
-	if !strings.Contains(body, "AUTH_FORBIDDEN") {
-		t.Fatalf("expected AUTH_FORBIDDEN marker in markdown body")
+	if !strings.Contains(body, "AUTH_CLAIM_REQUIRED") {
+		t.Fatalf("expected AUTH_CLAIM_REQUIRED marker in markdown body")
 	}
 	if !strings.Contains(body, "HTTP 403") {
 		t.Fatalf("expected explicit HTTP 403 marker in markdown body")
@@ -578,5 +579,229 @@ func TestWriteProxyAuthRequiredMarkdown(t *testing.T) {
 	}
 	if !strings.Contains(body, "cl_test_123") {
 		t.Fatalf("expected claim id details in markdown body")
+	}
+}
+
+func TestWriteProxyAuthErrorIncludesCode(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	writeProxyAuthError(recorder, http.StatusForbidden, codeAuthNonceInvalid, "invalid signature nonce")
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403, got %d", recorder.Code)
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response, got decode error: %v", err)
+	}
+	if payload.Code != codeAuthNonceInvalid {
+		t.Fatalf("expected code %q, got %q", codeAuthNonceInvalid, payload.Code)
+	}
+	if payload.Error != "invalid signature nonce" {
+		t.Fatalf("expected error message to match, got %q", payload.Error)
+	}
+}
+
+func TestWriteVerificationFailureUsesSignatureInvalidCode(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	writeVerificationFailure(
+		recorder,
+		sigilum.VerifySignatureResult{Valid: false, Reason: "bad signature"},
+		false,
+		"demo-connection",
+		"203.0.113.10",
+		"req-test",
+	)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403, got %d", recorder.Code)
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response, got decode error: %v", err)
+	}
+	if payload.Code != codeAuthSignatureInvalid {
+		t.Fatalf("expected code %q, got %q", codeAuthSignatureInvalid, payload.Code)
+	}
+}
+
+func TestVerifySignedRequestHeaderFailureUsesHeadersInvalidCode(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://gateway.local/proxy/demo", nil)
+	headers := http.Header{}
+	headers.Add(headerSignatureInput, `sig1=("@method");created=1;nonce="one"`)
+	headers.Add(headerSignatureInput, `sig1=("@target-uri");created=1;nonce="two"`)
+
+	if ok := verifySignedRequest(recorder, req, headers, nil, "demo", "203.0.113.10", "req-test", config.Config{}); ok {
+		t.Fatal("expected verifySignedRequest to fail for duplicate signature-input header")
+	}
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403, got %d", recorder.Code)
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response, got decode error: %v", err)
+	}
+	if payload.Code != codeAuthHeadersInvalid {
+		t.Fatalf("expected code %q, got %q", codeAuthHeadersInvalid, payload.Code)
+	}
+}
+
+func TestResolveAuthorizedIdentityFailureUsesIdentityInvalidCode(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	headers := http.Header{}
+	headers.Set(headerNamespace, "demo-namespace")
+	headers.Set(headerAgentKey, "ed25519:test")
+
+	if _, ok := resolveAuthorizedIdentity(recorder, headers, "demo", "203.0.113.10", "req-test", config.Config{}); ok {
+		t.Fatal("expected resolveAuthorizedIdentity to fail without subject header")
+	}
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403, got %d", recorder.Code)
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response, got decode error: %v", err)
+	}
+	if payload.Code != codeAuthIdentityInvalid {
+		t.Fatalf("expected code %q, got %q", codeAuthIdentityInvalid, payload.Code)
+	}
+}
+
+func TestEnforceNonceReplayProtectionMissingNonceUsesNonceInvalidCode(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	headers := http.Header{}
+	headers.Set(headerSignatureInput, `sig1=("@method");created=1`)
+
+	if ok := enforceNonceReplayProtection(
+		recorder,
+		headers,
+		"demo-namespace",
+		"demo",
+		"203.0.113.10",
+		"req-test",
+		nil,
+		config.Config{},
+	); ok {
+		t.Fatal("expected nonce replay protection to fail without nonce")
+	}
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403, got %d", recorder.Code)
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response, got decode error: %v", err)
+	}
+	if payload.Code != codeAuthNonceInvalid {
+		t.Fatalf("expected code %q, got %q", codeAuthNonceInvalid, payload.Code)
+	}
+}
+
+func TestEnforceNonceReplayProtectionReplayUsesReplayDetectedCode(t *testing.T) {
+	cache := newNonceReplayCache(time.Minute, "")
+	headers := http.Header{}
+	headers.Set(headerSignatureInput, `sig1=("@method");created=1;nonce="nonce-1"`)
+
+	first := httptest.NewRecorder()
+	if ok := enforceNonceReplayProtection(
+		first,
+		headers,
+		"demo-namespace",
+		"demo",
+		"203.0.113.10",
+		"req-first",
+		cache,
+		config.Config{},
+	); !ok {
+		t.Fatal("expected first nonce to pass replay protection")
+	}
+
+	second := httptest.NewRecorder()
+	if ok := enforceNonceReplayProtection(
+		second,
+		headers,
+		"demo-namespace",
+		"demo",
+		"203.0.113.10",
+		"req-second",
+		cache,
+		config.Config{},
+	); ok {
+		t.Fatal("expected second nonce to be rejected as replay")
+	}
+	if second.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403, got %d", second.Code)
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(second.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response, got decode error: %v", err)
+	}
+	if payload.Code != codeAuthReplayDetected {
+		t.Fatalf("expected code %q, got %q", codeAuthReplayDetected, payload.Code)
+	}
+}
+
+func TestEnforceClaimAuthorizationNilCacheUsesClaimsUnavailableCode(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/proxy/demo", nil)
+	identity := authorizedIdentity{
+		Namespace: "demo-namespace",
+		PublicKey: "ed25519:test",
+		Subject:   "agent-main",
+	}
+
+	if ok := enforceClaimAuthorization(
+		recorder,
+		req,
+		nil,
+		"demo",
+		identity,
+		"203.0.113.10",
+		"req-test",
+		config.Config{},
+	); ok {
+		t.Fatal("expected claim authorization to fail when cache is unavailable")
+	}
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403, got %d", recorder.Code)
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response, got decode error: %v", err)
+	}
+	if payload.Code != codeAuthClaimsUnavailable {
+		t.Fatalf("expected code %q, got %q", codeAuthClaimsUnavailable, payload.Code)
+	}
+}
+
+func TestEnforceClaimAuthorizationLookupFailureUsesClaimsLookupFailedCode(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/proxy/demo", nil)
+	identity := authorizedIdentity{
+		Namespace: "demo-namespace",
+		PublicKey: "ed25519:test",
+		Subject:   "agent-main",
+	}
+
+	if ok := enforceClaimAuthorization(
+		recorder,
+		req,
+		&claimcache.Cache{},
+		"demo",
+		identity,
+		"203.0.113.10",
+		"req-test",
+		config.Config{},
+	); ok {
+		t.Fatal("expected claim authorization to fail when claim lookup fails")
+	}
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403, got %d", recorder.Code)
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("expected JSON response, got decode error: %v", err)
+	}
+	if payload.Code != codeAuthClaimsLookupFailed {
+		t.Fatalf("expected code %q, got %q", codeAuthClaimsLookupFailed, payload.Code)
 	}
 }

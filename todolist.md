@@ -13,7 +13,7 @@ Reference: `world_class_review.md`
 ## Next Queue
 
 - [x] `GW-001` Define and implement one explicit admin trust model.
-- [ ] `GW-003` Add deterministic auth failure code taxonomy and docs mapping.
+- [x] `GW-003` Add deterministic auth failure code taxonomy and docs mapping.
 - [ ] `GW-011` Refactor MCP session and retry behavior into clear state machine.
 - [ ] `GW-020` Add structured gateway decision logs with redaction guarantees.
 - [ ] `GW-021` Add gateway metrics for auth, policy, MCP, and upstream latency/errors.

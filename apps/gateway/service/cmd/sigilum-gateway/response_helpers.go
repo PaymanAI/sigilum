@@ -23,6 +23,19 @@ type proxyAuthRequiredMarkdownInput struct {
 
 var errRequestBodyTooLarge = errors.New("request body exceeds configured limit")
 
+const (
+	codeAuthForbidden          = "AUTH_FORBIDDEN"
+	codeAuthHeadersInvalid     = "AUTH_HEADERS_INVALID"
+	codeAuthSignatureInvalid   = "AUTH_SIGNATURE_INVALID"
+	codeAuthSignedComponents   = "AUTH_SIGNED_COMPONENTS_INVALID"
+	codeAuthIdentityInvalid    = "AUTH_IDENTITY_INVALID"
+	codeAuthNonceInvalid       = "AUTH_NONCE_INVALID"
+	codeAuthReplayDetected     = "AUTH_REPLAY_DETECTED"
+	codeAuthClaimsUnavailable  = "AUTH_CLAIMS_UNAVAILABLE"
+	codeAuthClaimsLookupFailed = "AUTH_CLAIMS_LOOKUP_FAILED"
+	codeAuthClaimRequired      = "AUTH_CLAIM_REQUIRED"
+)
+
 type statusRecorder struct {
 	http.ResponseWriter
 	status       int
@@ -248,16 +261,31 @@ func setCORSHeaders(w http.ResponseWriter, r *http.Request, allowedOrigins map[s
 }
 
 func writeProxyAuthFailure(w http.ResponseWriter) {
-	writeJSON(w, http.StatusForbidden, errorResponse{
-		Error: "request not authorized",
-		Code:  "AUTH_FORBIDDEN",
+	writeProxyAuthError(w, http.StatusForbidden, codeAuthForbidden, "request not authorized")
+}
+
+func writeProxyAuthError(w http.ResponseWriter, status int, code string, message string) {
+	if status < 400 {
+		status = http.StatusForbidden
+	}
+	errorCode := strings.TrimSpace(code)
+	if errorCode == "" {
+		errorCode = codeAuthForbidden
+	}
+	errorMessage := strings.TrimSpace(message)
+	if errorMessage == "" {
+		errorMessage = "request not authorized"
+	}
+	writeJSON(w, status, errorResponse{
+		Error: errorMessage,
+		Code:  errorCode,
 	})
 }
 
 func writeProxyAuthRequiredMarkdown(w http.ResponseWriter, input proxyAuthRequiredMarkdownInput) {
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Sigilum-Code", "AUTH_FORBIDDEN")
+	w.Header().Set("X-Sigilum-Code", codeAuthClaimRequired)
 	w.WriteHeader(http.StatusForbidden)
 	_, _ = w.Write([]byte(buildProxyAuthRequiredMarkdown(input)))
 }
@@ -352,7 +380,7 @@ func buildProxyAuthRequiredMarkdown(input proxyAuthRequiredMarkdownInput) string
 	}
 
 	return strings.TrimSpace(fmt.Sprintf(`
-# HTTP 403 AUTH_FORBIDDEN: Sigilum Authorization Required
+# HTTP 403 AUTH_CLAIM_REQUIRED: Sigilum Authorization Required
 
 ~~~text
 +--------------------------------------------------------------------------+
@@ -381,7 +409,7 @@ func buildProxyAuthRequiredMarkdown(input proxyAuthRequiredMarkdownInput) string
 Sigilum is intentionally fail-closed here. Only approved keys can use service credentials.
 
 ## Authorization Interpretation
-- Gateway returned HTTP 403 AUTH_FORBIDDEN.
+- Gateway returned HTTP 403 AUTH_CLAIM_REQUIRED.
 - This means this key currently has **no active approval** for this service.
 - Prior approval might have been revoked/expired, so re-approval can be required.
 

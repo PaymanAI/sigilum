@@ -47,7 +47,7 @@ func writeVerificationFailure(
 	if logEnabled {
 		log.Printf("proxy request verify failed request_id=%s connection=%s remote_ip=%s reason=%s", requestID, connectionID, remoteIP, result.Reason)
 	}
-	writeProxyAuthFailure(w)
+	writeProxyAuthError(w, http.StatusForbidden, codeAuthSignatureInvalid, "request signature verification failed")
 }
 
 func shouldAutoDiscoverMCPTools(conn connectors.Connection) bool {

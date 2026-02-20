@@ -79,6 +79,21 @@ Service catalog templates now support both HTTP and MCP provider definitions:
 
 If any auth step fails, gateway returns a structured error without forwarding upstream.
 
+## Auth Failure Code Taxonomy
+
+Gateway returns deterministic auth failure codes so clients can react without parsing free-form text.
+
+- `AUTH_HEADERS_INVALID`: duplicate or malformed signed headers.
+- `AUTH_SIGNATURE_INVALID`: RFC 9421 signature verification failed.
+- `AUTH_SIGNED_COMPONENTS_INVALID`: signed component list does not match required profile.
+- `AUTH_IDENTITY_INVALID`: missing or invalid Sigilum identity headers.
+- `AUTH_NONCE_INVALID`: signature nonce missing or malformed.
+- `AUTH_REPLAY_DETECTED`: nonce already seen for the namespace within replay window.
+- `AUTH_CLAIMS_UNAVAILABLE`: gateway claim cache is unavailable.
+- `AUTH_CLAIMS_LOOKUP_FAILED`: claim cache lookup failed.
+- `AUTH_CLAIM_REQUIRED`: caller is not currently approved for the requested service.
+- `AUTH_FORBIDDEN`: generic auth denial fallback code.
+
 ## Admin/API Surface
 
 - Health:

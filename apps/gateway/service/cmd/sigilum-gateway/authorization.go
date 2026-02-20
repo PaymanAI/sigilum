@@ -75,7 +75,7 @@ func verifySignedRequest(
 		if cfg.LogProxyRequests {
 			log.Printf("proxy request header validation failed request_id=%s connection=%s remote_ip=%s err=%v", requestID, connectionID, remoteIP, err)
 		}
-		writeProxyAuthFailure(w)
+		writeProxyAuthError(w, http.StatusForbidden, codeAuthHeadersInvalid, "invalid or duplicate signed headers")
 		return false
 	}
 
@@ -95,7 +95,7 @@ func verifySignedRequest(
 		if cfg.LogProxyRequests {
 			log.Printf("proxy request component validation failed request_id=%s connection=%s remote_ip=%s err=%v", requestID, connectionID, remoteIP, componentErr)
 		}
-		writeProxyAuthFailure(w)
+		writeProxyAuthError(w, http.StatusForbidden, codeAuthSignedComponents, "invalid signed component set")
 		return false
 	}
 	return true
@@ -114,7 +114,7 @@ func resolveAuthorizedIdentity(
 		if cfg.LogProxyRequests {
 			log.Printf("proxy request identity extraction failed request_id=%s connection=%s remote_ip=%s err=%v", requestID, connectionID, remoteIP, identityErr)
 		}
-		writeProxyAuthFailure(w)
+		writeProxyAuthError(w, http.StatusForbidden, codeAuthIdentityInvalid, "invalid Sigilum identity headers")
 		return authorizedIdentity{}, false
 	}
 	if cfg.LogProxyRequests {
@@ -142,14 +142,14 @@ func enforceNonceReplayProtection(
 		if cfg.LogProxyRequests {
 			log.Printf("proxy request nonce extraction failed request_id=%s connection=%s remote_ip=%s err=%v", requestID, connectionID, remoteIP, nonceErr)
 		}
-		writeProxyAuthFailure(w)
+		writeProxyAuthError(w, http.StatusForbidden, codeAuthNonceInvalid, "invalid signature nonce")
 		return false
 	}
 	if nonceCache != nil && nonceCache.Seen(namespace, nonce, time.Now().UTC()) {
 		if cfg.LogProxyRequests {
 			log.Printf("proxy request replay detected request_id=%s connection=%s remote_ip=%s namespace=%s", requestID, connectionID, remoteIP, namespace)
 		}
-		writeProxyAuthFailure(w)
+		writeProxyAuthError(w, http.StatusForbidden, codeAuthReplayDetected, "replay detected")
 		return false
 	}
 	return true
@@ -166,7 +166,7 @@ func enforceClaimAuthorization(
 	cfg config.Config,
 ) bool {
 	if claimsCache == nil {
-		writeProxyAuthFailure(w)
+		writeProxyAuthError(w, http.StatusForbidden, codeAuthClaimsUnavailable, "claims authorization cache is unavailable")
 		return false
 	}
 
@@ -175,7 +175,7 @@ func enforceClaimAuthorization(
 		if cfg.LogProxyRequests {
 			log.Printf("proxy request claim cache failed request_id=%s connection=%s remote_ip=%s err=%v", requestID, connectionID, remoteIP, claimErr)
 		}
-		writeProxyAuthFailure(w)
+		writeProxyAuthError(w, http.StatusForbidden, codeAuthClaimsLookupFailed, "claims lookup failed")
 		return false
 	}
 
