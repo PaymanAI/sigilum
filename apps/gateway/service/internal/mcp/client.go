@@ -26,6 +26,18 @@ const (
 	defaultTimeout             = 20 * time.Second
 	defaultMaxIdleConns        = 100
 	defaultMaxIdleConnsPerHost = 20
+	maxSessionRecoveryAttempts = 1
+	maxRPCRequestAttempts      = 2
+	initialRPCRetryBackoff     = 100 * time.Millisecond
+)
+
+type sessionState string
+
+const (
+	sessionStateUnknown             sessionState = "unknown"
+	sessionStateInitializeRequired  sessionState = "initialize_required"
+	sessionStateReady               sessionState = "ready"
+	sessionStateReinitializePending sessionState = "reinitialize_pending"
 )
 
 type Client struct {
@@ -291,6 +303,38 @@ func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.Proxy
 		return statusCode, contentType, responseBody, nil
 	}
 
+	callWithRetry := func(rpcMethod string, requestPayload []byte) (int, string, []byte, error) {
+		backoff := initialRPCRetryBackoff
+		lastStatusCode := 0
+		lastContentType := ""
+		var lastBody []byte
+		var lastErr error
+
+		for attempt := 1; attempt <= maxRPCRequestAttempts; attempt++ {
+			statusCode, contentType, responseBody, err := callWithAuthFallback(rpcMethod, requestPayload)
+			lastStatusCode = statusCode
+			lastContentType = contentType
+			lastBody = responseBody
+			lastErr = err
+
+			if err == nil && !shouldRetryRPCStatus(statusCode) {
+				return statusCode, contentType, responseBody, nil
+			}
+			if attempt == maxRPCRequestAttempts {
+				break
+			}
+			if !sleepWithContext(ctx, backoff) {
+				return 0, "", nil, context.Cause(ctx)
+			}
+			backoff *= 2
+		}
+
+		if lastErr != nil {
+			return 0, "", nil, lastErr
+		}
+		return lastStatusCode, lastContentType, lastBody, nil
+	}
+
 	validateRPCResult := func(rpcMethod string, contentType string, responseBody []byte) error {
 		rpcPayload, err := extractRPCPayload(contentType, responseBody)
 		if err != nil {
@@ -306,13 +350,36 @@ func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.Proxy
 		return nil
 	}
 
+	decodeRPCResponse := func(rpcMethod string, statusCode int, contentType string, responseBody []byte) (json.RawMessage, error) {
+		if statusCode < 200 || statusCode >= 300 {
+			return nil, fmt.Errorf("mcp server http %d: %s", statusCode, util.CompactMessage(string(responseBody), 240))
+		}
+
+		rpcPayload, err := extractRPCPayload(contentType, responseBody)
+		if err != nil {
+			return nil, fmt.Errorf("decode mcp response: %w", err)
+		}
+
+		var rpcResp rpcResponse
+		if err := json.Unmarshal(rpcPayload, &rpcResp); err != nil {
+			return nil, fmt.Errorf("decode mcp response: %w", err)
+		}
+		if rpcResp.Error != nil {
+			return nil, fmt.Errorf("mcp method %s failed (%d): %s", rpcMethod, rpcResp.Error.Code, strings.TrimSpace(rpcResp.Error.Message))
+		}
+		if len(rpcResp.Result) == 0 {
+			return nil, fmt.Errorf("mcp method %s returned empty result", rpcMethod)
+		}
+		return rpcResp.Result, nil
+	}
+
 	initializeSession := func() error {
 		c.clearSessionID(sessionCacheKey)
 		initPayload, err := buildRPCPayload("initialize", initializeParams())
 		if err != nil {
 			return err
 		}
-		statusCode, contentType, responseBody, err := callWithAuthFallback("initialize", initPayload)
+		statusCode, contentType, responseBody, err := callWithRetry("initialize", initPayload)
 		if err != nil {
 			return err
 		}
@@ -325,51 +392,80 @@ func (c *Client) call(ctx context.Context, endpoint string, cfg connectors.Proxy
 		return nil
 	}
 
-	if method != "initialize" && strings.TrimSpace(c.getSessionID(sessionCacheKey)) == "" {
-		if err := initializeSession(); err != nil {
-			return nil, err
-		}
-	}
-
 	requestPayload, err := buildRPCPayload(method, params)
 	if err != nil {
 		return nil, err
 	}
-
-	statusCode, contentType, responseBody, err := callWithAuthFallback(method, requestPayload)
-	if err != nil {
-		return nil, err
+	if method == "initialize" {
+		statusCode, contentType, responseBody, err := callWithRetry(method, requestPayload)
+		if err != nil {
+			return nil, err
+		}
+		return decodeRPCResponse(method, statusCode, contentType, responseBody)
 	}
 
-	if method != "initialize" && isSessionRequiredResponse(statusCode, responseBody) {
-		if initErr := initializeSession(); initErr == nil {
-			statusCode, contentType, responseBody, err = callWithAuthFallback(method, requestPayload)
+	state := sessionStateUnknown
+	if strings.TrimSpace(c.getSessionID(sessionCacheKey)) == "" {
+		state = sessionStateInitializeRequired
+	} else {
+		state = sessionStateReady
+	}
+	sessionRecoveryAttempts := 0
+
+	for {
+		switch state {
+		case sessionStateInitializeRequired:
+			if err := initializeSession(); err != nil {
+				return nil, err
+			}
+			state = sessionStateReady
+			continue
+		case sessionStateReady:
+			statusCode, contentType, responseBody, err := callWithRetry(method, requestPayload)
 			if err != nil {
 				return nil, err
 			}
+			if isSessionRequiredResponse(statusCode, responseBody) {
+				if sessionRecoveryAttempts >= maxSessionRecoveryAttempts {
+					return nil, fmt.Errorf("mcp method %s requires session reinitialize after %d attempts", method, sessionRecoveryAttempts)
+				}
+				sessionRecoveryAttempts++
+				state = sessionStateReinitializePending
+				continue
+			}
+			return decodeRPCResponse(method, statusCode, contentType, responseBody)
+		case sessionStateReinitializePending:
+			c.clearSessionID(sessionCacheKey)
+			state = sessionStateInitializeRequired
+		default:
+			return nil, fmt.Errorf("unexpected mcp session state %q", state)
 		}
 	}
+}
 
-	if statusCode < 200 || statusCode >= 300 {
-		return nil, fmt.Errorf("mcp server http %d: %s", statusCode, util.CompactMessage(string(responseBody), 240))
-	}
+func shouldRetryRPCStatus(statusCode int) bool {
+	return statusCode == http.StatusTooManyRequests ||
+		statusCode == http.StatusBadGateway ||
+		statusCode == http.StatusServiceUnavailable ||
+		statusCode == http.StatusGatewayTimeout
+}
 
-	rpcPayload, err := extractRPCPayload(contentType, responseBody)
-	if err != nil {
-		return nil, fmt.Errorf("decode mcp response: %w", err)
+func sleepWithContext(ctx context.Context, duration time.Duration) bool {
+	if duration <= 0 {
+		return true
 	}
-
-	var rpcResp rpcResponse
-	if err := json.Unmarshal(rpcPayload, &rpcResp); err != nil {
-		return nil, fmt.Errorf("decode mcp response: %w", err)
+	if ctx == nil {
+		time.Sleep(duration)
+		return true
 	}
-	if rpcResp.Error != nil {
-		return nil, fmt.Errorf("mcp method %s failed (%d): %s", method, rpcResp.Error.Code, strings.TrimSpace(rpcResp.Error.Message))
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
-	if len(rpcResp.Result) == 0 {
-		return nil, fmt.Errorf("mcp method %s returned empty result", method)
-	}
-	return rpcResp.Result, nil
 }
 
 func isSessionRequiredResponse(statusCode int, body []byte) bool {

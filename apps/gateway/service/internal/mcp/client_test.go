@@ -564,6 +564,138 @@ func TestCallToolReinitializesOnSessionError(t *testing.T) {
 	}
 }
 
+func TestCallToolRetriesOnTransientUpstreamStatus(t *testing.T) {
+	var (
+		initializeRequests int
+		callRequests       int
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req rpcRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "decode request failed", http.StatusBadRequest)
+			return
+		}
+
+		switch req.Method {
+		case "initialize":
+			initializeRequests++
+			w.Header().Set("Mcp-Session-Id", "session-retry")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "sigilum-gateway",
+				"result": map[string]any{
+					"protocolVersion": "2024-11-05",
+					"serverInfo": map[string]any{
+						"name":    "linear-mcp",
+						"version": "1.0.0",
+					},
+				},
+			})
+		case "tools/call":
+			callRequests++
+			if callRequests == 1 {
+				http.Error(w, "temporary upstream overload", http.StatusServiceUnavailable)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "sigilum-gateway",
+				"result": map[string]any{
+					"content": []map[string]any{
+						{"type": "text", "text": "ok"},
+					},
+				},
+			})
+		default:
+			http.Error(w, "unknown method", http.StatusBadRequest)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(5 * time.Second)
+	cfg := connectors.ProxyConfig{
+		Connection: connectors.Connection{
+			Protocol: connectors.ConnectionProtocolMCP,
+			BaseURL:  server.URL,
+		},
+	}
+
+	result, err := client.CallTool(context.Background(), cfg, "list_issues", json.RawMessage(`{"limit":1}`))
+	if err != nil {
+		t.Fatalf("call tool failed: %v", err)
+	}
+	if len(result) == 0 {
+		t.Fatal("expected non-empty call result")
+	}
+	if initializeRequests != 1 {
+		t.Fatalf("expected one initialize request, got %d", initializeRequests)
+	}
+	if callRequests != 2 {
+		t.Fatalf("expected transient retry to issue two tools/call requests, got %d", callRequests)
+	}
+}
+
+func TestCallToolFailsWhenSessionRecoveryExhausted(t *testing.T) {
+	var (
+		initializeRequests int
+		callRequests       int
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req rpcRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "decode request failed", http.StatusBadRequest)
+			return
+		}
+
+		switch req.Method {
+		case "initialize":
+			initializeRequests++
+			w.Header().Set("Mcp-Session-Id", "always-invalid")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "sigilum-gateway",
+				"result": map[string]any{
+					"protocolVersion": "2024-11-05",
+					"serverInfo": map[string]any{
+						"name":    "linear-mcp",
+						"version": "1.0.0",
+					},
+				},
+			})
+		case "tools/call":
+			callRequests++
+			http.Error(w, "Mcp-Session-Id required", http.StatusBadRequest)
+		default:
+			http.Error(w, "unknown method", http.StatusBadRequest)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(5 * time.Second)
+	cfg := connectors.ProxyConfig{
+		Connection: connectors.Connection{
+			Protocol: connectors.ConnectionProtocolMCP,
+			BaseURL:  server.URL,
+		},
+	}
+
+	_, err := client.CallTool(context.Background(), cfg, "list_issues", json.RawMessage(`{"limit":1}`))
+	if err == nil {
+		t.Fatal("expected call tool to fail after session recovery attempts are exhausted")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "reinitialize") {
+		t.Fatalf("expected reinitialize exhaustion error, got %v", err)
+	}
+	if initializeRequests != 2 {
+		t.Fatalf("expected exactly two initialize attempts, got %d", initializeRequests)
+	}
+	if callRequests != 2 {
+		t.Fatalf("expected exactly two tools/call attempts, got %d", callRequests)
+	}
+}
+
 func TestCacheKeyForConnectionIsolatedByConnectionID(t *testing.T) {
 	endpoint := "https://mcp.example.com/rpc"
 	cfgA := connectors.ProxyConfig{

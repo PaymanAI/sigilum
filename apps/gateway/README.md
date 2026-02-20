@@ -34,6 +34,7 @@ Gateway service code is organized under `apps/gateway/service`:
 - Routes requests to configured upstream connectors (`/proxy/{connection_id}/...` and `/slack/...` alias).
 - Injects connector auth headers (Bearer or custom header-key mode) and strips Sigilum signing headers before upstream forwarding.
 - Supports MCP connections (`protocol: "mcp"`) with streamable HTTP transport.
+- Uses explicit MCP session lifecycle states (`initialize_required` -> `ready` -> `reinitialize_pending`) with bounded recovery/retry behavior.
 - Discovers MCP tools (`/api/admin/connections/{id}/discover`) and stores discovery metadata locally.
 - Exposes filtered MCP tools at runtime:
   - `GET /mcp/{connection_id}/tools`
