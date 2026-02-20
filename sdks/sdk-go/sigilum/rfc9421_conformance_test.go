@@ -15,14 +15,23 @@ type rfcFixture struct {
 		Nonce   string `json:"nonce"`
 	} `json:"fixed"`
 	Vectors []struct {
-		Name                  string   `json:"name"`
-		Method                string   `json:"method"`
-		URL                   string   `json:"url"`
-		Body                  *string  `json:"body"`
-		ExpectedTargetURI     string   `json:"expected_target_uri"`
-		ExpectedContentDigest string   `json:"expected_content_digest"`
-		ExpectedComponents    []string `json:"expected_components"`
+		Name                    string   `json:"name"`
+		Method                  string   `json:"method"`
+		URL                     string   `json:"url"`
+		Body                    *string  `json:"body"`
+		ExpectedTargetURI       string   `json:"expected_target_uri"`
+		ExpectedMethodComponent string   `json:"expected_method_component"`
+		ExpectedContentDigest   string   `json:"expected_content_digest"`
+		ExpectedComponents      []string `json:"expected_components"`
 	} `json:"vectors"`
+	NegativeVectors []struct {
+		Name                   string `json:"name"`
+		SourceVector           string `json:"source_vector"`
+		Mutation               string `json:"mutation"`
+		Field                  string `json:"field"`
+		Value                  string `json:"value"`
+		ExpectedReasonContains string `json:"expected_reason_contains"`
+	} `json:"negative_vectors"`
 }
 
 func loadRFCFixture(t *testing.T) rfcFixture {
@@ -49,6 +58,7 @@ func TestRFC9421ProfileVectorsAndStrictChecks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load identity: %v", err)
 	}
+	signedByName := map[string]SignedRequest{}
 
 	for _, vector := range fixture.Vectors {
 		var body []byte
@@ -70,6 +80,15 @@ func TestRFC9421ProfileVectorsAndStrictChecks(t *testing.T) {
 		if signed.URL != vector.ExpectedTargetURI {
 			t.Fatalf("%s: unexpected URL: %s", vector.Name, signed.URL)
 		}
+		if strings.ToLower(signed.Method) != strings.ToLower(vector.ExpectedMethodComponent) {
+			t.Fatalf(
+				"%s: unexpected method component: got=%s want=%s",
+				vector.Name,
+				strings.ToLower(signed.Method),
+				strings.ToLower(vector.ExpectedMethodComponent),
+			)
+		}
+		signedByName[vector.Name] = signed
 		signatureInput := signed.Headers["signature-input"]
 		if !strings.Contains(signatureInput, "created="+strconv.FormatInt(fixture.Fixed.Created, 10)) {
 			t.Fatalf("%s: created missing in Signature-Input: %s", vector.Name, signatureInput)
@@ -127,6 +146,61 @@ func TestRFC9421ProfileVectorsAndStrictChecks(t *testing.T) {
 			t.Fatalf("%s: expected stale signature rejection, got: %#v", vector.Name, stale)
 		}
 	}
+
+	for _, negative := range fixture.NegativeVectors {
+		baseSigned, ok := signedByName[negative.SourceVector]
+		if !ok {
+			t.Fatalf("%s: source vector %q not found", negative.Name, negative.SourceVector)
+		}
+
+		headers := make(map[string]string, len(baseSigned.Headers))
+		for key, value := range baseSigned.Headers {
+			headers[key] = value
+		}
+		method := baseSigned.Method
+		body := append([]byte(nil), baseSigned.Body...)
+
+		switch strings.ToLower(strings.TrimSpace(negative.Mutation)) {
+		case "method":
+			method = negative.Value
+		case "header":
+			field := strings.ToLower(strings.TrimSpace(negative.Field))
+			if field == "" {
+				t.Fatalf("%s: header mutation requires field", negative.Name)
+			}
+			headers[field] = negative.Value
+		case "body":
+			body = []byte(negative.Value)
+		default:
+			t.Fatalf("%s: unsupported mutation %q", negative.Name, negative.Mutation)
+		}
+
+		result := VerifyHTTPSignature(VerifySignatureInput{
+			URL:               baseSigned.URL,
+			Method:            method,
+			Headers:           headers,
+			Body:              body,
+			ExpectedNamespace: "alice",
+			NowUnix:           fixture.Fixed.Created + 5,
+			MaxAgeSeconds:     60,
+		})
+		if result.Valid {
+			t.Fatalf("%s: expected verification to fail", negative.Name)
+		}
+		normalizeReason := func(value string) string {
+			normalized := strings.ToLower(value)
+			normalized = strings.ReplaceAll(normalized, "-", " ")
+			return strings.Join(strings.Fields(normalized), " ")
+		}
+		if !strings.Contains(normalizeReason(result.Reason), normalizeReason(negative.ExpectedReasonContains)) {
+			t.Fatalf(
+				"%s: expected reason to contain %q, got %q",
+				negative.Name,
+				negative.ExpectedReasonContains,
+				result.Reason,
+			)
+		}
+	}
 }
 
 func quoteComponents(components []string) string {
@@ -136,4 +210,3 @@ func quoteComponents(components []string) string {
 	}
 	return strings.Join(quoted, " ")
 }
-

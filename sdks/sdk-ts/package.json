@@ -28,7 +28,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
-    "test:conformance": "vitest run src/__tests__/http-signatures.test.ts --reporter=verbose",
+    "test:conformance": "vitest run src/__tests__/rfc9421-conformance.test.ts --reporter=verbose",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist .turbo"

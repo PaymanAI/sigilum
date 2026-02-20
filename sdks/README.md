@@ -37,6 +37,7 @@ Supported SDKs implement the same signed-header profile for API requests:
 Shared conformance vectors are stored in:
 
 - `sdks/test-vectors/http-signatures-rfc9421.json`
+- Coverage includes fragment stripping, method/body component profile checks, replay/timestamp strictness, and tamper failures (method/header/body).
 
 ## API Enforcement
 

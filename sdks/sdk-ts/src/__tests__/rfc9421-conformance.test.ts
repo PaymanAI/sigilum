@@ -16,9 +16,19 @@ type Vector = {
   expected_components: string[];
 };
 
+type NegativeVector = {
+  name: string;
+  source_vector: string;
+  mutation: "method" | "header" | "body";
+  field?: string;
+  value: string;
+  expected_reason_contains: string;
+};
+
 type Fixture = {
   fixed: { created: number; nonce: string };
   vectors: Vector[];
+  negative_vectors?: NegativeVector[];
 };
 
 function readFixture(): Fixture {
@@ -52,6 +62,7 @@ describe("RFC 9421 profile conformance", () => {
     const homeDir = makeHomeDir();
     initIdentity({ namespace: "alice", homeDir });
     const identity = loadIdentity({ namespace: "alice", homeDir });
+    const signedByName = new Map<string, ReturnType<typeof signHttpRequest>>();
 
     for (const vector of fixture.vectors) {
       const signed = signHttpRequest(identity, {
@@ -63,6 +74,8 @@ describe("RFC 9421 profile conformance", () => {
       });
 
       expect(signed.url).toBe(vector.expected_target_uri);
+      expect(signed.method.toLowerCase()).toBe(vector.expected_method_component);
+      signedByName.set(vector.name, signed);
 
       const signatureInput = signed.headers.get("signature-input");
       expect(signatureInput).toBeTruthy();
@@ -120,6 +133,49 @@ describe("RFC 9421 profile conformance", () => {
       });
       expect(stale.valid).toBe(false);
       expect(stale.reason).toMatch(/expired|valid/i);
+    }
+
+    for (const negative of fixture.negative_vectors ?? []) {
+      const baseSigned = signedByName.get(negative.source_vector);
+      expect(baseSigned, `${negative.name}: source vector not found`).toBeTruthy();
+      if (!baseSigned) {
+        continue;
+      }
+
+      const headers = new Headers(baseSigned.headers);
+      let method = baseSigned.method;
+      let body = baseSigned.body ?? null;
+
+      if (negative.mutation === "method") {
+        method = negative.value;
+      } else if (negative.mutation === "header") {
+        const field = (negative.field ?? "").trim().toLowerCase();
+        expect(field.length, `${negative.name}: missing header field`).toBeGreaterThan(0);
+        headers.set(field, negative.value);
+      } else if (negative.mutation === "body") {
+        body = negative.value;
+      }
+
+      const result = verifyHttpSignature({
+        url: baseSigned.url,
+        method,
+        headers,
+        body,
+        expectedNamespace: "alice",
+        strict: {
+          now: fixture.fixed.created + 5,
+          maxAgeSeconds: 60,
+        },
+      });
+      expect(result.valid, `${negative.name}: expected verify failure`).toBe(false);
+      const normalizedReason = (result.reason?.toLowerCase() ?? "")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+      const normalizedExpected = negative.expected_reason_contains
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+      expect(normalizedReason).toContain(normalizedExpected);
     }
   });
 });

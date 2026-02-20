@@ -38,6 +38,64 @@
         "sigilum-agent-key",
         "sigilum-agent-cert"
       ]
+    },
+    {
+      "name": "put-with-body-query-and-port",
+      "method": "PUT",
+      "url": "https://api.sigilum.local:8443/v1/records/alpha?view=full#section",
+      "body": "{\"text\":\"hello world\",\"count\":42}",
+      "expected_target_uri": "https://api.sigilum.local:8443/v1/records/alpha?view=full",
+      "expected_method_component": "put",
+      "expected_content_digest": "sha-256=:Xruw00DsBxReBcikx32MJ+Rs/9hMiEJ6/vjfZhtV2Mc=:",
+      "expected_components": [
+        "@method",
+        "@target-uri",
+        "content-digest",
+        "sigilum-namespace",
+        "sigilum-subject",
+        "sigilum-agent-key",
+        "sigilum-agent-cert"
+      ]
+    },
+    {
+      "name": "delete-no-body-encoded-query",
+      "method": "DELETE",
+      "url": "https://api.sigilum.local/v1/audit/events?cursor=abc%2F123&limit=50#ignored",
+      "body": null,
+      "expected_target_uri": "https://api.sigilum.local/v1/audit/events?cursor=abc%2F123&limit=50",
+      "expected_method_component": "delete",
+      "expected_components": [
+        "@method",
+        "@target-uri",
+        "sigilum-namespace",
+        "sigilum-subject",
+        "sigilum-agent-key",
+        "sigilum-agent-cert"
+      ]
+    }
+  ],
+  "negative_vectors": [
+    {
+      "name": "tampered-method",
+      "source_vector": "get-no-body-fragment",
+      "mutation": "method",
+      "value": "POST",
+      "expected_reason_contains": "signature"
+    },
+    {
+      "name": "tampered-namespace-header",
+      "source_vector": "get-no-body-fragment",
+      "mutation": "header",
+      "field": "sigilum-namespace",
+      "value": "mallory",
+      "expected_reason_contains": "namespace"
+    },
+    {
+      "name": "tampered-body-content-digest",
+      "source_vector": "post-with-body",
+      "mutation": "body",
+      "value": "{\"action\":\"deny\"}",
+      "expected_reason_contains": "content-digest"
     }
   ]
 }
