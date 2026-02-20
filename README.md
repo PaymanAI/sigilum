@@ -4,22 +4,47 @@ Auditable identity for AI agents.
 
 Sigilum is an open protocol and implementation effort focused on verifiable agent identity, signed delegation chains, and machine-speed accountability for AI systems.
 
-## Autonomous Agent Instructions
+## Start Here
 
-If an autonomous coding agent is operating on this repo, do this first:
+### Autonomous Agent (Required)
 
-1. Read this `README.md` fully.
-2. Open and read every link in the `Quick Links` section.
-3. From `docs/README.md`, follow and read the API, gateway, SDK, and CLI docs.
-4. Treat code as source of truth if any doc appears stale.
+If an autonomous coding agent is operating on this repository:
+
+1. Open and follow [`AGENT_RUNBOOK.md`](./AGENT_RUNBOOK.md) first.
+2. Then read this `README.md` fully.
+3. Open and read every link in the `Quick Links` section.
+4. From `docs/README.md`, follow API, gateway, SDK, and CLI docs.
+5. Treat code as source of truth if any doc appears stale.
 
 Minimum required docs before making changes:
 - `MANIFESTO.md`
+- `AGENT_RUNBOOK.md`
 - `docs/README.md`
 - `docs/cli/README.md`
 - `apps/api/README.md`
 - `apps/gateway/README.md`
 - `sdks/README.md`
+
+### Human Quickstart
+
+From repository root:
+
+```bash
+corepack enable
+corepack prepare pnpm@10.29.3 --activate
+pnpm install
+pnpm --dir sdks/sdk-ts build
+./sigilum e2e-tests
+```
+
+What this does:
+- installs dependencies
+- builds the TS SDK used by local simulator/e2e flows
+- boots local API + gateway (blockchain mode disabled)
+- bootstraps local workspace identity/services under namespace `johndee`
+- starts bundled demo services and runs pass/fail auth simulator tests
+
+Gateway startup defaults to prebuilt binaries (`./.local/bin/sigilum-gateway*`) to reduce memory pressure versus `go run`.
 
 ## OpenClaw / Docker Low-Memory Guidance
 
@@ -44,27 +69,6 @@ What to expect on first successful run:
 - creates gateway data in `./.local/gateway-data`
 - creates local D1 state under `./apps/api/.wrangler/state`
 - auto-creates `./apps/api/wrangler.toml` from `./apps/api/wrangler.toml.example` if missing
-
-## Agent Quickstart
-
-If you hand this repo to a coding agent and want a full local bring-up plus validation, ask it to run exactly:
-
-```bash
-corepack enable
-corepack prepare pnpm@10.29.3 --activate
-pnpm install
-pnpm --dir sdks/sdk-ts build
-./sigilum e2e-tests
-```
-
-What this does:
-- installs dependencies
-- builds the TS SDK used by local simulator/e2e flows
-- boots local API + gateway (blockchain mode disabled)
-- bootstraps local workspace identity/services under namespace `johndee`
-- starts bundled demo services and runs pass/fail auth simulator tests
-
-Gateway startup defaults to prebuilt binaries (`./.local/bin/sigilum-gateway*`) to reduce memory pressure versus `go run`.
 
 ## Prerequisites
 
@@ -303,6 +307,7 @@ find apps/api/.wrangler/state -name '*.sqlite' -print
 
 ## Quick Links
 
+- [Agent Runbook (Agents start here)](./AGENT_RUNBOOK.md)
 - [Manifesto](./MANIFESTO.md)
 - [Docs Index](./docs/README.md)
 - [CLI Guide](./docs/cli/README.md)
@@ -310,4 +315,3 @@ find apps/api/.wrangler/state -name '*.sqlite' -print
 - [API Guide](./apps/api/README.md)
 - [Gateway Guide](./apps/gateway/README.md)
 - [OpenClaw Integration](./openclaw/README.md)
-- [Agent Runbook](./AGENT_RUNBOOK.md)
