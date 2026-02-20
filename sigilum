@@ -58,7 +58,7 @@ ${CLR_BOLD}${CLR_CYAN}Commands:${CLR_RESET}
   ${CLR_BOLD}login${CLR_RESET} [options]                ${CLR_DIM}Alias for: sigilum auth login${CLR_RESET}
   ${CLR_BOLD}gateway${CLR_RESET} <args>                 ${CLR_DIM}Gateway pairing helpers (local bridge for managed dashboard)${CLR_RESET}
   ${CLR_BOLD}openclaw${CLR_RESET} <args>                ${CLR_DIM}Manage OpenClaw integration (install/uninstall/status)${CLR_RESET}
-  ${CLR_BOLD}service${CLR_RESET} <args>                 ${CLR_DIM}Manage local services (delegates to scripts/sigilum-service.sh)${CLR_RESET}
+  ${CLR_BOLD}service${CLR_RESET} <args>                 ${CLR_DIM}Manage local services (add/list/secret)${CLR_RESET}
   ${CLR_BOLD}doctor${CLR_RESET}                         ${CLR_DIM}Validate local setup, security posture, and runtime readiness${CLR_RESET}
   ${CLR_BOLD}up${CLR_RESET}                             ${CLR_DIM}Start local API + gateway (scripts/run-local-api-gateway.sh)${CLR_RESET}
   ${CLR_BOLD}down${CLR_RESET}                           ${CLR_DIM}Stop local API/gateway/demo listeners on known ports${CLR_RESET}
@@ -85,6 +85,38 @@ ${CLR_BOLD}${CLR_CYAN}Examples:${CLR_RESET}
   ${CLR_BOLD}${CLR_YELLOW}sigilum service secret set --service-slug linear --upstream-secret-env LINEAR_TOKEN${CLR_RESET}
   ${CLR_BOLD}${CLR_YELLOW}sigilum service add --service-slug demo-proxy --mode gateway --upstream-base-url http://127.0.0.1:12000${CLR_RESET}
   ${CLR_BOLD}${CLR_YELLOW}sigilum e2e-tests${CLR_RESET}
+USAGE
+}
+
+gateway_usage() {
+  cat <<USAGE
+${CLR_BOLD}${CLR_CYAN}Sigilum Gateway Helper${CLR_RESET}
+
+${CLR_BOLD}${CLR_CYAN}Usage:${CLR_RESET}
+  ${CLR_BOLD}sigilum gateway pair --session-id <id> --pair-code <code> --namespace <namespace>${CLR_RESET} ${CLR_DIM}[options]${CLR_RESET}
+
+${CLR_BOLD}${CLR_CYAN}Options:${CLR_RESET}
+  ${CLR_BOLD}--api-url <url>${CLR_RESET}            ${CLR_DIM}Sigilum API base URL${CLR_RESET}
+  ${CLR_BOLD}--gateway-admin-url <url>${CLR_RESET}  ${CLR_DIM}Local gateway admin URL (default: http://127.0.0.1:38100)${CLR_RESET}
+  ${CLR_BOLD}--reconnect-ms <ms>${CLR_RESET}        ${CLR_DIM}WebSocket reconnect delay (default: 2000)${CLR_RESET}
+  ${CLR_BOLD}--connect-timeout-ms <ms>${CLR_RESET}  ${CLR_DIM}HTTP/WebSocket preflight timeout (default: 5000)${CLR_RESET}
+  ${CLR_BOLD}-h, --help${CLR_RESET}
+USAGE
+}
+
+service_usage() {
+  cat <<USAGE
+${CLR_BOLD}${CLR_CYAN}Sigilum Service Helper${CLR_RESET}
+
+${CLR_BOLD}${CLR_CYAN}Usage:${CLR_RESET}
+  ${CLR_BOLD}sigilum service add${CLR_RESET} ${CLR_DIM}[options]${CLR_RESET}
+  ${CLR_BOLD}sigilum service list${CLR_RESET} ${CLR_DIM}[options]${CLR_RESET}
+  ${CLR_BOLD}sigilum service secret set${CLR_RESET} ${CLR_DIM}[options]${CLR_RESET}
+
+${CLR_BOLD}${CLR_CYAN}Help:${CLR_RESET}
+  ${CLR_BOLD}sigilum service add --help${CLR_RESET}
+  ${CLR_BOLD}sigilum service list --help${CLR_RESET}
+  ${CLR_BOLD}sigilum service secret --help${CLR_RESET}
 USAGE
 }
 
@@ -214,6 +246,59 @@ resolve_namespace_for_up() {
   fi
 }
 
+dispatch_gateway() {
+  local subcommand="${1:-help}"
+  if [[ $# -gt 0 ]]; then
+    shift
+  fi
+
+  case "$subcommand" in
+    pair)
+      exec node "$ROOT_DIR/scripts/gateway-pair-bridge.mjs" "$@"
+      ;;
+    help|-h|--help|"")
+      gateway_usage
+      return 0
+      ;;
+    *)
+      echo "Unknown gateway command: $subcommand" >&2
+      gateway_usage
+      return 1
+      ;;
+  esac
+}
+
+dispatch_service() {
+  local subcommand="${1:-help}"
+  if [[ $# -gt 0 ]]; then
+    shift
+  fi
+
+  case "$subcommand" in
+    add)
+      ensure_script "$ROOT_DIR/scripts/sigilum-service-add.sh"
+      exec "$ROOT_DIR/scripts/sigilum-service-add.sh" "$@"
+      ;;
+    list)
+      ensure_script "$ROOT_DIR/scripts/sigilum-service-list.sh"
+      exec "$ROOT_DIR/scripts/sigilum-service-list.sh" "$@"
+      ;;
+    secret)
+      ensure_script "$ROOT_DIR/scripts/sigilum-service-secret.sh"
+      exec "$ROOT_DIR/scripts/sigilum-service-secret.sh" "$@"
+      ;;
+    help|-h|--help|"")
+      service_usage
+      return 0
+      ;;
+    *)
+      echo "Unknown service command: ${subcommand}" >&2
+      service_usage
+      return 1
+      ;;
+  esac
+}
+
 NAMESPACE=""
 SIGILUM_HOME=""
 GATEWAY_ADMIN_URL_OPT=""
@@ -320,8 +405,10 @@ case "$command" in
     exec "$ROOT_DIR/scripts/sigilum-openclaw.sh" "$@"
     ;;
   gateway)
-    ensure_script "$ROOT_DIR/scripts/sigilum-gateway.sh"
-    exec "$ROOT_DIR/scripts/sigilum-gateway.sh" "$@"
+    dispatch_gateway "$@"
+    ;;
+  service)
+    dispatch_service "$@"
     ;;
   auth)
     ensure_script "$ROOT_DIR/scripts/sigilum-auth.sh"
@@ -366,10 +453,6 @@ case "$command" in
     fi
     exec node "$ROOT_DIR/scripts/test-agent-simulator.mjs" "$@"
     ;;
-  service)
-    ensure_script "$ROOT_DIR/scripts/sigilum-service.sh"
-    exec "$ROOT_DIR/scripts/sigilum-service.sh" "$@"
-    ;;
   help|-h|--help)
     if [[ "$command" == "help" ]] && [[ $# -gt 0 ]]; then
       topic="$1"
@@ -388,12 +471,10 @@ case "$command" in
           exec "$ROOT_DIR/scripts/sigilum-auth.sh" --help "$@"
           ;;
         gateway)
-          ensure_script "$ROOT_DIR/scripts/sigilum-gateway.sh"
-          exec "$ROOT_DIR/scripts/sigilum-gateway.sh" --help "$@"
+          gateway_usage
           ;;
         service)
-          ensure_script "$ROOT_DIR/scripts/sigilum-service.sh"
-          exec "$ROOT_DIR/scripts/sigilum-service.sh" help "$@"
+          service_usage
           ;;
         doctor|up|down|e2e-tests|agent-simulator)
           usage
