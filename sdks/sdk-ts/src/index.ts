@@ -12,6 +12,7 @@ export {
   encodeCertificateHeader,
   decodeCertificateHeader,
 } from "./http-signatures.js";
+export { retryWithBackoff, shouldRetryHttpStatus } from "./retry.js";
 export {
   DEFAULT_SIGILUM_HOME,
   getNamespaceApiBase,
@@ -35,3 +36,4 @@ export type {
   VerifySignatureInput,
   VerifySignatureResult,
 } from "./types.js";
+export type { RetryWithBackoffOptions } from "./retry.js";

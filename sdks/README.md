@@ -33,6 +33,7 @@ Supported SDKs implement the same signed-header profile for API requests:
 - Optional body integrity via `content-digest`
 - SDK CLIs provide stable machine-readable output for identity bootstrap/list commands (`sigilum init --json`, `sigilum list --json` in supported SDKs)
 - Signature verification failures expose stable machine codes + human-readable reasons across supported SDKs (example code: `SIG_CONTENT_DIGEST_MISMATCH`)
+- SDKs expose portable retry helpers for idempotent calls (`retryWithBackoff` / `retry_with_backoff` / `RetryWithBackoff`) plus shared retryable status guidance (`429/502/503/504`)
 
 `sigilum-subject` is not decorative: treat it as a stable requester principal id inside a namespace. Gateway can apply subject-aware policy using this value (for example MCP tool filtering).
 

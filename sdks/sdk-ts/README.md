@@ -101,6 +101,12 @@ Use a stable `sigilum-subject` principal id (not a random per-request value); ga
 - `code` (stable machine code such as `SIG_CONTENT_DIGEST_MISMATCH`)
 - `reason` (human-readable detail)
 
+Retry helper for idempotent operations:
+
+- `retryWithBackoff(...)`
+- `shouldRetryHttpStatus(...)` for `429/502/503/504`
+- set `idempotent: true` only for safe/idempotent requests (for example `GET`, `HEAD`, retry-safe `PUT`)
+
 ## Auth note
 
 Signed headers prove agent identity. Some endpoints also require additional auth:

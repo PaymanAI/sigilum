@@ -16,6 +16,7 @@ from sigilum.identity_store import (
     verify_certificate,
 )
 from sigilum.init import init
+from sigilum.retry import retry_with_backoff, should_retry_http_status
 from sigilum.types import (
     InitIdentityResult,
     SigilumCertificate,
@@ -42,7 +43,9 @@ __all__ = [
     "init_identity",
     "list_namespaces",
     "load_identity",
+    "retry_with_backoff",
     "sign_http_request",
+    "should_retry_http_status",
     "verify_certificate",
     "verify_http_signature",
 ]

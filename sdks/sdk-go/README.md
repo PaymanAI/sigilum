@@ -87,6 +87,12 @@ Use a stable `sigilum-subject` principal id; gateway policy may apply subject-le
 - `Code` (stable machine code such as `SIG_CONTENT_DIGEST_MISMATCH`)
 - `Reason` (human-readable detail)
 
+Retry helper for idempotent operations:
+
+- `RetryWithBackoff(...)`
+- `ShouldRetryHTTPStatus(...)` for `429/502/503/504`
+- set `Idempotent: true` only for safe/idempotent requests (for example `GET`, `HEAD`, retry-safe `PUT`)
+
 ## Auth note
 
 Signed headers prove agent identity. Some endpoints also require additional auth:
