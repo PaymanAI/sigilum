@@ -18,17 +18,20 @@ Skill status:
 Installer and CLI entrypoints:
 
 - `openclaw/install-openclaw-sigilum.sh`
+- `openclaw/uninstall-openclaw-sigilum.sh`
 - `./sigilum openclaw install ...`
+- `./sigilum openclaw uninstall`
 - `./sigilum openclaw status`
 
 ## Quick install
 
 ```bash
-./sigilum openclaw install --namespace johndee --mode managed
+./sigilum openclaw install
 ./sigilum openclaw status
 ```
 
 This installs hooks/skills into `~/.openclaw` and patches `~/.openclaw/openclaw.json`.
+Installer prompts for namespace, OpenClaw home, and API URL, with managed defaults.
 
 For a deterministic first-time validation path, use:
 
@@ -37,19 +40,29 @@ For a deterministic first-time validation path, use:
 Local OSS mode:
 
 ```bash
-./sigilum openclaw install --namespace johndee --mode oss-local
+./sigilum openclaw install --mode oss-local --api-url http://127.0.0.1:8787
 ```
 
 In `oss-local`, install auto-issues a local namespace-owner JWT (when `--owner-token` is not supplied), stores it under `~/.openclaw/.sigilum/owner-token-<namespace>.jwt`, and prints it.
 Install output also prints:
 
-- dashboard claims URL
+- dashboard URL
 - passkey setup URL (`/bootstrap/passkey?namespace=<namespace>`)
+- persisted CLI defaults file (`~/.sigilum/config.env`) for namespace-safe `sigilum up`
 
 Mode defaults:
 
 - `managed`: `api=https://api.sigilum.id`, `gateway=http://localhost:38100`
-- `oss-local`: `api=http://127.0.0.1:8787`, `gateway=http://localhost:38100`
+- `oss-local`: `gateway=http://localhost:38100` and pass `--api-url http://127.0.0.1:8787` for local API stacks
+- if running from globally-installed Sigilum CLI, pass `--source-home /path/to/sigilum` (or set `SIGILUM_SOURCE_HOME`) so local API files are loaded from your checkout
+
+## Uninstall
+
+```bash
+./sigilum openclaw uninstall
+```
+
+This removes Sigilum hooks, Sigilum skills (OpenClaw home + workspace mirror), workspace `.sigilum` runtime folder, key material, and Sigilum entries in `openclaw.json` (with a timestamped config backup). It also removes `~/.sigilum/config.env` when that file is installer-managed (`SIGILUM_OPENCLAW_MANAGED=true`).
 
 ## Can this work without hacking OpenClaw core?
 
@@ -173,6 +186,7 @@ Security model:
 4. Backs up and updates `openclaw.json`
 5. Sets Sigilum env wiring under hook/skill entries
 6. Leaves `sigilum-authz-notify` disabled unless explicitly enabled
+7. Persists CLI defaults to `~/.sigilum/config.env` (`SIGILUM_NAMESPACE`, `GATEWAY_SIGILUM_NAMESPACE`) so `sigilum up` consistently reuses the installed namespace
 
 Lean-runtime note:
 
