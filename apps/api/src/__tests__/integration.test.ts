@@ -579,6 +579,48 @@ describe("Claims endpoint auth", () => {
     const res = await req("/v1/claims/cl_1");
     expect(res.status).toBe(401);
   });
+
+  it("enforces public-key binding for POST /v1/claims by default", async () => {
+    const res = await req("/v1/claims", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer test-api-key",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        namespace: "alice",
+        public_key: "ed25519:not-the-signer",
+        service: "my-service",
+        agent_ip: "203.0.113.10",
+        nonce: `n-${crypto.randomUUID()}`,
+      }),
+    });
+    expect(res.status).toBe(403);
+    const data = (await res.json()) as { code?: string };
+    expect(data.code).toBe("SIGNATURE_KEY_MISMATCH");
+  });
+
+  it("allows namespace-only claim binding when explicitly requested", async () => {
+    const res = await req("/v1/claims", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer test-api-key",
+        "Content-Type": "application/json",
+        "X-Sigilum-Claim-Binding": "namespace-only",
+      },
+      body: JSON.stringify({
+        namespace: "alice",
+        public_key: "ed25519:not-the-signer",
+        service: "my-service",
+        agent_ip: "203.0.113.10",
+        nonce: `n-${crypto.randomUUID()}`,
+      }),
+    });
+    expect(res.status).toBe(201);
+    const data = (await res.json()) as { status?: string; service?: string };
+    expect(data.status).toBe("pending");
+    expect(data.service).toBe("my-service");
+  });
 });
 
 describe("Namespaces claims cache endpoint", () => {

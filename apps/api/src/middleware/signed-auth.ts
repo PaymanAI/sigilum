@@ -10,6 +10,10 @@ type BindingExpectations = {
   expectedPublicKey?: string;
 };
 
+type SignatureBindingOptions = {
+  claimsNamespaceOnly: boolean;
+};
+
 function maybeParseDidNamespace(pathname: string): string | undefined {
   if (!pathname.startsWith("/.well-known/did/")) return undefined;
   const did = decodeURIComponent(pathname.slice("/.well-known/did/".length));
@@ -45,6 +49,7 @@ function extractExpectations(
   url: URL,
   method: string,
   body: Record<string, unknown> | null,
+  options: SignatureBindingOptions,
 ): BindingExpectations {
   const pathname = url.pathname;
 
@@ -55,7 +60,11 @@ function extractExpectations(
 
   if (pathname === "/v1/claims" && method === "POST") {
     const expectedNamespace = typeof body?.namespace === "string" ? body.namespace : undefined;
-    const expectedPublicKey = typeof body?.public_key === "string" ? body.public_key : undefined;
+    const expectedPublicKey = options.claimsNamespaceOnly
+      ? undefined
+      : typeof body?.public_key === "string"
+        ? body.public_key
+        : undefined;
     return { expectedNamespace, expectedPublicKey };
   }
 
@@ -83,6 +92,15 @@ async function parseJsonBody(rawBody: string): Promise<Record<string, unknown> |
   }
 }
 
+function claimsNamespaceOnlyBinding(request: Request, pathname: string, method: string): boolean {
+  if (pathname !== "/v1/claims" || method !== "POST") {
+    return false;
+  }
+  const binding = request.headers.get("x-sigilum-claim-binding");
+  if (!binding) return false;
+  return binding.trim().toLowerCase() === "namespace-only";
+}
+
 export async function requireSignedHeaders(c: Context<{ Bindings: Env }>, next: Next) {
   const request = c.req.raw;
   const url = new URL(request.url);
@@ -95,7 +113,9 @@ export async function requireSignedHeaders(c: Context<{ Bindings: Env }>, next: 
   const rawBody =
     method === "GET" || method === "HEAD" ? "" : await request.clone().text().catch(() => "");
   const parsedBody = await parseJsonBody(rawBody);
-  const expectations = extractExpectations(url, method, parsedBody);
+  const expectations = extractExpectations(url, method, parsedBody, {
+    claimsNamespaceOnly: claimsNamespaceOnlyBinding(request, url.pathname, method),
+  });
 
   const config = getConfig(c.env);
   const signatureResult = await verifySignedHttpRequest({
