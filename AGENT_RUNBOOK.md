@@ -18,7 +18,10 @@ Critical rule:
 ### 2.1 Install from GitHub Releases
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/PaymanAI/sigilum/main/scripts/install-curl.sh | bash
+curl -fsSL https://github.com/PaymanAI/sigilum/releases/latest/download/install-curl.sh | bash
+
+# Activate in current shell (the installer prints the exact rc file it updated).
+# Common case:
 source ~/.zshrc
 sigilum --help
 ```
@@ -26,35 +29,25 @@ sigilum --help
 Optional pinned version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/PaymanAI/sigilum/main/scripts/install-curl.sh | bash -s -- --version <tag>
+curl -fsSL https://github.com/PaymanAI/sigilum/releases/download/<tag>/install-curl.sh | bash -s -- --version <tag>
 ```
 
 ### 2.2 Start gateway runtime from release bundle
 
-Assumption: release tarball contains gateway binaries under `$SIGILUM_HOME/bin`.
-
 ```bash
-export SIGILUM_NAMESPACE="<namespace>"
-export GATEWAY_SIGILUM_NAMESPACE="$SIGILUM_NAMESPACE"
-export GATEWAY_SIGILUM_HOME="$HOME/.sigilum-workspace"
-export GATEWAY_MASTER_KEY="<strong-random-master-key>"
-export SIGILUM_API_URL="https://api.sigilum.id"
-export SIGILUM_REGISTRY_URL="$SIGILUM_API_URL"
-export GATEWAY_ADDR=":38100"
-
-"$SIGILUM_HOME/bin/sigilum-gateway"
+sigilum gateway start --namespace "<namespace>"
 ```
 
-### 2.3 Install OpenClaw integration in managed mode
+### 2.3 Install Sigilum integration for OpenClaw in managed mode
 
 ```bash
-sigilum openclaw install --mode managed --namespace "$SIGILUM_NAMESPACE"
+sigilum openclaw install --namespace "$SIGILUM_NAMESPACE"
 ```
 
 ### 2.4 Login owner token + pair gateway
 
 ```bash
-sigilum auth login --mode managed --namespace "$SIGILUM_NAMESPACE" --owner-token-stdin
+sigilum auth login --namespace "$SIGILUM_NAMESPACE" --owner-token-stdin
 sigilum gateway pair --session-id <session-id> --pair-code <pair-code> --namespace "$SIGILUM_NAMESPACE" --api-url https://api.sigilum.id
 ```
 
@@ -66,8 +59,13 @@ sigilum gateway pair --session-id <session-id> --pair-code <pair-code> --namespa
 git clone https://github.com/PaymanAI/sigilum.git
 cd sigilum
 
-corepack enable
-corepack prepare pnpm@10.29.3 --activate
+# Install pnpm (choose one):
+# - If you have Node 20+: corepack is usually available (may be disabled by default).
+corepack enable && corepack prepare pnpm@10.29.3 --activate
+#
+# - Fallback:
+# npm i -g pnpm@10.29.3
+
 pnpm install
 pnpm --dir sdks/sdk-ts build
 ```
@@ -84,7 +82,7 @@ export SIGILUM_SOURCE_HOME="$(pwd)"
 ./sigilum up
 ```
 
-### 3.4 Install OpenClaw for local mode
+### 3.4 Install Sigilum integration for OpenClaw in local mode
 
 ```bash
 ./sigilum openclaw install --mode oss-local --namespace "<namespace>" --api-url http://127.0.0.1:8787
@@ -124,7 +122,7 @@ Reset OpenClaw integration:
 
 ```bash
 sigilum openclaw uninstall
-sigilum openclaw install --mode managed --namespace "<namespace>"
+sigilum openclaw install --namespace "<namespace>"
 ```
 
 Stop local listeners:
