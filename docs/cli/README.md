@@ -83,6 +83,7 @@ sigilum [global-options] <command> [args]
 - `--gateway-port <port>`: sets `GATEWAY_PORT`
 - `--native-port <port>`: sets `NATIVE_PORT`
 - `--upstream-port <port>`: sets `UPSTREAM_PORT`
+- if neither `GATEWAY_SIGILUM_NAMESPACE` nor `SIGILUM_NAMESPACE` is set, `sigilum` loads a default namespace from `~/.sigilum/config.env` (`SIGILUM_NAMESPACE` or `GATEWAY_SIGILUM_NAMESPACE`) before `sigilum up`
 
 ## Commands
 
@@ -153,6 +154,14 @@ Optional flags:
 - `--api-url <url>`: Sigilum API base URL (default from `SIGILUM_API_URL` / `SIGILUM_REGISTRY_URL` or `http://127.0.0.1:8787`)
 - `--gateway-admin-url <url>`: local gateway admin endpoint (default `http://127.0.0.1:38100`)
 - `--reconnect-ms <ms>`: websocket reconnect delay (default `2000`)
+- `--connect-timeout-ms <ms>`: preflight/connect timeout (default `5000`)
+
+Important:
+
+- `--api-url` must point to the Sigilum API service, not the dashboard app.
+  - Managed default: `https://api.sigilum.id`
+  - Local OSS API default: `http://127.0.0.1:8787`
+- Local gateway admin must be running on `--gateway-admin-url` (default `http://127.0.0.1:38100`), otherwise pairing relay cannot execute dashboard commands.
 
 ### `sigilum openclaw install ...`
 
@@ -178,10 +187,12 @@ Common options:
 - `--openclaw-home <path>`
 - `--config <path>`
 - `--mode <managed|oss-local>` (default `managed`)
+- `--source-home <path>` (required for `oss-local` when running from global/lean install)
 - `--namespace <value>`
 - `--gateway-url <url>`
 - `--api-url <url>`
 - `--interactive` or `--non-interactive`
+- `--auto-start-sigilum <true|false>` (default `true` for local default ports)
 - `--key-root <path>`
 - `--runtime-root <path>`
 - `--enable-authz-notify <true|false>` (default `false`)
@@ -196,15 +207,42 @@ MCP-first note:
 
 `oss-local` note:
 
+- run install with `--api-url http://127.0.0.1:8787` when targeting a local API stack.
+- if using globally-installed Sigilum CLI, also pass `--source-home /path/to/sigilum` so local API files are resolved from your checkout.
 - installer auto-registers local namespace owner (if missing), issues local JWT, writes it to `<openclaw-home>/.sigilum/owner-token-<namespace>.jwt`, and prints it.
-- installer prints dashboard claims URL and passkey setup URL (`/bootstrap/passkey?namespace=<namespace>`), so seeded namespaces can attach a passkey without deleting/re-signup.
+- installer prints dashboard URL and passkey setup URL (`/bootstrap/passkey?namespace=<namespace>`), so seeded namespaces can attach a passkey without deleting/re-signup.
 - passkey setup page accepts namespace-owner JWT and registers a passkey, then you can sign in normally at `/login`.
+- installer writes CLI defaults to `~/.sigilum/config.env` so future `sigilum up` launches reuse the installed namespace by default.
 
 `managed` note:
 
 - post-install output points to `https://sigilum.id` to sign in and reserve your namespace.
 - after namespace registration, run `sigilum auth login --mode managed --namespace <namespace> --owner-token-stdin`.
 - `sigilum-authz-notify` remains disabled by default to avoid loading namespace-owner token into OpenClaw runtime unless explicitly enabled.
+
+### `sigilum openclaw uninstall`
+
+Removes Sigilum OpenClaw footprint:
+- hooks (`sigilum-plugin`, `sigilum-authz-notify`)
+- skill (`sigilum`) in OpenClaw home and workspace mirror
+- workspace `.sigilum` runtime folder and key/token directories
+- Sigilum env/entries from `openclaw.json` (with config backup)
+- installer-managed `~/.sigilum/config.env` defaults file (only when marked as `SIGILUM_OPENCLAW_MANAGED=true`)
+
+Usage:
+
+```bash
+sigilum openclaw uninstall
+```
+
+Common options:
+
+- `--openclaw-home <path>`
+- `--config <path>`
+- `--workspace <path>`
+- `--key-root <path>`
+- `--runtime-root <path>`
+- `--sigilum-home <path>`
 
 Status:
 
