@@ -6,7 +6,6 @@ cd "$ROOT_DIR"
 
 CLR_RESET=""
 CLR_BOLD=""
-CLR_DIM=""
 CLR_RED=""
 CLR_GREEN=""
 CLR_YELLOW=""
@@ -17,7 +16,6 @@ setup_colors() {
   if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" ]]; then
     CLR_RESET=$'\033[0m'
     CLR_BOLD=$'\033[1m'
-    CLR_DIM=$'\033[2m'
     CLR_RED=$'\033[31m'
     CLR_GREEN=$'\033[32m'
     CLR_YELLOW=$'\033[33m'
@@ -242,7 +240,7 @@ load_or_create_value() {
   printf "%s\n" "$value" >"$file_path"
 
   printf -v "$variable_name" "%s" "$value"
-  export "$variable_name"
+  export "$variable_name=$value"
 }
 
 ensure_local_user_service_and_key() {

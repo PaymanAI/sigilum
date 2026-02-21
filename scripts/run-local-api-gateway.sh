@@ -175,7 +175,7 @@ load_or_create_value() {
   fi
 
   printf -v "$variable_name" "%s" "$value"
-  export "$variable_name"
+  export "$variable_name=$value"
 }
 
 sha256_hex() {
@@ -251,7 +251,8 @@ create_demo_gateway_connection() {
 
 bootstrap_gateway_demo_connection() {
   local connection_id="$GATEWAY_PROXY_DEMO_CONNECTION_ID"
-  local scoped_key_env="SIGILUM_SERVICE_API_KEY_$(service_api_key_env_suffix "$connection_id")"
+  local scoped_key_env
+  scoped_key_env="SIGILUM_SERVICE_API_KEY_$(service_api_key_env_suffix "$connection_id")"
 
   if ! is_valid_slug "$connection_id"; then
     echo "Invalid GATEWAY_PROXY_DEMO_CONNECTION_ID: ${connection_id}" >&2
@@ -290,7 +291,8 @@ bootstrap_local_registry_access() {
   local gateway_key_file="${GATEWAY_SIGILUM_HOME}/service-api-key-${gateway_service_slug}"
   local native_key_file="${GATEWAY_SIGILUM_HOME}/service-api-key-${native_service_slug}"
   local proxy_key_file="${GATEWAY_SIGILUM_HOME}/service-api-key-${proxy_service_slug}"
-  local proxy_key_env="SIGILUM_SERVICE_API_KEY_$(service_api_key_env_suffix "$proxy_service_slug")"
+  local proxy_key_env
+  proxy_key_env="SIGILUM_SERVICE_API_KEY_$(service_api_key_env_suffix "$proxy_service_slug")"
 
   if ! is_valid_slug "$namespace"; then
     echo "Invalid GATEWAY_SIGILUM_NAMESPACE: ${namespace}" >&2

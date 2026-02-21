@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/sigilum-service-common.sh
 source "${SCRIPT_DIR}/sigilum-service-common.sh"
 
 gateway_admin_upsert_connection() {
@@ -69,7 +70,9 @@ gateway_cli_upsert_connection() {
   local upstream_secret_key="$7"
   local upstream_secret="$8"
 
-  gateway_cli get --id "$connection_id" >/dev/null 2>&1 && gateway_cli delete --id "$connection_id" >/dev/null 2>&1 || true
+  if gateway_cli get --id "$connection_id" >/dev/null 2>&1; then
+    gateway_cli delete --id "$connection_id" >/dev/null 2>&1 || true
+  fi
   local -a args
   args=(
     add

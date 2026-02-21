@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
 CONFIG_HOME="${SIGILUM_CONFIG_HOME:-$HOME/.sigilum}"
 CONFIG_FILE="${SIGILUM_CONFIG_FILE:-${CONFIG_HOME}/config.env}"
 
@@ -209,4 +207,3 @@ echo "  home:      ${GATEWAY_SIGILUM_HOME}"
 echo ""
 
 exec sigilum-gateway
-

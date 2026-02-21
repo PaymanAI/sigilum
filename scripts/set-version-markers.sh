@@ -2,8 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck source=./release-version.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/release-version.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/release-version.sh
+source "${SCRIPT_DIR}/release-version.sh"
 
 usage() {
   cat <<'EOF'

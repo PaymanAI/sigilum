@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/sigilum-service-common.sh
 source "${SCRIPT_DIR}/sigilum-service-common.sh"
 
 list_services() {

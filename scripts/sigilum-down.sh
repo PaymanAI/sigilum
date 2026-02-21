@@ -10,7 +10,6 @@ set -euo pipefail
 
 CLR_RESET=""
 CLR_BOLD=""
-CLR_DIM=""
 CLR_RED=""
 CLR_GREEN=""
 CLR_YELLOW=""
@@ -21,7 +20,6 @@ setup_colors() {
   if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" ]]; then
     CLR_RESET=$'\033[0m'
     CLR_BOLD=$'\033[1m'
-    CLR_DIM=$'\033[2m'
     CLR_RED=$'\033[31m'
     CLR_GREEN=$'\033[32m'
     CLR_YELLOW=$'\033[33m'
@@ -89,7 +87,9 @@ kill_listeners_on_port() {
   if [[ "$(uname -s)" != "Darwin" ]] && command -v fuser >/dev/null 2>&1; then
     fuser -k -TERM -n tcp "${port}" >/dev/null 2>&1 || true
   else
-    kill ${pids} 2>/dev/null || true
+    local -a pid_list=()
+    read -r -a pid_list <<<"$pids"
+    kill "${pid_list[@]}" 2>/dev/null || true
   fi
 
   for _ in $(seq 1 8); do
@@ -105,7 +105,9 @@ kill_listeners_on_port() {
   if [[ "$(uname -s)" != "Darwin" ]] && command -v fuser >/dev/null 2>&1; then
     fuser -k -KILL -n tcp "${port}" >/dev/null 2>&1 || true
   else
-    kill -9 ${pids} 2>/dev/null || true
+    local -a pid_list=()
+    read -r -a pid_list <<<"$pids"
+    kill -9 "${pid_list[@]}" 2>/dev/null || true
   fi
 
   sleep 1

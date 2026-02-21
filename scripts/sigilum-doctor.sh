@@ -30,7 +30,6 @@ declare -a check_details=()
 NO_COLOR_FLAG="false"
 JSON_OUTPUT_FLAG="false"
 FIX_MODE_FLAG="false"
-COLOR_ENABLED="false"
 TERM_COLS=120
 LABEL_WIDTH=30
 
@@ -62,11 +61,9 @@ EOF
 
 setup_colors() {
   if [[ "$NO_COLOR_FLAG" == "true" || -n "${NO_COLOR:-}" || ! -t 1 || "${TERM:-}" == "dumb" ]]; then
-    COLOR_ENABLED="false"
     return 0
   fi
 
-  COLOR_ENABLED="true"
   CLR_RESET=$'\033[0m'
   CLR_BOLD=$'\033[1m'
   CLR_DIM=$'\033[2m'
@@ -133,10 +130,10 @@ curl_with_timeout() {
 shorten_path() {
   local value="$1"
   if [[ "$value" == "$HOME"* ]]; then
-    value="~${value#$HOME}"
+    value="~${value#"$HOME"}"
   fi
   if [[ "$value" == "$ROOT_DIR"* ]]; then
-    value=".${value#$ROOT_DIR}"
+    value=".${value#"$ROOT_DIR"}"
   fi
   printf '%s' "$value"
 }

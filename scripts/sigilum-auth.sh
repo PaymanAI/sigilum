@@ -12,23 +12,17 @@ cd "$ROOT_DIR"
 
 CLR_RESET=""
 CLR_BOLD=""
-CLR_DIM=""
 CLR_RED=""
 CLR_GREEN=""
-CLR_YELLOW=""
 CLR_BLUE=""
-CLR_CYAN=""
 
 setup_colors() {
   if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" ]]; then
     CLR_RESET=$'\033[0m'
     CLR_BOLD=$'\033[1m'
-    CLR_DIM=$'\033[2m'
     CLR_RED=$'\033[31m'
     CLR_GREEN=$'\033[32m'
-    CLR_YELLOW=$'\033[33m'
     CLR_BLUE=$'\033[34m'
-    CLR_CYAN=$'\033[36m'
   fi
 }
 

@@ -79,7 +79,8 @@ wait_for_url() {
   local timeout_seconds="$3"
   local log_file="${4:-}"
 
-  for i in $(seq 1 "${timeout_seconds}"); do
+  local attempt
+  for ((attempt = 1; attempt <= timeout_seconds; attempt += 1)); do
     if curl_with_timeout -sf "${url}" >/dev/null 2>&1; then
       return 0
     fi
@@ -139,7 +140,9 @@ kill_listeners_on_port() {
   if command -v fuser >/dev/null 2>&1; then
     fuser -k -TERM -n tcp "${port}" >/dev/null 2>&1 || true
   else
-    kill ${pids} 2>/dev/null || true
+    local -a pid_list=()
+    read -r -a pid_list <<<"$pids"
+    kill "${pid_list[@]}" 2>/dev/null || true
   fi
 
   for _ in $(seq 1 8); do
@@ -154,7 +157,9 @@ kill_listeners_on_port() {
   if command -v fuser >/dev/null 2>&1; then
     fuser -k -KILL -n tcp "${port}" >/dev/null 2>&1 || true
   else
-    kill -9 ${pids} 2>/dev/null || true
+    local -a pid_list=()
+    read -r -a pid_list <<<"$pids"
+    kill -9 "${pid_list[@]}" 2>/dev/null || true
   fi
 
   sleep 1
