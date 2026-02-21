@@ -18,6 +18,7 @@ RELEASE_PUBKEY_FILE="${SIGILUM_RELEASE_PUBKEY_FILE:-}"
 REQUIRE_SIGNATURE="false"
 CURL_CONNECT_TIMEOUT_SECONDS="${CURL_CONNECT_TIMEOUT_SECONDS:-5}"
 CURL_MAX_TIME_SECONDS="${CURL_MAX_TIME_SECONDS:-30}"
+RELEASE_ASSET_NAME=""
 
 print_banner() {
   cat <<BANNER
@@ -55,6 +56,7 @@ Options:
 
 Environment:
   SIGILUM_RELEASE_PUBKEY_FILE  Default path for --release-pubkey-file
+  SIGILUM_RELEASE_PLATFORM     Override auto-detected platform id (e.g. darwin-arm64)
 EOF
 }
 
@@ -94,15 +96,82 @@ download_to_file() {
   fi
 }
 
+download_to_file_optional() {
+  local source_url="$1"
+  local dest="$2"
+
+  if command -v curl &>/dev/null; then
+    curl --connect-timeout "$CURL_CONNECT_TIMEOUT_SECONDS" --max-time "$CURL_MAX_TIME_SECONDS" -fSL "$source_url" -o "$dest" >/dev/null 2>&1
+    return $?
+  fi
+  if command -v wget &>/dev/null; then
+    wget -q --timeout="$CURL_MAX_TIME_SECONDS" "$source_url" -O "$dest" >/dev/null 2>&1
+    return $?
+  fi
+  log_error "Neither curl nor wget found."
+  exit 1
+}
+
+resolve_release_platform() {
+  local override="${SIGILUM_RELEASE_PLATFORM:-}"
+  if [[ -n "$override" ]]; then
+    printf '%s' "$override"
+    return 0
+  fi
+
+  local os
+  local arch
+  os="$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+  arch="$(uname -m 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+
+  case "$os" in
+    darwin) os="darwin" ;;
+    linux) os="linux" ;;
+    msys*|mingw*|cygwin*) os="windows" ;;
+    *) os="" ;;
+  esac
+
+  case "$arch" in
+    arm64|aarch64) arch="arm64" ;;
+    x86_64|amd64) arch="amd64" ;;
+    *) arch="" ;;
+  esac
+
+  if [[ -n "$os" && -n "$arch" ]]; then
+    printf '%s-%s' "$os" "$arch"
+  fi
+}
+
 download_tarball() {
   local version="$1"
   local dest="$2"
-  local url="https://github.com/${GITHUB_REPO}/releases/download/${version}/sigilum-${version}.tar.gz"
+  local platform
+  platform="$(resolve_release_platform)"
+  local candidates=()
+  local asset
+  local url
+
+  if [[ -n "$platform" ]]; then
+    candidates+=("sigilum-${version}-${platform}.tar.gz")
+  fi
+  candidates+=("sigilum-${version}.tar.gz")
 
   log_step "Downloading sigilum ${version}..."
-  printf '  %s%s%s\n' "${CLR_DIM}" "$url" "${CLR_RESET}"
+  for asset in "${candidates[@]}"; do
+    url="https://github.com/${GITHUB_REPO}/releases/download/${version}/${asset}"
+    printf '  %s%s%s\n' "${CLR_DIM}" "$url" "${CLR_RESET}"
+    if download_to_file_optional "$url" "$dest"; then
+      RELEASE_ASSET_NAME="$asset"
+      log_ok "Using release asset: ${asset}"
+      return 0
+    fi
+  done
 
-  download_to_file "$url" "$dest"
+  log_error "Could not download a compatible release asset for ${version}."
+  if [[ -n "$platform" ]]; then
+    log_error "Tried platform: ${platform} (and legacy fallback)."
+  fi
+  exit 1
 }
 
 download_explicit_tarball() {
@@ -129,8 +198,9 @@ download_explicit_tarball() {
 
 download_release_checksum() {
   local version="$1"
-  local dest="$2"
-  local url="https://github.com/${GITHUB_REPO}/releases/download/${version}/sigilum-${version}.tar.gz.sha256"
+  local asset_name="$2"
+  local dest="$3"
+  local url="https://github.com/${GITHUB_REPO}/releases/download/${version}/${asset_name}.sha256"
 
   log_step "Downloading release checksum..."
   printf '  %s%s%s\n' "${CLR_DIM}" "$url" "${CLR_RESET}"
@@ -139,8 +209,9 @@ download_release_checksum() {
 
 download_release_checksum_signature() {
   local version="$1"
-  local dest="$2"
-  local url="https://github.com/${GITHUB_REPO}/releases/download/${version}/sigilum-${version}.tar.gz.sha256.sig"
+  local asset_name="$2"
+  local dest="$3"
+  local url="https://github.com/${GITHUB_REPO}/releases/download/${version}/${asset_name}.sha256.sig"
 
   log_step "Downloading release checksum signature..."
   printf '  %s%s%s\n' "${CLR_DIM}" "$url" "${CLR_RESET}"
@@ -325,6 +396,8 @@ fi
 log_ok "Version: ${VERSION}"
 printf '\n'
 
+RELEASE_ASSET_NAME="sigilum-${VERSION}.tar.gz"
+
 TMPDIR_DL="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_DL"' EXIT
 
@@ -340,7 +413,7 @@ else
 fi
 printf '\n'
 
-CHECKSUM_PATH="${TMPDIR_DL}/sigilum-${VERSION}.tar.gz.sha256"
+CHECKSUM_PATH="${TMPDIR_DL}/${RELEASE_ASSET_NAME}.sha256"
 CHECKSUM_EXPECTED=""
 if [[ -n "$CHECKSUM" ]]; then
   CHECKSUM_EXPECTED="$(printf '%s' "$CHECKSUM" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
@@ -353,7 +426,7 @@ elif [[ -n "$CHECKSUM_FILE" ]]; then
   cp "$CHECKSUM_FILE" "$CHECKSUM_PATH"
   CHECKSUM_EXPECTED="$(extract_checksum_value "$CHECKSUM_PATH")"
 elif [[ "$IS_RELEASE_DOWNLOAD" == "true" ]]; then
-  download_release_checksum "$VERSION" "$CHECKSUM_PATH"
+  download_release_checksum "$VERSION" "$RELEASE_ASSET_NAME" "$CHECKSUM_PATH"
   CHECKSUM_EXPECTED="$(extract_checksum_value "$CHECKSUM_PATH")"
 fi
 
@@ -373,7 +446,7 @@ if [[ -n "$RELEASE_PUBKEY_FILE" || "$REQUIRE_SIGNATURE" == "true" ]]; then
     exit 1
   fi
   CHECKSUM_SIG_PATH="${CHECKSUM_PATH}.sig"
-  if ! download_release_checksum_signature "$VERSION" "$CHECKSUM_SIG_PATH"; then
+  if ! download_release_checksum_signature "$VERSION" "$RELEASE_ASSET_NAME" "$CHECKSUM_SIG_PATH"; then
     log_error "Release checksum signature asset was not found for ${VERSION}."
     exit 1
   fi

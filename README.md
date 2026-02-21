@@ -4,6 +4,9 @@ Auditable identity for AI agents.
 
 Sigilum is an open protocol and implementation effort focused on verifiable agent identity, signed delegation chains, and machine-speed accountability for AI systems.
 
+Latest release: [![GitHub Release](https://img.shields.io/github/v/release/PaymanAI/sigilum?display_name=tag)](https://github.com/PaymanAI/sigilum/releases/latest)
+Release tags: `YYYY-MM-DD` (stable) or `YYYY-MM-DD-beta.N` (prerelease), with optional leading `v`.
+
 ## Start Here
 
 ### Autonomous Agent (Required)

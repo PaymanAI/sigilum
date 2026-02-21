@@ -60,8 +60,12 @@ print_version_row() {
 
 print_versions() {
   local dashboard_version_file="${ROOT_DIR}/apps/dashboard.version"
+  local gateway_version_file="${ROOT_DIR}/apps/gateway/.version"
   if [[ -f "${ROOT_DIR}/apps/dashboard/.version" ]]; then
     dashboard_version_file="${ROOT_DIR}/apps/dashboard/.version"
+  fi
+  if [[ ! -f "$gateway_version_file" && -f "${ROOT_DIR}/bin/.version" ]]; then
+    gateway_version_file="${ROOT_DIR}/bin/.version"
   fi
 
   printf '%sSigilum Component Versions%s\n' "${CLR_BOLD}${CLR_CYAN}" "${CLR_RESET}"
@@ -69,7 +73,7 @@ print_versions() {
   print_version_row "root" "$(read_version_file "${ROOT_DIR}/.version")"
   print_version_row "apps" "$(read_version_file "${ROOT_DIR}/apps/.version")"
   print_version_row "api" "$(read_version_file "${ROOT_DIR}/apps/api/.version")"
-  print_version_row "gateway" "$(read_version_file "${ROOT_DIR}/apps/gateway/.version")"
+  print_version_row "gateway" "$(read_version_file "${gateway_version_file}")"
   print_version_row "dashboard" "$(read_version_file "${dashboard_version_file}")"
   print_version_row "demo-native" "$(read_version_file "${ROOT_DIR}/apps/demo-service-native/.version")"
   print_version_row "demo-gateway" "$(read_version_file "${ROOT_DIR}/apps/demo-service-gateway/.version")"

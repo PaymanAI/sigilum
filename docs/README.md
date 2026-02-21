@@ -2,6 +2,9 @@
 
 This folder contains all long-form project documentation.
 
+Latest release: [![GitHub Release](https://img.shields.io/github/v/release/PaymanAI/sigilum?display_name=tag)](https://github.com/PaymanAI/sigilum/releases/latest)
+Release tags: `YYYY-MM-DD` (stable) or `YYYY-MM-DD-beta.N` (prerelease), with optional leading `v`.
+
 ## Sections
 
 - `architecture/` - system design, components, and trust boundaries.
