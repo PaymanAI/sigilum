@@ -10,7 +10,34 @@ permissions:
   contents: write
 
 jobs:
+  guard-release-branch:
+    runs-on: ubuntu-latest
+    outputs:
+      on_release_branch: ${{ steps.check.outputs.on_release_branch }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag commit is on release branch
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin release:refs/remotes/origin/release
+
+          if git merge-base --is-ancestor "${GITHUB_SHA}" "origin/release"; then
+            echo "on_release_branch=true" >> "${GITHUB_OUTPUT}"
+            echo "Tag ${GITHUB_REF_NAME} points to a commit on release."
+          else
+            echo "on_release_branch=false" >> "${GITHUB_OUTPUT}"
+            echo "Tag ${GITHUB_REF_NAME} is not on release. Skipping release publish."
+          fi
+
   release:
+    needs: guard-release-branch
+    if: needs.guard-release-branch.outputs.on_release_branch == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
