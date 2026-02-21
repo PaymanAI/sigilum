@@ -1,0 +1,101 @@
+name: Release (All Artifacts)
+
+on:
+  push:
+    tags:
+      - "v20*"
+      - "20*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/gateway/service/go.mod
+
+      - name: Stamp version markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          ./scripts/set-version-markers.sh "${VERSION}"
+
+      - name: Verify version consistency
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          ./scripts/verify-version-markers.sh "${VERSION}"
+
+      - name: Build release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          PLATFORMS=(
+            "darwin-arm64"
+            "linux-amd64"
+            "linux-arm64"
+          )
+
+          build_gateway_bins() {
+            local platform="$1"
+            local goos="${platform%-*}"
+            local goarch="${platform#*-}"
+            local out_dir=".release-bin/${platform}"
+            mkdir -p "${out_dir}"
+
+            (
+              cd apps/gateway/service
+              CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build -mod=mod -ldflags="-s -w" -o "../../../${out_dir}/sigilum-gateway" ./cmd/sigilum-gateway
+              CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build -mod=mod -ldflags="-s -w" -o "../../../${out_dir}/sigilum-gateway-cli" ./cmd/sigilum-gateway-cli
+            )
+
+            chmod +x "${out_dir}/sigilum-gateway" "${out_dir}/sigilum-gateway-cli"
+          }
+
+          for platform in "${PLATFORMS[@]}"; do
+            build_gateway_bins "${platform}"
+            ./scripts/build-release.sh "${VERSION}" \
+              --platform "${platform}" \
+              --gateway-bin-dir ".release-bin/${platform}"
+          done
+
+          cp ./scripts/install-curl.sh ./releases/install-curl.sh
+
+      - name: Detect prerelease channel
+        id: channel
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "$VERSION" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}- ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Sigilum ${{ github.ref_name }}
+          prerelease: ${{ steps.channel.outputs.prerelease }}
+          make_latest: ${{ steps.channel.outputs.prerelease == 'true' && 'false' || 'true' }}
+          overwrite_files: true
+          files: |
+            releases/sigilum-${{ github.ref_name }}-darwin-arm64.tar.gz
+            releases/sigilum-${{ github.ref_name }}-darwin-arm64.tar.gz.sha256
+            releases/sigilum-${{ github.ref_name }}-linux-amd64.tar.gz
+            releases/sigilum-${{ github.ref_name }}-linux-amd64.tar.gz.sha256
+            releases/sigilum-${{ github.ref_name }}-linux-arm64.tar.gz
+            releases/sigilum-${{ github.ref_name }}-linux-arm64.tar.gz.sha256
+            releases/install-curl.sh

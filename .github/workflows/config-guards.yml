@@ -1,0 +1,17 @@
+name: Config Guards
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  api-config-guards:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enforce test-seed config guardrails
+        run: ./scripts/check-config-guards.sh

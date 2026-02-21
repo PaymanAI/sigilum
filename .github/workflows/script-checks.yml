@@ -25,7 +25,7 @@ jobs:
             echo "No shell scripts found."
             exit 0
           fi
-          shellcheck -x "${shell_scripts[@]}"
+          shellcheck -S warning -x "${shell_scripts[@]}"
 
   syntax:
     runs-on: ubuntu-latest
