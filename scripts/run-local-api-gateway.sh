@@ -101,10 +101,12 @@ service_api_key_env_suffix() {
   printf "%s" "$normalized"
 }
 
+# shellcheck disable=SC2317,SC2329  # Called indirectly via load_or_create_value.
 generate_service_api_key() {
   node -e "const crypto=require('node:crypto'); process.stdout.write('sk_live_'+crypto.randomBytes(24).toString('hex'));"
 }
 
+# shellcheck disable=SC2317,SC2329  # Called indirectly via load_or_create_value.
 generate_proxy_demo_secret() {
   node -e "const crypto=require('node:crypto'); process.stdout.write('gw_demo_'+crypto.randomBytes(24).toString('hex'));"
 }
@@ -460,6 +462,7 @@ echo "Starting Gateway on ${GATEWAY_ADDR} (registry=${SIGILUM_REGISTRY_URL}, cmd
 ) &
 GATEWAY_PID=$!
 
+# shellcheck disable=SC2317,SC2329  # Invoked by trap handler.
 cleanup() {
   set +e
   if [[ -n "${GATEWAY_PID:-}" ]] && kill -0 "$GATEWAY_PID" 2>/dev/null; then
