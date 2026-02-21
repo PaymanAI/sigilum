@@ -18,14 +18,14 @@ Arguments:
 
 Options:
   --out-dir <path>             Output directory (default: ./releases)
-  --platform <id>              Optional platform suffix for tarball name (e.g. darwin-arm64)
+  --platform <id>              Optional platform suffix for tarball name (e.g. macos-apple-silicon)
   --gateway-bin-dir <path>     Optional dir containing sigilum-gateway and sigilum-gateway-cli
   --signing-key-file <path>    Optional PEM private key for checksum signature
   -h, --help                   Show help
 
 Examples:
   ./scripts/build-release.sh v2026-02-20
-  ./scripts/build-release.sh v2026-02-20 --platform darwin-arm64 --gateway-bin-dir ./.release-bin
+  ./scripts/build-release.sh v2026-02-20 --platform macos-apple-silicon --gateway-bin-dir ./.release-bin
   ./scripts/build-release.sh v2026-02-20-beta.1 --out-dir /tmp/builds
   ./scripts/build-release.sh v2026-02-20-beta.1 --signing-key-file ./release-private.pem
 EOF

@@ -40,17 +40,17 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME}"
-          PLATFORMS=(
-            "darwin-arm64"
-            "linux-amd64"
-            "linux-arm64"
+          TARGETS=(
+            "darwin arm64 macos-apple-silicon"
+            "linux amd64 linux-amd64"
+            "linux arm64 linux-arm64"
           )
 
           build_gateway_bins() {
-            local platform="$1"
-            local goos="${platform%-*}"
-            local goarch="${platform#*-}"
-            local out_dir=".release-bin/${platform}"
+            local goos="$1"
+            local goarch="$2"
+            local artifact_platform="$3"
+            local out_dir=".release-bin/${artifact_platform}"
             mkdir -p "${out_dir}"
 
             (
@@ -62,11 +62,12 @@ jobs:
             chmod +x "${out_dir}/sigilum-gateway" "${out_dir}/sigilum-gateway-cli"
           }
 
-          for platform in "${PLATFORMS[@]}"; do
-            build_gateway_bins "${platform}"
+          for target in "${TARGETS[@]}"; do
+            read -r goos goarch artifact_platform <<<"${target}"
+            build_gateway_bins "${goos}" "${goarch}" "${artifact_platform}"
             ./scripts/build-release.sh "${VERSION}" \
-              --platform "${platform}" \
-              --gateway-bin-dir ".release-bin/${platform}"
+              --platform "${artifact_platform}" \
+              --gateway-bin-dir ".release-bin/${artifact_platform}"
           done
 
           cp ./scripts/install-curl.sh ./releases/install-curl.sh
@@ -92,8 +93,8 @@ jobs:
           make_latest: ${{ steps.channel.outputs.prerelease == 'true' && 'false' || 'true' }}
           overwrite_files: true
           files: |
-            releases/sigilum-${{ github.ref_name }}-darwin-arm64.tar.gz
-            releases/sigilum-${{ github.ref_name }}-darwin-arm64.tar.gz.sha256
+            releases/sigilum-${{ github.ref_name }}-macos-apple-silicon.tar.gz
+            releases/sigilum-${{ github.ref_name }}-macos-apple-silicon.tar.gz.sha256
             releases/sigilum-${{ github.ref_name }}-linux-amd64.tar.gz
             releases/sigilum-${{ github.ref_name }}-linux-amd64.tar.gz.sha256
             releases/sigilum-${{ github.ref_name }}-linux-arm64.tar.gz

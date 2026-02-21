@@ -56,7 +56,7 @@ Options:
 
 Environment:
   SIGILUM_RELEASE_PUBKEY_FILE  Default path for --release-pubkey-file
-  SIGILUM_RELEASE_PLATFORM     Override auto-detected platform id (e.g. darwin-arm64)
+  SIGILUM_RELEASE_PLATFORM     Override auto-detected platform id (e.g. macos-apple-silicon)
 EOF
 }
 
@@ -137,9 +137,49 @@ resolve_release_platform() {
     *) arch="" ;;
   esac
 
-  if [[ -n "$os" && -n "$arch" ]]; then
-    printf '%s-%s' "$os" "$arch"
-  fi
+  case "${os}-${arch}" in
+    darwin-arm64) printf '%s' "macos-apple-silicon" ;;
+    darwin-amd64) printf '%s' "macos-intel" ;;
+    linux-amd64) printf '%s' "linux-amd64" ;;
+    linux-arm64) printf '%s' "linux-arm64" ;;
+  esac
+}
+
+release_platform_asset_suffixes() {
+  local platform="$1"
+  case "$platform" in
+    macos-apple-silicon)
+      printf '%s\n' "macos-apple-silicon" "darwin-arm64"
+      ;;
+    macos-intel)
+      printf '%s\n' "macos-intel" "darwin-amd64"
+      ;;
+    darwin-arm64)
+      printf '%s\n' "macos-apple-silicon" "darwin-arm64"
+      ;;
+    darwin-amd64)
+      printf '%s\n' "macos-intel" "darwin-amd64"
+      ;;
+    linux-amd64|linux-arm64)
+      printf '%s\n' "$platform"
+      ;;
+    *)
+      if [[ -n "$platform" ]]; then
+        printf '%s\n' "$platform"
+      fi
+      ;;
+  esac
+}
+
+append_unique_candidate() {
+  local candidate="$1"
+  local existing
+  for existing in "${candidates[@]}"; do
+    if [[ "$existing" == "$candidate" ]]; then
+      return 0
+    fi
+  done
+  candidates+=("$candidate")
 }
 
 download_tarball() {
@@ -152,9 +192,11 @@ download_tarball() {
   local url
 
   if [[ -n "$platform" ]]; then
-    candidates+=("sigilum-${version}-${platform}.tar.gz")
+    while IFS= read -r suffix; do
+      append_unique_candidate "sigilum-${version}-${suffix}.tar.gz"
+    done < <(release_platform_asset_suffixes "$platform")
   fi
-  candidates+=("sigilum-${version}.tar.gz")
+  append_unique_candidate "sigilum-${version}.tar.gz"
 
   log_step "Downloading sigilum ${version}..."
   for asset in "${candidates[@]}"; do
@@ -169,7 +211,7 @@ download_tarball() {
 
   log_error "Could not download a compatible release asset for ${version}."
   if [[ -n "$platform" ]]; then
-    log_error "Tried platform: ${platform} (and legacy fallback)."
+    log_error "Tried platform aliases for: ${platform}"
   fi
   exit 1
 }
