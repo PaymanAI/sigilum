@@ -1,5 +1,7 @@
 # Sigilum API (`@sigilum/api`)
 
+> Part of the [Sigilum](../../README.md) project. See [docs index](../../docs/README.md) for all documentation.
+
 Sigilum API is the backend for namespace-based agent authorization.
 
 It provides:
@@ -15,8 +17,10 @@ OpenAPI: `apps/api/openapi.json`
 
 ## Related Docs
 
-- API guide: `apps/api/README.md`
-- Environment variables and bindings: `apps/api/ENV_VARS.md`
+- Environment variables and bindings: [`ENV_VARS.md`](./ENV_VARS.md)
+- Gateway: [`apps/gateway/README.md`](../gateway/README.md)
+- Managed quickstart: [`docs/quickstart-managed.md`](../../docs/quickstart-managed.md)
+- Self-hosted quickstart: [`docs/quickstart-self-hosted.md`](../../docs/quickstart-self-hosted.md)
 
 ## Runtime and Adapters
 

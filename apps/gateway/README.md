@@ -1,5 +1,7 @@
 # Sigilum Gateway
 
+> Part of the [Sigilum](../../README.md) project. See [docs index](../../docs/README.md) for all documentation.
+
 Sigilum Gateway is a local reverse-proxy service that enforces Sigilum signed-auth and approved-claim checks before forwarding requests to third-party APIs with connector-managed credentials.
 
 This folder contains:

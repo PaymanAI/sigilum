@@ -1,5 +1,7 @@
 # Sigilum SDKs
 
+> Part of the [Sigilum](../README.md) project. See [docs index](../docs/README.md) for all documentation.
+
 All language SDKs live under this folder.
 
 ## Layout
