@@ -46,7 +46,7 @@ async function selectNamespaceClaims(
   limit: number,
   offset: number,
 ): Promise<Array<Record<string, unknown>>> {
-  let sql = `SELECT claim_id, namespace, service, public_key, agent_ip, status, created_at, approved_at, revoked_at
+  let sql = `SELECT claim_id, namespace, service, public_key, agent_ip, agent_name, status, created_at, approved_at, revoked_at
              FROM authorizations
              WHERE namespace = ?`;
   const params: Array<string | number> = [namespace];
@@ -147,7 +147,7 @@ namespacesRouter.get("/claims", async (c) => {
   const offset = parseInt(c.req.query("offset") ?? "0", 10);
 
   const rows = await c.env.DB.prepare(
-    `SELECT claim_id, namespace, public_key, service, status, approved_at
+    `SELECT claim_id, namespace, public_key, service, agent_name, status, approved_at
      FROM authorizations
      WHERE service = ? AND status = ?
      ORDER BY approved_at DESC, created_at DESC
@@ -167,6 +167,7 @@ namespacesRouter.get("/claims", async (c) => {
     namespace: row.namespace,
     public_key: row.public_key,
     service: row.service,
+    agent_name: row.agent_name,
     approved_at: row.approved_at,
   }));
 
