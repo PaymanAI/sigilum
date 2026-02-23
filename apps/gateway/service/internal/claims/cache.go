@@ -291,6 +291,7 @@ func (c *Cache) SubmitClaim(ctx context.Context, input SubmitClaimInput) (Submit
 		"service":    service,
 		"agent_ip":   agentIP,
 		"nonce":      nonce,
+		"agent_name": strings.TrimSpace(input.Subject),
 	})
 	if err != nil {
 		return SubmitClaimResult{}, fmt.Errorf("encode claim submit payload: %w", err)
