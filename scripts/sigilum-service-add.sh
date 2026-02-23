@@ -112,9 +112,7 @@ configure_gateway_connection() {
 }
 
 add_service() {
-  require_cmd pnpm
   require_cmd node
-  ensure_api_wrangler_config
 
   local namespace="${GATEWAY_SIGILUM_NAMESPACE:-johndee}"
   local service_slug=""
@@ -267,30 +265,51 @@ add_service() {
 
   mkdir -p "$SIGILUM_HOME_DIR"
 
-  log_step "Applying local API migrations..."
-  (
-    cd "$ROOT_DIR/apps/api"
-    pnpm exec wrangler d1 migrations apply sigilum-api --local >/dev/null
-  )
-
   local key_name api_key_file
   if [[ "$mode" == "gateway" ]]; then
     key_name="Gateway proxy service key (local cli)"
   else
     key_name="Native service key (local cli)"
   fi
-  api_key_file="${SIGILUM_HOME_DIR}/service-api-key-${service_slug}"
-  load_or_create_value "$api_key_file" SERVICE_API_KEY generate_service_api_key
 
-  ensure_local_user_service_and_key \
-    "$namespace" \
-    "$email" \
-    "$service_slug" \
-    "$service_name" \
-    "$domain" \
-    "$description" \
-    "$key_name" \
-    "$SERVICE_API_KEY"
+  local sigilum_api_url="${SIGILUM_API_URL:-}"
+
+  if is_remote_api_url "$sigilum_api_url"; then
+    log_step "Registering service on hosted API (${sigilum_api_url})..."
+    ensure_remote_api_service_and_key \
+      "$sigilum_api_url" \
+      "$namespace" \
+      "$service_slug" \
+      "$service_name" \
+      "$domain" \
+      "$description" \
+      "$key_name"
+
+    # Still generate a local API key file for gateway env usage
+    api_key_file="${SIGILUM_HOME_DIR}/service-api-key-${service_slug}"
+    load_or_create_value "$api_key_file" SERVICE_API_KEY generate_service_api_key
+  else
+    log_step "Applying local API migrations..."
+    require_cmd pnpm
+    ensure_api_wrangler_config
+    (
+      cd "$ROOT_DIR/apps/api"
+      pnpm exec wrangler d1 migrations apply sigilum-api --local >/dev/null
+    )
+
+    api_key_file="${SIGILUM_HOME_DIR}/service-api-key-${service_slug}"
+    load_or_create_value "$api_key_file" SERVICE_API_KEY generate_service_api_key
+
+    ensure_local_user_service_and_key \
+      "$namespace" \
+      "$email" \
+      "$service_slug" \
+      "$service_name" \
+      "$domain" \
+      "$description" \
+      "$key_name" \
+      "$SERVICE_API_KEY"
+  fi
 
   if [[ "$mode" == "gateway" ]]; then
     if [[ -z "$upstream_base_url" ]]; then

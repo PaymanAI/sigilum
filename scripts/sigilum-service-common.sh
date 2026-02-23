@@ -243,6 +243,176 @@ load_or_create_value() {
   export "$variable_name=$value"
 }
 
+is_remote_api_url() {
+  local url="${1:-}"
+  case "$url" in
+    http://localhost*|http://127.0.0.1*|http://\[::1\]*|"")
+      return 1
+      ;;
+    https://*|http://*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+resolve_owner_token() {
+  local namespace="$1"
+  local openclaw_home="${2:-${HOME}/.openclaw}"
+  local token=""
+
+  # 1. Explicit env var
+  if [[ -n "${SIGILUM_OWNER_TOKEN:-}" ]]; then
+    printf "%s" "$SIGILUM_OWNER_TOKEN"
+    return 0
+  fi
+
+  # 2. Token file (standard managed-mode path)
+  local token_file="${openclaw_home}/.sigilum/owner-token-${namespace}.jwt"
+  if [[ -f "$token_file" ]]; then
+    token="$(tr -d '\r\n' <"$token_file")"
+    if [[ -n "$token" ]]; then
+      printf "%s" "$token"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+ensure_remote_api_service_and_key() {
+  local api_url="$1"
+  local namespace="$2"
+  local service_slug="$3"
+  local service_name="$4"
+  local domain="$5"
+  local service_description="$6"
+  local key_name="$7"
+
+  local openclaw_home="${OPENCLAW_HOME:-${HOME}/.openclaw}"
+  local owner_token=""
+  if ! owner_token="$(resolve_owner_token "$namespace" "$openclaw_home")"; then
+    log_error "No owner token found for namespace '${namespace}'."
+    log_error "Run: sigilum auth login --mode managed --namespace ${namespace} --owner-token-stdin"
+    log_error "Or set SIGILUM_OWNER_TOKEN env var."
+    return 1
+  fi
+
+  # Check if service already exists (by slug) via listing
+  local list_response list_status
+  local list_file
+  list_file="$(mktemp "${TMPDIR:-/tmp}/sigilum-api-list-XXXXXX.json")"
+  list_status="$(curl_with_timeout -sS -o "$list_file" -w "%{http_code}" \
+    -H "Authorization: Bearer ${owner_token}" \
+    "${api_url}/v1/services" || true)"
+
+  local service_id=""
+  if [[ "$list_status" == "200" ]]; then
+    service_id="$(node -e "
+const data = JSON.parse(require('fs').readFileSync('${list_file}', 'utf8'));
+const svc = (data.services || []).find(s => s.slug === '${service_slug}');
+if (svc) process.stdout.write(svc.id);
+" 2>/dev/null || true)"
+  fi
+  rm -f "$list_file"
+
+  if [[ -z "$service_id" ]]; then
+    # Create service
+    local create_payload
+    create_payload="$(SERVICE_SLUG="$service_slug" \
+      SERVICE_NAME="$service_name" \
+      SERVICE_DOMAIN="$domain" \
+      SERVICE_DESC="$service_description" \
+      node -e '
+process.stdout.write(JSON.stringify({
+  name: process.env.SERVICE_NAME,
+  slug: process.env.SERVICE_SLUG,
+  domain: process.env.SERVICE_DOMAIN,
+  description: process.env.SERVICE_DESC,
+}));
+')"
+
+    local create_file create_status
+    create_file="$(mktemp "${TMPDIR:-/tmp}/sigilum-api-create-XXXXXX.json")"
+    create_status="$(curl_with_timeout -sS -o "$create_file" -w "%{http_code}" \
+      -H "Authorization: Bearer ${owner_token}" \
+      -H "Content-Type: application/json" \
+      -X POST "${api_url}/v1/services" \
+      --data "$create_payload" || true)"
+
+    if [[ "$create_status" == "201" ]]; then
+      service_id="$(node -e "
+const data = JSON.parse(require('fs').readFileSync('${create_file}', 'utf8'));
+if (data.id) process.stdout.write(data.id);
+" 2>/dev/null || true)"
+      log_ok "Created service '${service_slug}' on hosted API (${api_url})"
+    elif [[ "$create_status" == "409" ]]; then
+      log_warn "Service '${service_slug}' already exists on hosted API (conflict)"
+    else
+      log_error "Failed to create service on hosted API (HTTP ${create_status})"
+      cat "$create_file" >&2 || true
+      rm -f "$create_file"
+      return 1
+    fi
+    rm -f "$create_file"
+  else
+    # Update existing service
+    local update_payload
+    update_payload="$(SERVICE_NAME="$service_name" \
+      SERVICE_DOMAIN="$domain" \
+      SERVICE_DESC="$service_description" \
+      node -e '
+process.stdout.write(JSON.stringify({
+  name: process.env.SERVICE_NAME,
+  domain: process.env.SERVICE_DOMAIN,
+  description: process.env.SERVICE_DESC,
+}));
+')"
+
+    local update_status
+    update_status="$(curl_with_timeout -sS -o /dev/null -w "%{http_code}" \
+      -H "Authorization: Bearer ${owner_token}" \
+      -H "Content-Type: application/json" \
+      -X PATCH "${api_url}/v1/services/${service_id}" \
+      --data "$update_payload" || true)"
+
+    if [[ "$update_status" == "200" ]]; then
+      log_ok "Updated service '${service_slug}' on hosted API (${api_url})"
+    else
+      log_warn "Failed to update service on hosted API (HTTP ${update_status}), continuing"
+    fi
+  fi
+
+  # Generate API key if we have a service_id
+  if [[ -n "$service_id" ]]; then
+    local key_payload key_file key_status
+    key_payload="$(KEY_NAME="$key_name" node -e 'process.stdout.write(JSON.stringify({name:process.env.KEY_NAME}));')"
+    key_file="$(mktemp "${TMPDIR:-/tmp}/sigilum-api-key-XXXXXX.json")"
+    key_status="$(curl_with_timeout -sS -o "$key_file" -w "%{http_code}" \
+      -H "Authorization: Bearer ${owner_token}" \
+      -H "Content-Type: application/json" \
+      -X POST "${api_url}/v1/services/${service_id}/keys" \
+      --data "$key_payload" || true)"
+
+    if [[ "$key_status" == "201" ]]; then
+      log_ok "Generated API key for '${service_slug}' on hosted API"
+    else
+      log_warn "Failed to generate API key on hosted API (HTTP ${key_status}), continuing"
+    fi
+    rm -f "$key_file"
+  fi
+
+  print_section "Registered Service on Hosted API"
+  print_kv "api:" "${api_url}"
+  print_kv "namespace:" "${namespace}"
+  print_kv "service:" "${service_slug}"
+  if [[ -n "$service_id" ]]; then
+    print_kv "service id:" "${service_id}"
+  fi
+}
+
 ensure_local_user_service_and_key() {
   local namespace="$1"
   local email="$2"
