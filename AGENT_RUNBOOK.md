@@ -28,20 +28,21 @@ sigilum --help
 ### 2.2 Start gateway runtime
 
 ```bash
-sigilum gateway start --namespace "<namespace>"
+sigilum gateway start --namespace "$SIGILUM_NAMESPACE"
 ```
 
-### 2.3 Install OpenClaw integration (managed mode)
+### 2.3 Pair gateway with dashboard
+
+In the dashboard, click **Start Pairing** to get session ID and pair code, then run:
+
+```bash
+sigilum gateway pair --session-id <session-id> --pair-code <pair-code> --namespace "$SIGILUM_NAMESPACE" --api-url https://api.sigilum.id
+```
+
+### 2.4 Install OpenClaw integration (managed mode)
 
 ```bash
 sigilum openclaw install --namespace "$SIGILUM_NAMESPACE"
-```
-
-### 2.4 Login and pair gateway
-
-```bash
-sigilum auth login --namespace "$SIGILUM_NAMESPACE" --owner-token-stdin
-sigilum gateway pair --session-id <session-id> --pair-code <pair-code> --namespace "$SIGILUM_NAMESPACE" --api-url https://api.sigilum.id
 ```
 
 ## 3) OSS Local Mode (Source)

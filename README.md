@@ -10,42 +10,33 @@ Sigilum is an open protocol for verifiable agent identity, signed delegation cha
 
 Managed mode uses the hosted Sigilum API and dashboard at [sigilum.id](https://sigilum.id). Your gateway runs locally - provider API keys never leave your machine.
 
-### 1. Install the CLI
+### 1. Sign up and reserve your namespace
+
+Go to [sigilum.id](https://sigilum.id), create an account, and reserve a namespace (e.g. `johndee`).
+
+### 2. Install the CLI and start the gateway
+
+Run this on the machine where your AI agent runs:
 
 ```bash
 curl -fsSL https://github.com/PaymanAI/sigilum/releases/latest/download/install-curl.sh | bash
 source ~/.zshrc
-```
-
-### 2. Sign up and reserve your namespace
-
-Go to [sigilum.id](https://sigilum.id), create an account, and reserve a namespace (e.g. `johndee`).
-
-### 3. Authenticate
-
-```bash
-sigilum auth login --mode managed --namespace johndee --owner-token-stdin
-```
-
-### 4. Start the gateway
-
-```bash
 sigilum gateway start --namespace johndee
 ```
 
-### 5. Pair with the dashboard
+### 3. Pair with the dashboard
 
-In the dashboard, start a pairing session. You'll get a session ID and pair code:
+In the dashboard, click **Start Pairing** and run the command it gives you:
 
 ```bash
 sigilum gateway pair --session-id <id> --pair-code <code> --namespace johndee --api-url https://api.sigilum.id
 ```
 
-### 6. Add providers via the dashboard
+### 4. Add providers via the dashboard
 
 Use the dashboard to add provider connections (OpenAI, Linear, etc.). Secrets are stored locally in your gateway.
 
-### 7. Install OpenClaw integration (optional)
+### 5. Install OpenClaw integration (optional)
 
 ```bash
 sigilum openclaw install --namespace johndee

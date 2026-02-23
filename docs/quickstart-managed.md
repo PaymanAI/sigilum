@@ -7,12 +7,22 @@ Managed mode is the recommended way to use Sigilum. The hosted API and dashboard
 - A terminal with `bash` and `curl`
 - Node.js >= 20 (for OpenClaw integration, if used)
 
-## Step 1: Install the Sigilum CLI
+## Step 1: Sign Up and Reserve Your Namespace
+
+1. Open [sigilum.id](https://sigilum.id)
+2. Create an account (passkey-based authentication)
+3. Reserve your namespace (e.g. `johndee`)
+
+Your namespace becomes your DID: `did:sigilum:johndee`
+
+## Step 2: Install the CLI and Start the Gateway
+
+Run this on the machine where your AI agent runs:
 
 ```bash
 curl -fsSL https://github.com/PaymanAI/sigilum/releases/latest/download/install-curl.sh | bash
 source ~/.zshrc
-sigilum --help
+sigilum gateway start --namespace johndee
 ```
 
 To pin a specific version:
@@ -21,37 +31,11 @@ To pin a specific version:
 curl -fsSL https://github.com/PaymanAI/sigilum/releases/download/<tag>/install-curl.sh | bash -s -- --version <tag>
 ```
 
-## Step 2: Sign Up and Reserve Your Namespace
-
-1. Open [sigilum.id](https://sigilum.id)
-2. Create an account (passkey-based WebAuthn auth)
-3. Reserve your namespace (e.g. `johndee`)
-
-Your namespace becomes your DID: `did:sigilum:johndee`
-
-## Step 3: Authenticate Locally
-
-After signing in to the dashboard, copy your owner token and authenticate the CLI:
-
-```bash
-sigilum auth login --mode managed --namespace johndee --owner-token-stdin
-```
-
-Paste the token and press Enter, then Ctrl+D.
-
-> Note: `sigilum-authz-notify` is disabled by default so the owner JWT is not loaded into OpenClaw runtime unless you explicitly enable it.
-
-## Step 4: Start the Gateway
-
-```bash
-sigilum gateway start --namespace johndee
-```
-
 The gateway runs locally on port `38100` by default.
 
-## Step 5: Pair the Gateway with the Dashboard
+## Step 3: Pair the Gateway with the Dashboard
 
-In the dashboard, initiate a pairing session. You'll receive a session ID and pair code. Run:
+In the dashboard, click **Start Pairing**. You'll receive a command with a session ID and pair code. Run it:
 
 ```bash
 sigilum gateway pair \
@@ -61,9 +45,9 @@ sigilum gateway pair \
   --api-url https://api.sigilum.id
 ```
 
-Keep this process running while the dashboard setup is active. The pairing bridge relays dashboard admin commands to your local gateway through the API.
+The dashboard will show your gateway as connected once pairing completes.
 
-## Step 6: Add Provider Connections
+## Step 4: Add Provider Connections
 
 Use the dashboard to add providers (OpenAI, Linear, Typefully, etc.):
 
@@ -72,26 +56,7 @@ Use the dashboard to add providers (OpenAI, Linear, Typefully, etc.):
 
 Provider secrets are encrypted and stored locally in your gateway's BadgerDB at `GATEWAY_DATA_DIR/badger`. They never leave your machine.
 
-You can also manage connections via CLI:
-
-```bash
-# Add an HTTP provider
-export LINEAR_TOKEN="lin_api_..."
-sigilum service add \
-  --service-slug linear \
-  --service-name "Linear" \
-  --mode gateway \
-  --upstream-base-url https://api.linear.app \
-  --auth-mode bearer \
-  --upstream-secret-env LINEAR_TOKEN
-
-# List registered services
-sigilum service list --namespace johndee
-```
-
-For full CLI options, see [CLI Reference](./cli/README.md).
-
-## Step 7: Install OpenClaw Integration (Optional)
+## Step 5: Install OpenClaw Integration (Optional)
 
 If you use [OpenClaw](https://openclaw.com), install the Sigilum hooks and skills:
 
@@ -106,7 +71,7 @@ This installs:
 
 See [OpenClaw Integration](../openclaw/README.md) for details.
 
-## Step 8: Verify
+## Step 6: Verify
 
 ```bash
 sigilum doctor          # check local health
