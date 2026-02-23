@@ -6,6 +6,9 @@ usage() {
 Usage:
   gateway-admin.sh tools <connection_id> [gateway_url]
   gateway-admin.sh call <connection_id> <tool_name> [arguments_json] [gateway_url]
+  gateway-admin.sh proxy <connection_id> <method> <upstream_path> [body_json] [gateway_url]
+  gateway-admin.sh mcp-tools <connection_id> [gateway_url]
+  gateway-admin.sh mcp-call <connection_id> <tool_name> [arguments_json] [gateway_url]
 
 Legacy insecure admin helpers (disabled by default):
   gateway-admin.sh list [gateway_url]
@@ -16,12 +19,14 @@ Defaults:
   gateway_url = ${SIGILUM_GATEWAY_URL:-http://localhost:38100}
   namespace   = ${SIGILUM_NAMESPACE}
   key_root    = ${SIGILUM_KEY_ROOT:-$HOME/.openclaw/.sigilum/keys}
-  agent_id    = ${SIGILUM_AGENT_ID:-main}
+  agent_id    = ${OPENCLAW_AGENT_ID:-${OPENCLAW_AGENT:-${SIGILUM_AGENT_ID:-main}}}
   subject     = ${SIGILUM_SUBJECT:-<agent_id>}
 
 Notes:
   - This helper prefers `curl` (supports HTTP/HTTPS); falls back to bash /dev/tcp for HTTP when curl is unavailable.
-  - `tools` and `call` sign requests with the selected per-agent key.
+  - `tools`, `call`, and `proxy` sign requests with the selected per-agent key.
+  - `tools`/`call` auto-check protocol when admin metadata is readable (mcp/http).
+  - For `protocol=http`, use `proxy` for upstream API calls via /proxy/{connection_id}/...
   - On `401/403 AUTH_FORBIDDEN`, `tools`/`call` print `APPROVAL_*` fields to guide namespace-owner approval.
   - `list`, `test`, `discover` require SIGILUM_ALLOW_INSECURE_ADMIN=true.
 EOF
@@ -134,6 +139,20 @@ parse_url() {
   URL_BASE_PATH="$path"
 }
 
+normalize_connection_protocol() {
+  local value
+  value="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  value="$(trim "$value")"
+  case "$value" in
+    mcp|http)
+      printf '%s' "$value"
+      ;;
+    *)
+      printf 'unknown'
+      ;;
+  esac
+}
+
 request_path_for_endpoint() {
   local endpoint="$1"
   local path="${URL_BASE_PATH}${endpoint}"
@@ -148,6 +167,67 @@ request_url_for_endpoint() {
   local req_path
   req_path="$(request_path_for_endpoint "$endpoint")"
   printf '%s://%s:%s%s' "$URL_SCHEME" "$URL_HOST" "$URL_PORT" "$req_path"
+}
+
+normalize_upstream_path() {
+  local raw="$1"
+  raw="$(trim "$raw")"
+  if [[ -z "$raw" ]]; then
+    printf '/'
+    return 0
+  fi
+  if [[ "$raw" == /* ]]; then
+    printf '%s' "$raw"
+    return 0
+  fi
+  printf '/%s' "$raw"
+}
+
+detect_connection_protocol() {
+  local connection_id="$1"
+  local override token request_url response_file status_code protocol
+  override="$(normalize_connection_protocol "${SIGILUM_CONNECTION_PROTOCOL:-}")"
+  if [[ "$override" != "unknown" ]]; then
+    printf '%s' "$override"
+    return 0
+  fi
+
+  if ! has_cmd curl; then
+    printf 'unknown'
+    return 0
+  fi
+
+  request_url="$(request_url_for_endpoint "/api/admin/connections/${connection_id}")"
+  response_file="$(mktemp "${TMPDIR:-/tmp}/sigilum-gateway-connection-XXXXXX")"
+  token="$(trim "${SIGILUM_GATEWAY_ADMIN_TOKEN:-}")"
+  if [[ -n "$token" ]]; then
+    status_code="$(curl -sS -o "$response_file" -w "%{http_code}" \
+      -H "Accept: application/json" \
+      -H "Authorization: Bearer ${token}" \
+      "$request_url" || true)"
+  else
+    status_code="$(curl -sS -o "$response_file" -w "%{http_code}" \
+      -H "Accept: application/json" \
+      "$request_url" || true)"
+  fi
+  status_code="$(trim "${status_code:-}")"
+  if [[ "$status_code" != "200" ]]; then
+    rm -f "${response_file:-}"
+    printf 'unknown'
+    return 0
+  fi
+
+  protocol="$(awk '
+    match($0, /"protocol"[[:space:]]*:[[:space:]]*"[^"]+"/) {
+      value = substr($0, RSTART, RLENGTH)
+      gsub(/^.*"protocol"[[:space:]]*:[[:space:]]*"/, "", value)
+      gsub(/".*$/, "", value)
+      print value
+      exit
+    }
+  ' "$response_file")"
+  rm -f "${response_file:-}"
+  normalize_connection_protocol "$protocol"
 }
 
 response_body_from_file() {
@@ -306,14 +386,14 @@ resolve_identity_files() {
   local explicit_agent
   explicit_agent="$(trim "${SIGILUM_AGENT_ID:-}")"
   local candidates=()
-  if [[ -n "$explicit_agent" ]]; then
-    candidates+=("$explicit_agent")
-  fi
   if [[ -n "${OPENCLAW_AGENT_ID:-}" ]]; then
     candidates+=("$(trim "${OPENCLAW_AGENT_ID}")")
   fi
   if [[ -n "${OPENCLAW_AGENT:-}" ]]; then
     candidates+=("$(trim "${OPENCLAW_AGENT}")")
+  fi
+  if [[ -n "$explicit_agent" ]]; then
+    candidates+=("$explicit_agent")
   fi
   candidates+=("main" "default")
 
@@ -565,7 +645,13 @@ case "$cmd" in
     gateway_url="${3:-$(gateway_url_default)}"
     parse_url "$gateway_url" || exit 2
     build_signing_context
-    signed_request "GET" "/mcp/${connection_id}/tools" ""
+    protocol="$(detect_connection_protocol "$connection_id")"
+    if [[ "$protocol" == "http" ]]; then
+      probe_path="$(normalize_upstream_path "${SIGILUM_PROXY_TOOLS_PATH:-/}")"
+      signed_request "GET" "/proxy/${connection_id}${probe_path}" ""
+    else
+      signed_request "GET" "/mcp/${connection_id}/tools" ""
+    fi
     print_response "$connection_id"
     ;;
   call)
@@ -575,6 +661,64 @@ case "$cmd" in
     gateway_url="${5:-$(gateway_url_default)}"
     if [[ -z "$connection_id" || -z "$tool_name" ]]; then
       echo "Usage: gateway-admin.sh call <connection_id> <tool_name> [arguments_json] [gateway_url]" >&2
+      exit 2
+    fi
+    parse_url "$gateway_url" || exit 2
+    build_signing_context
+    protocol="$(detect_connection_protocol "$connection_id")"
+    if [[ "$protocol" == "http" ]]; then
+      echo "Connection ${connection_id} uses protocol=http." >&2
+      echo "Use: gateway-admin.sh proxy ${connection_id} POST /<upstream_path> '<json_body>' [gateway_url]" >&2
+      exit 2
+    fi
+    signed_request "POST" "/mcp/${connection_id}/tools/${tool_name}/call" "$args_json"
+    print_response "$connection_id"
+    ;;
+  proxy)
+    connection_id="${2:-}"
+    method="${3:-GET}"
+    upstream_path_raw="${4:-/}"
+    body_json="${5:-}"
+    gateway_url="${6:-$(gateway_url_default)}"
+    method="$(printf '%s' "$method" | tr '[:lower:]' '[:upper:]')"
+    if [[ -z "$connection_id" || -z "$method" ]]; then
+      echo "Usage: gateway-admin.sh proxy <connection_id> <method> <upstream_path> [body_json] [gateway_url]" >&2
+      exit 2
+    fi
+    case "$method" in
+      GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)
+        ;;
+      *)
+        echo "Unsupported HTTP method for proxy command: ${method}" >&2
+        exit 2
+        ;;
+    esac
+    upstream_path="$(normalize_upstream_path "$upstream_path_raw")"
+    parse_url "$gateway_url" || exit 2
+    build_signing_context
+    signed_request "$method" "/proxy/${connection_id}${upstream_path}" "$body_json"
+    print_response "$connection_id"
+    ;;
+  mcp-tools)
+    connection_id="${2:-}"
+    if [[ -z "$connection_id" ]]; then
+      echo "Missing connection id for mcp-tools command." >&2
+      usage
+      exit 2
+    fi
+    gateway_url="${3:-$(gateway_url_default)}"
+    parse_url "$gateway_url" || exit 2
+    build_signing_context
+    signed_request "GET" "/mcp/${connection_id}/tools" ""
+    print_response "$connection_id"
+    ;;
+  mcp-call)
+    connection_id="${2:-}"
+    tool_name="${3:-}"
+    _args_default='{}'; args_json="${4:-$_args_default}"
+    gateway_url="${5:-$(gateway_url_default)}"
+    if [[ -z "$connection_id" || -z "$tool_name" ]]; then
+      echo "Usage: gateway-admin.sh mcp-call <connection_id> <tool_name> [arguments_json] [gateway_url]" >&2
       exit 2
     fi
     parse_url "$gateway_url" || exit 2
