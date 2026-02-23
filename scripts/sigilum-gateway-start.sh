@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG_HOME="${SIGILUM_CONFIG_HOME:-$HOME/.sigilum}"
 CONFIG_FILE="${SIGILUM_CONFIG_FILE:-${CONFIG_HOME}/config.env}"
 
@@ -70,6 +71,29 @@ require_cmd() {
     echo "Missing required command: $1" >&2
     exit 1
   fi
+}
+
+resolve_cmd() {
+  local cmd_name="$1"
+  local resolved=""
+  local sigilum_home="${SIGILUM_HOME:-$ROOT_DIR}"
+
+  if command -v "$cmd_name" >/dev/null 2>&1; then
+    command -v "$cmd_name"
+    return 0
+  fi
+
+  if [[ -x "${sigilum_home%/}/bin/${cmd_name}" ]]; then
+    printf '%s' "${sigilum_home%/}/bin/${cmd_name}"
+    return 0
+  fi
+
+  if [[ -x "${ROOT_DIR%/}/bin/${cmd_name}" ]]; then
+    printf '%s' "${ROOT_DIR%/}/bin/${cmd_name}"
+    return 0
+  fi
+
+  return 1
 }
 
 is_tty() {
@@ -185,8 +209,16 @@ if [[ -z "$MASTER_KEY" ]]; then
   chmod 600 "$MASTER_KEY_FILE" 2>/dev/null || true
 fi
 
-require_cmd sigilum-gateway
-require_cmd sigilum-gateway-cli
+if ! GATEWAY_SERVICE_BIN="$(resolve_cmd sigilum-gateway)"; then
+  echo "Missing required command: sigilum-gateway" >&2
+  echo "Expected in PATH or at \$SIGILUM_HOME/bin/sigilum-gateway." >&2
+  exit 1
+fi
+if ! GATEWAY_CLI_BIN="$(resolve_cmd sigilum-gateway-cli)"; then
+  echo "Missing required command: sigilum-gateway-cli" >&2
+  echo "Expected in PATH or at \$SIGILUM_HOME/bin/sigilum-gateway-cli." >&2
+  exit 1
+fi
 
 export SIGILUM_NAMESPACE="$NAMESPACE"
 export GATEWAY_SIGILUM_NAMESPACE="$NAMESPACE"
@@ -199,7 +231,7 @@ export GATEWAY_ADDR="$ADDR"
 IDENTITY_FILE="${GATEWAY_HOME%/}/identities/${NAMESPACE}/identity.json"
 if [[ ! -f "$IDENTITY_FILE" ]]; then
   echo "Bootstrapping Sigilum identity for namespace '${NAMESPACE}'..."
-  sigilum-gateway-cli init-identity --namespace "$NAMESPACE" --home "$GATEWAY_HOME" >/dev/null
+  "$GATEWAY_CLI_BIN" init-identity --namespace "$NAMESPACE" --home "$GATEWAY_HOME" >/dev/null
 fi
 
 echo "Starting Sigilum gateway."
@@ -209,4 +241,4 @@ echo "  addr:      ${GATEWAY_ADDR}"
 echo "  home:      ${GATEWAY_SIGILUM_HOME}"
 echo ""
 
-exec sigilum-gateway
+exec "$GATEWAY_SERVICE_BIN"
