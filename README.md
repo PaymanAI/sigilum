@@ -42,7 +42,19 @@ sigilum gateway pair --status
 
 Use the dashboard to add provider connections (OpenAI, Linear, etc.). Secrets are stored locally in your gateway.
 
-### 5. Install OpenClaw integration (optional)
+### 5. OpenClaw one-command onboarding (optional)
+
+```bash
+sigilum openclaw connect \
+  --session-id <id> \
+  --pair-code <code> \
+  --namespace johndee \
+  --api-url https://api.sigilum.id
+```
+
+This runs gateway connect + OpenClaw install + immediate agent key bootstrap.
+
+If you already paired gateway separately, you can still run:
 
 ```bash
 sigilum openclaw install --namespace johndee
