@@ -73,7 +73,6 @@ config.agents = asObject(config.agents);
 config.agents.defaults = asObject(config.agents.defaults);
 config.agents.defaults.sandbox = asObject(config.agents.defaults.sandbox);
 config.agents.defaults.sandbox.docker = asObject(config.agents.defaults.sandbox.docker);
-const defaultAgentID = asString(config.agents.defaults.id) || "main";
 
 const sandboxMode = asString(config.agents.defaults.sandbox.mode);
 const sandboxed = sandboxMode !== "" && sandboxMode !== "off";
@@ -102,7 +101,6 @@ delete existingGlobalEnv.SIGILUM_SKILL_DIR;
 config.env.vars = {
   ...existingGlobalEnv,
   SIGILUM_GATEWAY_URL: skillGatewayUrl,
-  SIGILUM_AGENT_ID: defaultAgentID,
   SIGILUM_RUNTIME_ROOT: sigilumRuntimeRoot,
   SIGILUM_RUNTIME_BIN: runtimeBin,
   SIGILUM_GATEWAY_HELPER_BIN: gatewayHelperBin,
@@ -160,7 +158,6 @@ sigilumSkill.env = {
   ...existingSkillEnv,
   SIGILUM_MODE: mode,
   SIGILUM_NAMESPACE: namespace,
-  SIGILUM_AGENT_ID: defaultAgentID,
   SIGILUM_GATEWAY_URL: skillGatewayUrl,
   SIGILUM_API_URL: apiUrl,
   SIGILUM_KEY_ROOT: keyRoot,

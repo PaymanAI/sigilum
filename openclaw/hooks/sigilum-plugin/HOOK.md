@@ -15,14 +15,15 @@ What it does:
 3. Ensures one Ed25519 keypair per agent under a deterministic key root.
 4. Injects a gateway-first policy into agent context:
    - check `sigilum-secure-*` connections first for provider access
-   - use signed runtime checks (`/mcp/{connection_id}/tools`) for capability checks
+   - use signed runtime checks via helper (`gateway-admin.sh tools`) for capability checks
+   - helper routes to `/mcp/{connection_id}/tools` for MCP connections and `/proxy/{connection_id}/...` for HTTP connections when protocol metadata is available
    - enforce claim-gated access per agent key
    - when approval is required (`401/403`), include helper `APPROVAL_*` fields (namespace/agent/public-key/service) in user-facing instructions
    - apply a negative-answer gate: before saying "no access/integration", run a signed check first
    - include a live provider alias map (`provider -> sigilum-secure-...`) from active gateway connections
    - avoid `/api/admin/*` for capability checks
    - do not request direct provider API keys unless gateway path fails
-5. Lists active `sigilum-secure-*` MCP gateway connections (including `sigilum-secure-linear` when present).
+5. Lists active `sigilum-secure-*` gateway connections and their provider aliases (including `sigilum-secure-linear` when present).
 6. Runs at gateway startup and when new sessions/config reload events happen.
 
 ## Recommended OpenClaw Config
