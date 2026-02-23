@@ -148,8 +148,9 @@ class MockD1Database {
     }
 
     if (
-      sql.includes("SELECT claim_id, namespace, public_key, service, status, approved_at") &&
-      sql.includes("FROM authorizations")
+      sql.includes("SELECT claim_id, namespace, public_key, service") &&
+      sql.includes("FROM authorizations") &&
+      sql.includes("status, approved_at")
     ) {
       const [service, status, limit, offset] = params as [string, string, number, number];
       const rows = this.authorizations

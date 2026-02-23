@@ -276,6 +276,9 @@ func TestSubmitClaimPostsClaimPayload(t *testing.T) {
 		if body["nonce"] == "" {
 			t.Fatalf("expected nonce to be populated")
 		}
+		if body["agent_name"] != "agent-main" {
+			t.Fatalf("expected agent name to be forwarded, got %q", body["agent_name"])
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"claim_id": "cl_test_1",
 			"status":   "pending",
