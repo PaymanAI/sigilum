@@ -179,10 +179,6 @@ if [[ -z "$MASTER_KEY" && -f "$MASTER_KEY_FILE" ]]; then
   MASTER_KEY="$(trim "$(cat "$MASTER_KEY_FILE" 2>/dev/null || true)")"
 fi
 if [[ -z "$MASTER_KEY" ]]; then
-  if ! is_tty; then
-    echo "Missing GATEWAY_MASTER_KEY and no ${MASTER_KEY_FILE} present." >&2
-    exit 1
-  fi
   echo "Generating gateway master key (stored at ${MASTER_KEY_FILE})..."
   MASTER_KEY="$(generate_master_key)"
   printf '%s\n' "$MASTER_KEY" >"$MASTER_KEY_FILE"
@@ -190,6 +186,7 @@ if [[ -z "$MASTER_KEY" ]]; then
 fi
 
 require_cmd sigilum-gateway
+require_cmd sigilum-gateway-cli
 
 export SIGILUM_NAMESPACE="$NAMESPACE"
 export GATEWAY_SIGILUM_NAMESPACE="$NAMESPACE"
@@ -198,6 +195,12 @@ export GATEWAY_MASTER_KEY="$MASTER_KEY"
 export SIGILUM_API_URL="$API_URL"
 export SIGILUM_REGISTRY_URL="$API_URL"
 export GATEWAY_ADDR="$ADDR"
+
+IDENTITY_FILE="${GATEWAY_HOME%/}/identities/${NAMESPACE}/identity.json"
+if [[ ! -f "$IDENTITY_FILE" ]]; then
+  echo "Bootstrapping Sigilum identity for namespace '${NAMESPACE}'..."
+  sigilum-gateway-cli init-identity --namespace "$NAMESPACE" --home "$GATEWAY_HOME" >/dev/null
+fi
 
 echo "Starting Sigilum gateway."
 echo "  namespace: ${SIGILUM_NAMESPACE}"

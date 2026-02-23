@@ -117,7 +117,7 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: Sigilum ${{ github.ref_name }}
           prerelease: ${{ steps.channel.outputs.prerelease }}
-          make_latest: ${{ steps.channel.outputs.prerelease == 'true' && 'false' || 'true' }}
+          make_latest: true
           overwrite_files: true
           files: |
             releases/sigilum-${{ github.ref_name }}-macos-apple-silicon.tar.gz

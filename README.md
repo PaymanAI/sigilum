@@ -6,7 +6,7 @@ Sigilum is an open protocol for verifiable agent identity, signed delegation cha
 
 ## Quickstart (Managed Mode - Recommended)
 
-Managed mode uses the hosted Sigilum API and dashboard at [sigilum.id](https://sigilum.id). Your gateway runs locally - provider API keys never leave your machine.
+Managed mode uses hosted Sigilum control plane at [sigilum.id](https://sigilum.id). Your gateway runs where your agent runs.
 
 ### 1. Sign up and reserve your namespace
 
@@ -22,15 +22,23 @@ source ~/.zshrc
 sigilum gateway start --namespace johndee
 ```
 
+`sigilum gateway start` auto-bootstraps identity for fresh namespaces.
+
 ### 3. Pair with the dashboard
 
 In the dashboard, click **Start Pairing** and run the command it gives you:
 
 ```bash
-sigilum gateway pair --session-id <id> --pair-code <code> --namespace johndee --api-url https://api.sigilum.id
+sigilum gateway connect --session-id <id> --pair-code <code> --namespace johndee --api-url https://api.sigilum.id
 ```
 
-### 4. Add providers via the dashboard
+Check bridge state:
+
+```bash
+sigilum gateway pair --status
+```
+
+### 4. Add providers
 
 Use the dashboard to add provider connections (OpenAI, Linear, etc.). Secrets are stored locally in your gateway.
 

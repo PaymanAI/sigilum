@@ -27,6 +27,8 @@ Design rule:
 | `scripts/run-demo-e2e.sh` | `sigilum e2e-tests` | Full local e2e bring-up, seeding, simulator validation (all curl probes/requests use connect+max timeout guards). |
 | `scripts/test-agent-simulator.mjs` | `sigilum agent-simulator` | Auth behavior simulator against running API/gateway/services. |
 | `scripts/gateway-pair-bridge.mjs` | `sigilum gateway pair ...` | Managed dashboard pairing bridge (session/pair-code relay). |
+| `scripts/sigilum-gateway-pair.sh` | `sigilum gateway pair ...` | Pair bridge wrapper with foreground/daemon/status/stop modes. |
+| `scripts/sigilum-gateway-connect.sh` | `sigilum gateway connect ...` | One-call managed onboarding wrapper (gateway health/start + daemon pairing bridge). |
 
 ## Service management scripts
 

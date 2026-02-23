@@ -188,12 +188,21 @@ Use this when dashboard pairing shows a session id + pair code:
 sigilum gateway pair --session-id <id> --pair-code <code> --namespace <namespace>
 ```
 
+For remote/headless hosts, prefer daemon mode:
+
+```bash
+sigilum gateway pair --daemon --session-id <id> --pair-code <code> --namespace <namespace>
+```
+
 Optional flags:
 
 - `--api-url <url>`: Sigilum API base URL (default from `SIGILUM_API_URL` / `SIGILUM_REGISTRY_URL` or `http://127.0.0.1:8787`)
 - `--gateway-admin-url <url>`: local gateway admin endpoint (default `http://127.0.0.1:38100`)
 - `--reconnect-ms <ms>`: websocket reconnect delay (default `2000`)
 - `--connect-timeout-ms <ms>`: preflight/connect timeout (default `5000`)
+- `--daemon`: run bridge in background and return immediately
+- `--status`: show daemon status
+- `--stop`: stop daemon process
 
 Success output contract:
 
@@ -206,6 +215,15 @@ Important:
   - Managed default: `https://api.sigilum.id`
   - Local OSS API default: `http://127.0.0.1:8787`
 - Local gateway admin must be running on `--gateway-admin-url` (default `http://127.0.0.1:38100`), otherwise pairing relay cannot execute dashboard commands.
+- Namespace-owner JWT is not required for gateway pairing.
+
+### `sigilum gateway connect ...`
+
+Single command for managed onboarding. It ensures gateway health (auto-starts gateway if needed), then starts pair bridge in daemon mode.
+
+```bash
+sigilum gateway connect --session-id <id> --pair-code <code> --namespace <namespace> --api-url https://api.sigilum.id
+```
 
 ### `sigilum openclaw install ...`
 

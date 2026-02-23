@@ -1,106 +1,67 @@
 # Quickstart: Managed Mode
 
-Managed mode is the recommended way to use Sigilum. The hosted API and dashboard handle identity management, authorization approvals, and notifications. Your gateway runs locally - **provider API keys never leave your machine**.
+This is the only setup path you need for hosted Sigilum (`sigilum.id` + `api.sigilum.id`).
 
-## Prerequisites
-
-- A terminal with `bash` and `curl`
-- Node.js >= 20 (for OpenClaw integration, if used)
-
-## Step 1: Sign Up and Reserve Your Namespace
+## 1) Sign in and reserve namespace
 
 1. Open [sigilum.id](https://sigilum.id)
-2. Create an account (passkey-based authentication)
-3. Reserve your namespace (e.g. `johndee`)
+2. Create account / sign in
+3. Reserve namespace (example: `johndee`)
 
-Your namespace becomes your DID: `did:sigilum:johndee`
+## 2) Install CLI
 
-## Step 2: Install the CLI and Start the Gateway
-
-> **Important:** Run these commands on the same machine where your OpenClaw instance is running - your DigitalOcean droplet, AWS EC2 instance, VPS, or wherever you host your agent. The gateway must run alongside your agent so it can sign and proxy requests locally.
+Run on the machine where your agent runs:
 
 ```bash
 curl -fsSL https://github.com/PaymanAI/sigilum/releases/latest/download/install-curl.sh | bash
 source ~/.zshrc
+sigilum --help
+```
+
+## 3) Start local gateway
+
+```bash
 sigilum gateway start --namespace johndee
 ```
 
-To pin a specific version:
+Notes:
+- If identity is missing, `gateway start` bootstraps it automatically.
+- No JWT is required for gateway start or gateway pairing.
+
+## 4) Connect gateway to dashboard
+
+In dashboard, click **Start Pairing** and run one command:
 
 ```bash
-curl -fsSL https://github.com/PaymanAI/sigilum/releases/download/<tag>/install-curl.sh | bash -s -- --version <tag>
-```
-
-The gateway runs locally on port `38100` by default.
-
-## Step 3: Pair the Gateway with the Dashboard
-
-In the dashboard, click **Start Pairing**. You'll receive a command with a session ID and pair code. Run it:
-
-```bash
-sigilum gateway pair \
+sigilum gateway connect \
   --session-id <session-id> \
   --pair-code <pair-code> \
   --namespace johndee \
   --api-url https://api.sigilum.id
 ```
 
-The dashboard will show your gateway as connected once pairing completes.
+`gateway connect` ensures gateway is running/healthy, then starts pairing bridge in daemon mode.
 
-## Step 4: Add Provider Connections
+Daemon helpers:
 
-Use the dashboard to add providers (OpenAI, Linear, Typefully, etc.):
+```bash
+sigilum gateway pair --status
+sigilum gateway pair --stop
+```
 
-- For **HTTP providers**: the dashboard configures upstream URL and auth credentials stored locally in your gateway.
-- For **MCP providers**: select `protocol: mcp`, configure the MCP endpoint, and run discovery.
+## 5) Connect providers
 
-Provider secrets are encrypted and stored locally in your gateway's BadgerDB at `GATEWAY_DATA_DIR/badger`. They never leave your machine.
+Use **Providers** in dashboard to add provider credentials. Secrets are stored locally in your gateway.
 
-## Step 5: Install OpenClaw Integration (Optional)
-
-If you use [OpenClaw](https://openclaw.com), install the Sigilum hooks and skills:
+## Optional: OpenClaw integration
 
 ```bash
 sigilum openclaw install --namespace johndee
 ```
 
-This installs:
-- **sigilum-plugin** hook: bootstraps per-agent Ed25519 keys on startup
-- **sigilum** skill: gateway-first provider access workflow
-- **sigilum-authz-notify** hook (disabled by default): pending authorization notifications
-
-See [OpenClaw Integration](../openclaw/README.md) for details.
-
-## Step 6: Verify
+## Basic health checks
 
 ```bash
-sigilum doctor          # check local health
-sigilum openclaw status # check OpenClaw integration (if installed)
+sigilum doctor
+curl -fsS http://127.0.0.1:38100/health
 ```
-
-## How It Works
-
-```
-┌─────────────────┐         ┌──────────────────┐         ┌──────────────┐
-│   AI Agent      │ signed  │  Sigilum Gateway  │  auth   │  Provider    │
-│   (OpenClaw)    │────────>│  (your machine)   │────────>│  (OpenAI,    │
-│                 │ request │                   │ request │   Linear...) │
-└─────────────────┘         └────────┬──────────┘         └──────────────┘
-                                     │ claims check
-                                     v
-                            ┌──────────────────┐
-                            │  Sigilum API      │
-                            │  (api.sigilum.id) │
-                            └──────────────────┘
-```
-
-1. Agent sends a signed request to the local gateway
-2. Gateway verifies the signature and checks the approved-claims cache
-3. If approved, gateway injects provider credentials and forwards upstream
-4. If not approved, gateway returns `AUTH_CLAIM_REQUIRED` - approve via dashboard
-
-## Next Steps
-
-- [Gateway Error Codes](./product/GATEWAY_ERROR_CODES.md) - troubleshoot gateway errors
-- [Onboarding Checklists](./product/ONBOARDING_CHECKLISTS.md) - production readiness checklist
-- [Gateway Reference](../apps/gateway/README.md) - full gateway configuration

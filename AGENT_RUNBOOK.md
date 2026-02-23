@@ -36,7 +36,13 @@ sigilum gateway start --namespace "$SIGILUM_NAMESPACE"
 In the dashboard, click **Start Pairing** to get session ID and pair code, then run:
 
 ```bash
-sigilum gateway pair --session-id <session-id> --pair-code <pair-code> --namespace "$SIGILUM_NAMESPACE" --api-url https://api.sigilum.id
+sigilum gateway connect --session-id <session-id> --pair-code <pair-code> --namespace "$SIGILUM_NAMESPACE" --api-url https://api.sigilum.id
+```
+
+Verify bridge:
+
+```bash
+sigilum gateway pair --status
 ```
 
 ### 2.4 Install OpenClaw integration (managed mode)
