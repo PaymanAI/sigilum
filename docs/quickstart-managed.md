@@ -99,13 +99,6 @@ sigilum openclaw status # check OpenClaw integration (if installed)
 3. If approved, gateway injects provider credentials and forwards upstream
 4. If not approved, gateway returns `AUTH_CLAIM_REQUIRED` - approve via dashboard
 
-## Credential Rotation
-
-```bash
-export LINEAR_TOKEN="lin_api_new_..."
-sigilum service secret set --service-slug linear --upstream-secret-env LINEAR_TOKEN
-```
-
 ## Next Steps
 
 - [Gateway Error Codes](./product/GATEWAY_ERROR_CODES.md) - troubleshoot gateway errors
