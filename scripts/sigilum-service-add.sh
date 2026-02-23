@@ -267,30 +267,53 @@ add_service() {
 
   mkdir -p "$SIGILUM_HOME_DIR"
 
-  log_step "Applying local API migrations..."
-  (
-    cd "$ROOT_DIR/apps/api"
-    pnpm exec wrangler d1 migrations apply sigilum-api --local >/dev/null
-  )
+  # In managed mode (remote API), service registration happens through
+  # the dashboard, not the CLI. Warn and skip local D1 registration.
+  local sigilum_api_url="${SIGILUM_API_URL:-}"
+  if is_remote_api_url "$sigilum_api_url"; then
+    log_warn "Managed mode detected (SIGILUM_API_URL=${sigilum_api_url})."
+    log_warn "Service registration is managed through the dashboard at ${SIGILUM_DASHBOARD_URL:-https://sigilum.id}."
+    log_warn "Skipping local API registration. Gateway connection will still be configured."
 
-  local key_name api_key_file
-  if [[ "$mode" == "gateway" ]]; then
-    key_name="Gateway proxy service key (local cli)"
+    local key_name api_key_file
+    if [[ "$mode" == "gateway" ]]; then
+      key_name="Gateway proxy service key (local cli)"
+    else
+      key_name="Native service key (local cli)"
+    fi
+    api_key_file="${SIGILUM_HOME_DIR}/service-api-key-${service_slug}"
+    load_or_create_value "$api_key_file" SERVICE_API_KEY generate_service_api_key
+
+    if [[ "$mode" != "gateway" ]]; then
+      log_error "Native mode services must be registered through the dashboard in managed mode."
+      exit 1
+    fi
   else
-    key_name="Native service key (local cli)"
-  fi
-  api_key_file="${SIGILUM_HOME_DIR}/service-api-key-${service_slug}"
-  load_or_create_value "$api_key_file" SERVICE_API_KEY generate_service_api_key
+    log_step "Applying local API migrations..."
+    (
+      cd "$ROOT_DIR/apps/api"
+      pnpm exec wrangler d1 migrations apply sigilum-api --local >/dev/null
+    )
 
-  ensure_local_user_service_and_key \
-    "$namespace" \
-    "$email" \
-    "$service_slug" \
-    "$service_name" \
-    "$domain" \
-    "$description" \
-    "$key_name" \
-    "$SERVICE_API_KEY"
+    local key_name api_key_file
+    if [[ "$mode" == "gateway" ]]; then
+      key_name="Gateway proxy service key (local cli)"
+    else
+      key_name="Native service key (local cli)"
+    fi
+    api_key_file="${SIGILUM_HOME_DIR}/service-api-key-${service_slug}"
+    load_or_create_value "$api_key_file" SERVICE_API_KEY generate_service_api_key
+
+    ensure_local_user_service_and_key \
+      "$namespace" \
+      "$email" \
+      "$service_slug" \
+      "$service_name" \
+      "$domain" \
+      "$description" \
+      "$key_name" \
+      "$SERVICE_API_KEY"
+  fi
 
   if [[ "$mode" == "gateway" ]]; then
     if [[ -z "$upstream_base_url" ]]; then

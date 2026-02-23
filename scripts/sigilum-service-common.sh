@@ -135,6 +135,21 @@ require_cmd() {
   fi
 }
 
+is_remote_api_url() {
+  local url="${1:-}"
+  case "$url" in
+    http://localhost*|http://127.0.0.1*|http://\[::1\]*|"")
+      return 1
+      ;;
+    https://*|http://*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 CURL_CONNECT_TIMEOUT_SECONDS="${CURL_CONNECT_TIMEOUT_SECONDS:-5}"
 CURL_MAX_TIME_SECONDS="${CURL_MAX_TIME_SECONDS:-30}"
 
