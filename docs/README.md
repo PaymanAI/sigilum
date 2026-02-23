@@ -5,6 +5,11 @@ This folder contains all long-form project documentation.
 Latest release: [![GitHub Release](https://img.shields.io/github/v/release/PaymanAI/sigilum?display_name=tag)](https://github.com/PaymanAI/sigilum/releases/latest)
 Release tags: `YYYY-MM-DD` (stable) or `YYYY-MM-DD-beta.N` (prerelease), with optional leading `v`.
 
+## Getting Started
+
+- **[Managed Mode Quickstart](./quickstart-managed.md)** - Install, pair, and connect in 5 minutes (recommended for most users).
+- **[Running as a Service](./running-as-service.md)** - systemd, launchd, and Docker production setup.
+
 ## Sections
 
 - `architecture/` - system design, components, and trust boundaries.

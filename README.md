@@ -7,7 +7,31 @@ Sigilum is an open protocol and implementation effort focused on verifiable agen
 Latest release: [![GitHub Release](https://img.shields.io/github/v/release/PaymanAI/sigilum?display_name=tag)](https://github.com/PaymanAI/sigilum/releases/latest)
 Release tags: `YYYY-MM-DD` (stable) or `YYYY-MM-DD-beta.N` (prerelease), with optional leading `v`.
 
-## Start Here
+---
+
+## Managed Mode (Recommended)
+
+**Most users should start here.** In managed mode, Sigilum hosts the API and dashboard. You run only the gateway on your own infrastructure. Your provider API keys and secrets never leave your machine.
+
+### Install
+
+```bash
+curl -fsSL https://github.com/PaymanAI/sigilum/releases/latest/download/install-curl.sh | bash
+```
+
+### Get started
+
+Follow the **[Managed Mode Quickstart](./docs/quickstart-managed.md)** - install, start gateway, pair with dashboard, connect providers, approve agents. Takes about 5 minutes.
+
+### Run as a service
+
+For production deployments, see **[Running as a Service](./docs/running-as-service.md)** - systemd, launchd, and Docker templates.
+
+---
+
+## Development / Self-Hosted Setup
+
+The rest of this README is for **contributors and self-hosted (OSS) deployments**. If you're using managed mode, you don't need anything below - go to the [quickstart](./docs/quickstart-managed.md) instead.
 
 ### Autonomous Agent (Required)
 
@@ -28,7 +52,7 @@ Minimum required docs before making changes:
 - `apps/gateway/README.md`
 - `sdks/README.md`
 
-### Human Quickstart
+### Developer Quickstart
 
 From repository root:
 
