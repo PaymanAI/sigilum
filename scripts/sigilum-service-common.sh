@@ -310,11 +310,11 @@ ensure_remote_api_service_and_key() {
 
   local service_id=""
   if [[ "$list_status" == "200" ]]; then
-    service_id="$(node -e "
-const data = JSON.parse(require('fs').readFileSync('${list_file}', 'utf8'));
-const svc = (data.services || []).find(s => s.slug === '${service_slug}');
+    service_id="$(LIST_FILE="$list_file" SERVICE_SLUG="$service_slug" node -e '
+const data = JSON.parse(require("fs").readFileSync(process.env.LIST_FILE, "utf8"));
+const svc = (data.services || []).find(s => s.slug === process.env.SERVICE_SLUG);
 if (svc) process.stdout.write(svc.id);
-" 2>/dev/null || true)"
+' 2>/dev/null || true)"
   fi
   rm -f "$list_file"
 
@@ -343,13 +343,32 @@ process.stdout.write(JSON.stringify({
       --data "$create_payload" || true)"
 
     if [[ "$create_status" == "201" ]]; then
-      service_id="$(node -e "
-const data = JSON.parse(require('fs').readFileSync('${create_file}', 'utf8'));
+      service_id="$(CREATE_FILE="$create_file" node -e '
+const data = JSON.parse(require("fs").readFileSync(process.env.CREATE_FILE, "utf8"));
 if (data.id) process.stdout.write(data.id);
-" 2>/dev/null || true)"
+' 2>/dev/null || true)"
       log_ok "Created service '${service_slug}' on hosted API (${api_url})"
     elif [[ "$create_status" == "409" ]]; then
-      log_warn "Service '${service_slug}' already exists on hosted API (conflict)"
+      log_warn "Service '${service_slug}' already exists on hosted API (conflict), re-fetching ID..."
+      # Re-fetch service list to resolve the ID
+      local refetch_file refetch_status
+      refetch_file="$(mktemp "${TMPDIR:-/tmp}/sigilum-api-refetch-XXXXXX.json")"
+      refetch_status="$(curl_with_timeout -sS -o "$refetch_file" -w "%{http_code}" \
+        -H "Authorization: Bearer ${owner_token}" \
+        "${api_url}/v1/services" || true)"
+      if [[ "$refetch_status" == "200" ]]; then
+        service_id="$(LIST_FILE="$refetch_file" SERVICE_SLUG="$service_slug" node -e '
+const data = JSON.parse(require("fs").readFileSync(process.env.LIST_FILE, "utf8"));
+const svc = (data.services || []).find(s => s.slug === process.env.SERVICE_SLUG);
+if (svc) process.stdout.write(svc.id);
+' 2>/dev/null || true)"
+        if [[ -n "$service_id" ]]; then
+          log_ok "Resolved existing service '${service_slug}' (${service_id})"
+        else
+          log_warn "Could not resolve service ID after 409 conflict"
+        fi
+      fi
+      rm -f "$refetch_file"
     else
       log_error "Failed to create service on hosted API (HTTP ${create_status})"
       cat "$create_file" >&2 || true
