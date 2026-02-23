@@ -148,7 +148,7 @@ function buildGatewayPolicyMessage(gatewayURL: string, secureConnections: Gatewa
     "- Use Sigilum gateway as the default provider path.",
     "- For provider capability questions (for example: \"can you access linear?\"):",
     "  1) Derive connection id: sigilum-secure-<provider>",
-    "  2) Run signed runtime check via helper: gateway-admin.sh tools <connection_id>",
+    "  2) Run signed runtime check via helper: gateway-admin.sh tools <connection_id> (auto-routes mcp/proxy when protocol metadata is available)",
     "  3) Answer from HTTP_STATUS (200=yes, 401/403=auth required, 404=missing connection)",
     "  4) If APPROVAL_REQUIRED=true, include APPROVAL_NAMESPACE + APPROVAL_AGENT_ID + APPROVAL_PUBLIC_KEY in the approval request to the user.",
     "  5) Do not truncate helper output to first lines; parse full output including APPROVAL_* fields.",
@@ -161,6 +161,7 @@ function buildGatewayPolicyMessage(gatewayURL: string, secureConnections: Gatewa
     "- Runtime endpoints:",
     "  - GET /mcp/{connection_id}/tools",
     "  - POST /mcp/{connection_id}/tools/{tool}/call",
+    "  - /proxy/{connection_id}/... for protocol=http connections",
   ];
 
   if (aliases.length > 0) {

@@ -41,6 +41,16 @@ CONNECTION_ID="sigilum-secure-<provider>"
 "${HELPER}" tools "${CONNECTION_ID}" "${GATEWAY_URL}"
 ```
 
+Signed proxy call for HTTP-protocol connections:
+
+```bash
+CONNECTION_ID="sigilum-secure-<provider>"
+METHOD="POST"
+UPSTREAM_PATH="/graphql"
+BODY_JSON='{"query":"query { viewer { id name } }"}'
+"${HELPER}" proxy "${CONNECTION_ID}" "${METHOD}" "${UPSTREAM_PATH}" "${BODY_JSON}" "${GATEWAY_URL}"
+```
+
 Important parsing rule:
 
 - Do **not** truncate helper output to first lines.
@@ -71,7 +81,10 @@ ARGS_JSON='{"query":"..."}'
 When user asks: “can you access linear?”
 
 1. Derive connection id: `sigilum-secure-linear`.
-2. Run signed tools check: `"${HELPER}" tools "sigilum-secure-linear" "${GATEWAY_URL}"`.
+2. Run signed capability check: `"${HELPER}" tools "sigilum-secure-linear" "${GATEWAY_URL}"`.
+   - The helper auto-detects connection protocol when admin metadata is readable.
+   - `protocol=mcp`: checks `/mcp/{connection_id}/tools`.
+   - `protocol=http`: checks `/proxy/{connection_id}/` (or `SIGILUM_PROXY_TOOLS_PATH`).
 3. Interpret `HTTP_STATUS`:
    - `200`: yes, accessible via Sigilum gateway for this agent key.
    - `401` or `403`: agent authorization required.
@@ -104,8 +117,11 @@ Optional:
 - `SIGILUM_GATEWAY_URL`: gateway base URL (optional; defaults to `http://localhost:38100`)
 - `SIGILUM_GATEWAY_HELPER_BIN`: optional absolute path to `gateway-admin.sh`
 - `SIGILUM_KEY_ROOT`: optional agent key root (default `~/.openclaw/.sigilum/keys`)
-- `SIGILUM_AGENT_ID`: optional agent id selector for per-agent key lookup (`main`/`default` fallback)
+- `SIGILUM_AGENT_ID`: optional fallback selector (runtime prefers `OPENCLAW_AGENT_ID`/`OPENCLAW_AGENT` first)
 - `SIGILUM_SUBJECT`: optional subject override for signed runtime requests
+- `SIGILUM_GATEWAY_ADMIN_TOKEN`: optional bearer token for helper protocol auto-detect (`/api/admin/connections/{id}`)
+- `SIGILUM_CONNECTION_PROTOCOL`: optional manual override for helper protocol routing (`mcp|http`)
+- `SIGILUM_PROXY_TOOLS_PATH`: optional path used by `tools` when connection protocol is `http` (default `/`)
 
 ## Key-Custody Notes
 
