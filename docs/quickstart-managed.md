@@ -53,7 +53,22 @@ sigilum gateway pair --stop
 
 Use **Providers** in dashboard to add provider credentials. Secrets are stored locally in your gateway.
 
-## Optional: OpenClaw integration
+## Optional: OpenClaw one-command onboarding
+
+```bash
+sigilum openclaw connect \
+  --session-id <session-id> \
+  --pair-code <pair-code> \
+  --namespace johndee \
+  --api-url https://api.sigilum.id
+```
+
+This command performs:
+- `sigilum gateway connect`
+- `sigilum openclaw install --mode managed --non-interactive`
+- immediate OpenClaw agent key bootstrap under `~/.openclaw/.sigilum/keys/...`
+
+If gateway is already paired, use:
 
 ```bash
 sigilum openclaw install --namespace johndee

@@ -42,6 +42,9 @@ Usage:
   sigilum openclaw <command> [options]
 
 Commands:
+  connect [options]             One-command managed onboarding:
+                                gateway connect + openclaw install + key bootstrap
+                                Use: sigilum openclaw connect --help
   install [options]             Install Sigilum hooks/skills into OpenClaw
                                 Use: sigilum openclaw install --help
   uninstall [options]           Remove Sigilum hooks/skills/runtime/keys from OpenClaw
@@ -72,6 +75,8 @@ Common uninstall options:
 
 Examples:
   sigilum openclaw --help
+  sigilum openclaw connect --help
+  sigilum openclaw connect --session-id <id> --pair-code <code> --namespace johndee
   sigilum openclaw install --help
   sigilum openclaw install --restart
   sigilum openclaw install --mode oss-local --api-url http://127.0.0.1:8787
@@ -91,6 +96,13 @@ command="$1"
 shift || true
 
 case "$command" in
+  connect)
+    if [[ "${1:-}" == "help" ]]; then
+      shift || true
+      exec "${ROOT_DIR}/scripts/sigilum-openclaw-connect.sh" --help "$@"
+    fi
+    exec "${ROOT_DIR}/scripts/sigilum-openclaw-connect.sh" "$@"
+    ;;
   install)
     if [[ "${1:-}" == "help" ]]; then
       shift || true
@@ -166,6 +178,10 @@ NODE
     fi
     ;;
   -h|--help|help)
+    if [[ "${1:-}" == "connect" ]]; then
+      shift || true
+      exec "${ROOT_DIR}/scripts/sigilum-openclaw-connect.sh" --help "$@"
+    fi
     if [[ "${1:-}" == "install" ]]; then
       shift || true
       exec "${ROOT_DIR}/openclaw/install-openclaw-sigilum.sh" --help "$@"
