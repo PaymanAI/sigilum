@@ -17,7 +17,7 @@ Your namespace becomes your DID: `did:sigilum:johndee`
 
 ## Step 2: Install the CLI and Start the Gateway
 
-Run this on the machine where your AI agent runs:
+> **Important:** Run these commands on the same machine where your OpenClaw instance is running - your DigitalOcean droplet, AWS EC2 instance, VPS, or wherever you host your agent. The gateway must run alongside your agent so it can sign and proxy requests locally.
 
 ```bash
 curl -fsSL https://github.com/PaymanAI/sigilum/releases/latest/download/install-curl.sh | bash

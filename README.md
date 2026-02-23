@@ -16,7 +16,7 @@ Go to [sigilum.id](https://sigilum.id), create an account, and reserve a namespa
 
 ### 2. Install the CLI and start the gateway
 
-Run this on the machine where your AI agent runs:
+> Run these commands on the same machine where your OpenClaw instance is hosted (DigitalOcean, AWS, VPS, etc.). The gateway runs alongside your agent.
 
 ```bash
 curl -fsSL https://github.com/PaymanAI/sigilum/releases/latest/download/install-curl.sh | bash
