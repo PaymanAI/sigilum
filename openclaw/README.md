@@ -1,5 +1,7 @@
 # Sigilum OpenClaw Integration (v1)
 
+> Part of the [Sigilum](../README.md) project. See [docs index](../docs/README.md) for all documentation.
+
 Status: Active v1 source of truth for Sigilum/OpenClaw integration assets in this repository.
 
 ## What is implemented
