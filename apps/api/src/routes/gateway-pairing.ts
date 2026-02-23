@@ -114,7 +114,7 @@ gatewayPairingRouter.post("/start", async (c) => {
 
   const sessionId = crypto.randomUUID();
   const pairCode = randomPairCode(8);
-  const ttlSeconds = body.ttl_seconds ?? 300;
+  const ttlSeconds = body.ttl_seconds ?? 600;
   const expiresAt = Date.now() + (ttlSeconds * 1000);
 
   const stub = getPairingStub(c.env, sessionId);
