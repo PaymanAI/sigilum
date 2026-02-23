@@ -168,7 +168,10 @@ ${CLR_BOLD}${CLR_CYAN}Sigilum Gateway Helper${CLR_RESET}
 
 ${CLR_BOLD}${CLR_CYAN}Usage:${CLR_RESET}
   ${CLR_BOLD}sigilum gateway start${CLR_RESET} ${CLR_DIM}[options]${CLR_RESET}
+  ${CLR_BOLD}sigilum gateway connect --session-id <id> --pair-code <code> --namespace <namespace>${CLR_RESET} ${CLR_DIM}[options]${CLR_RESET}
   ${CLR_BOLD}sigilum gateway pair --session-id <id> --pair-code <code> --namespace <namespace>${CLR_RESET} ${CLR_DIM}[options]${CLR_RESET}
+  ${CLR_BOLD}sigilum gateway pair --daemon --session-id <id> --pair-code <code> --namespace <namespace>${CLR_RESET}
+  ${CLR_BOLD}sigilum gateway pair --status|--stop${CLR_RESET}
 
 ${CLR_BOLD}${CLR_CYAN}Options:${CLR_RESET}
   ${CLR_BOLD}start options:${CLR_RESET}
@@ -176,11 +179,16 @@ ${CLR_BOLD}${CLR_CYAN}Options:${CLR_RESET}
     ${CLR_BOLD}--home <path>${CLR_RESET}             ${CLR_DIM}Gateway Sigilum home (default: ~/.sigilum-workspace)${CLR_RESET}
     ${CLR_BOLD}--api-url <url>${CLR_RESET}           ${CLR_DIM}Sigilum API base URL (default: https://api.sigilum.id)${CLR_RESET}
     ${CLR_BOLD}--addr <addr>${CLR_RESET}             ${CLR_DIM}Listen address (default: :38100)${CLR_RESET}
+    ${CLR_DIM}(identity auto-bootstraps on first start)${CLR_RESET}
 
   ${CLR_BOLD}--api-url <url>${CLR_RESET}            ${CLR_DIM}Sigilum API base URL${CLR_RESET}
   ${CLR_BOLD}--gateway-admin-url <url>${CLR_RESET}  ${CLR_DIM}Local gateway admin URL (default: http://127.0.0.1:38100)${CLR_RESET}
   ${CLR_BOLD}--reconnect-ms <ms>${CLR_RESET}        ${CLR_DIM}WebSocket reconnect delay (default: 2000)${CLR_RESET}
   ${CLR_BOLD}--connect-timeout-ms <ms>${CLR_RESET}  ${CLR_DIM}HTTP/WebSocket preflight timeout (default: 5000)${CLR_RESET}
+  ${CLR_BOLD}--gateway-start-timeout-seconds <n>${CLR_RESET} ${CLR_DIM}Connect wait for gateway health${CLR_RESET}
+  ${CLR_BOLD}--daemon${CLR_RESET}                   ${CLR_DIM}Run pair bridge in background${CLR_RESET}
+  ${CLR_BOLD}--status${CLR_RESET}                   ${CLR_DIM}Show pair bridge daemon status${CLR_RESET}
+  ${CLR_BOLD}--stop${CLR_RESET}                     ${CLR_DIM}Stop pair bridge daemon${CLR_RESET}
   ${CLR_BOLD}-h, --help${CLR_RESET}
 USAGE
 }
@@ -338,8 +346,13 @@ dispatch_gateway() {
       ensure_script "$ROOT_DIR/scripts/sigilum-gateway-start.sh"
       exec "$ROOT_DIR/scripts/sigilum-gateway-start.sh" "$@"
       ;;
+    connect)
+      ensure_script "$ROOT_DIR/scripts/sigilum-gateway-connect.sh"
+      exec "$ROOT_DIR/scripts/sigilum-gateway-connect.sh" "$@"
+      ;;
     pair)
-      exec node "$ROOT_DIR/scripts/gateway-pair-bridge.mjs" "$@"
+      ensure_script "$ROOT_DIR/scripts/sigilum-gateway-pair.sh"
+      exec "$ROOT_DIR/scripts/sigilum-gateway-pair.sh" "$@"
       ;;
     help|-h|--help|"")
       gateway_usage

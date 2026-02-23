@@ -2,329 +2,134 @@
 
 Auditable identity for AI agents.
 
-Sigilum is an open protocol and implementation effort focused on verifiable agent identity, signed delegation chains, and machine-speed accountability for AI systems.
+Sigilum is an open protocol for verifiable agent identity, signed delegation chains, and machine-speed accountability for AI systems.
 
-Latest release: [![GitHub Release](https://img.shields.io/github/v/release/PaymanAI/sigilum?display_name=tag)](https://github.com/PaymanAI/sigilum/releases/latest)
-Release tags: `YYYY-MM-DD` (stable) or `YYYY-MM-DD-beta.N` (prerelease), with optional leading `v`.
+## Quickstart (Managed Mode - Recommended)
 
-## Start Here
+Managed mode uses hosted Sigilum control plane at [sigilum.id](https://sigilum.id). Your gateway runs where your agent runs.
 
-### Autonomous Agent (Required)
+### 1. Sign up and reserve your namespace
 
-If an autonomous coding agent is operating on this repository:
+Go to [sigilum.id](https://sigilum.id), create an account, and reserve a namespace (e.g. `johndee`).
 
-1. Open and follow [`AGENT_RUNBOOK.md`](./AGENT_RUNBOOK.md) first.
-2. Then read this `README.md` fully.
-3. Open and read every link in the `Quick Links` section.
-4. From `docs/README.md`, follow API, gateway, SDK, and CLI docs.
-5. Treat code as source of truth if any doc appears stale.
+### 2. Install the CLI and start the gateway
 
-Minimum required docs before making changes:
-- `MANIFESTO.md`
-- `AGENT_RUNBOOK.md`
-- `docs/README.md`
-- `docs/cli/README.md`
-- `apps/api/README.md`
-- `apps/gateway/README.md`
-- `sdks/README.md`
-
-### Human Quickstart
-
-From repository root:
+> Run these commands on the same machine where your OpenClaw instance is hosted (DigitalOcean, AWS, VPS, etc.). The gateway runs alongside your agent.
 
 ```bash
-corepack enable
-corepack prepare pnpm@10.29.3 --activate
-pnpm install
-pnpm --dir sdks/sdk-ts build
-./sigilum e2e-tests
-```
-
-What this does:
-- installs dependencies
-- builds the TS SDK used by local simulator/e2e flows
-- boots local API + gateway (blockchain mode disabled)
-- bootstraps local workspace identity/services under namespace `johndee`
-- starts bundled demo services and runs pass/fail auth simulator tests
-
-Gateway startup defaults to prebuilt binaries (`./.local/bin/sigilum-gateway*`) to reduce memory pressure versus `go run`.
-
-## OpenClaw / Docker Low-Memory Guidance
-
-For OpenClaw-style agents running in Docker/sandboxed environments (for example 4 GB RAM), expect higher memory pressure during first startup.
-
-Guidelines:
-- use `./sigilum up` (default path builds/reuses gateway binaries to avoid `go run` memory spikes)
-- avoid manually running `go run ./cmd/sigilum-gateway` while Wrangler API is compiling/starting
-- first run may take longer because it compiles gateway binaries and bootstraps local state
-- if OOM happens on first run, build gateway binaries first, then run stack:
-
-```bash
-mkdir -p ./.local/bin
-(cd apps/gateway/service && go build -o ../../../.local/bin/sigilum-gateway ./cmd/sigilum-gateway)
-(cd apps/gateway/service && go build -o ../../../.local/bin/sigilum-gateway-cli ./cmd/sigilum-gateway-cli)
-./sigilum up
-```
-
-What to expect on first successful run:
-- creates local workspace at `./.sigilum-workspace`
-- creates gateway binaries in `./.local/bin`
-- creates gateway data in `./.local/gateway-data`
-- creates local D1 state under `./apps/api/.wrangler/state`
-- auto-creates `./apps/api/wrangler.toml` from `./apps/api/wrangler.toml.example` if missing
-
-## Prerequisites
-
-- Node.js `>=20`
-- pnpm `10.29.3` (via Corepack recommended)
-- Go `>=1.23` (SDK and gateway)
-- Java `21` + Maven `>=3.9` (optional; Java SDK is currently a placeholder)
-- Python `>=3.11` (optional, for Python SDK tests)
-
-## Local Setup
-
-From repo root:
-
-```bash
-corepack enable
-corepack prepare pnpm@10.29.3 --activate
-pnpm install
-pnpm --dir sdks/sdk-ts build
-```
-
-Note:
-- local scripts auto-create `apps/api/wrangler.toml` from `apps/api/wrangler.toml.example` when needed
-- `apps/api/wrangler.toml` is local-only and should not be committed
-
-Optional CLI install:
-
-```bash
-./sigilum install
+curl -fsSL https://github.com/PaymanAI/sigilum/releases/latest/download/install-curl.sh | bash
 source ~/.zshrc
+sigilum gateway start --namespace johndee
 ```
 
-If you do not install globally, use `./sigilum ...` directly.
+`sigilum gateway start` auto-bootstraps identity for fresh namespaces.
 
-OpenClaw integration install:
+### 3. Pair with the dashboard
+
+In the dashboard, click **Start Pairing** and run the command it gives you:
 
 ```bash
-./sigilum openclaw install --namespace johndee --mode managed
-# local stack mode:
-# ./sigilum openclaw install --namespace johndee --mode oss-local
+sigilum gateway connect --session-id <id> --pair-code <code> --namespace johndee --api-url https://api.sigilum.id
 ```
 
-Managed onboarding:
-- Open `https://sigilum.id`
-- sign in and reserve your namespace (for example `johndee`)
-- then run:
+Check bridge state:
 
 ```bash
-./sigilum auth login --mode managed --namespace johndee --owner-token-stdin
+sigilum gateway pair --status
 ```
 
-`sigilum-authz-notify` is disabled by default so OpenClaw does not load namespace-owner JWT unless you explicitly enable it.
+### 4. Add providers
 
-Owner token helpers:
+Use the dashboard to add provider connections (OpenAI, Linear, etc.). Secrets are stored locally in your gateway.
+
+### 5. Install OpenClaw integration (optional)
 
 ```bash
-# local mode: issue/refresh owner JWT for hooks
-./sigilum auth refresh --mode oss-local --namespace johndee
-
-# managed mode: paste owner JWT from dashboard login flow
-./sigilum login --mode managed --namespace johndee --owner-token-stdin
+sigilum openclaw install --namespace johndee
 ```
 
-## Deploy Modes
+> For the complete managed-mode walkthrough, see [docs/quickstart-managed.md](./docs/quickstart-managed.md).
 
-Sigilum separates control plane from data plane:
+---
 
-- Control plane: Sigilum API + dashboard (identity/authz state, approvals/revokes, notifications)
-- Data plane: Sigilum gateway (request enforcement/proxy + upstream provider secrets)
+## Self-Hosted / Local Development
 
-Supported deployment modes:
-
-1. `managed`
-- Hosted API + hosted dashboard
-- Gateway runs customer-side (local/VM/VPC)
-- Provider API keys/tokens stay in customer gateway, not in Sigilum-hosted control plane
-
-2. `enterprise`
-- Enterprise-hosted API + enterprise-hosted dashboard + enterprise-hosted gateway
-- Full on-prem/private network deployment supported
-
-3. `oss-local`
-- Open-source API + open-source gateway only (no dashboard source required)
-- Intended for local development, tests, and self-hosted CLI-driven workflows
-
-Managed-mode command boundary:
-
-- `sigilum login --mode managed` stores namespace-owner JWT for local hooks after managed dashboard login (`api.sigilum.id`)
-- `sigilum up`, `sigilum down`, and `sigilum service ...` are local operations
-
-## Run Locally
-
-Start API + gateway:
+For local development, testing, or fully self-hosted deployments:
 
 ```bash
-./sigilum up
+git clone https://github.com/PaymanAI/sigilum.git && cd sigilum
+corepack enable && corepack prepare pnpm@10.29.3 --activate
+pnpm install && pnpm --dir sdks/sdk-ts build
+./sigilum up          # starts local API + gateway
+./sigilum e2e-tests   # runs full end-to-end validation
 ```
 
-Stop local stack listeners:
+> For the complete self-hosted guide, see [docs/quickstart-self-hosted.md](./docs/quickstart-self-hosted.md).
 
-```bash
-./sigilum down
-```
+---
 
-Run diagnostics:
+## How It Works
 
-```bash
-./sigilum doctor
-```
+Sigilum separates **control plane** from **data plane**:
 
-Machine-readable diagnostics for automation:
+- **Control plane** (Sigilum API + dashboard): manages identity, authorization state, approvals/revocations, and notifications.
+- **Data plane** (Sigilum gateway): enforces request signing, approved-claim checks, and proxies requests to upstream providers. Provider secrets stay in your gateway.
 
-```bash
-./sigilum doctor --json
-```
+### Deploy Modes
 
-Safe automated remediations for common local issues:
+| Mode | Control Plane | Gateway | Use Case |
+|------|--------------|---------|----------|
+| `managed` | Hosted ([api.sigilum.id](https://api.sigilum.id)) | Customer-side (local/VM/VPC) | **Recommended.** Production use. |
+| `enterprise` | Self-hosted | Self-hosted | Full on-prem/private network. |
+| `oss-local` | Local (open-source API) | Local | Development and testing. |
 
-```bash
-./sigilum doctor --fix
-```
+---
 
-Run full local e2e flow (recommended smoke test):
+## Documentation
 
-```bash
-./sigilum e2e-tests
-```
+| Document | Description |
+|----------|-------------|
+| [Managed Quickstart](./docs/quickstart-managed.md) | Complete managed-mode setup guide |
+| [Self-Hosted Quickstart](./docs/quickstart-self-hosted.md) | OSS/local development setup |
+| [Docs Index](./docs/README.md) | Full documentation index |
+| [CLI Reference](./docs/cli/README.md) | All CLI commands and options |
+| [API Reference](./apps/api/README.md) | API endpoints and flows |
+| [Gateway Reference](./apps/gateway/README.md) | Gateway behavior and configuration |
+| [SDKs](./sdks/README.md) | TypeScript, Python, Go SDK guides |
+| [OpenClaw Integration](./openclaw/README.md) | Hooks, skills, and installer |
+| [Protocol Specs](./docs/protocol/README.md) | DID method, SDK signing profile |
+| [Manifesto](./MANIFESTO.md) | Why Sigilum exists |
 
-By default, `e2e-tests` performs a clean start by stopping listeners on ports `8787`, `38100`, `11000`, `11100` before bootstrapping.
-Set `SIGILUM_E2E_CLEAN_START=false` to reuse already running processes.
-Simulator seeding uses local API endpoint `POST /v1/test/seed` (disabled by default, enabled only for e2e with a per-run token) instead of direct `wrangler d1 execute` writes.
-CI enforces that prod/staging config templates do not enable this endpoint (`pnpm config:guards`).
+## For AI Agents
 
-This starts:
-- API on `http://127.0.0.1:8787`
-- Gateway on `http://127.0.0.1:38100`
-- Demo native service on `http://127.0.0.1:11000`
-- Demo gateway upstream service on `http://127.0.0.1:11100`
+If you are an autonomous coding agent operating on this repository:
 
-Low-memory mode notes:
-- default behavior already uses prebuilt gateway binaries (`GATEWAY_BUILD_BINARIES=true`)
-- to force `go run` mode for fast gateway iteration: `GATEWAY_BUILD_BINARIES=false ./sigilum up`
-
-## Register Services (CLI)
-
-Native Sigilum service:
-
-```bash
-./sigilum service add \
-  --service-slug my-native-service \
-  --service-name "My Native Service" \
-  --mode native
-```
-
-Gateway-routed service (example: Linear token):
-
-```bash
-export LINEAR_TOKEN="lin_api_..."
-./sigilum service add \
-  --service-slug linear \
-  --service-name "Linear" \
-  --mode gateway \
-  --upstream-base-url https://api.linear.app \
-  --auth-mode bearer \
-  --upstream-secret-env LINEAR_TOKEN
-```
-
-Query-parameter auth is also supported (for providers that require API keys in URL query, e.g. `?TYPEFULLY_API_KEY=...`) using `--auth-mode query_param` and `--upstream-header <query_key>`.
-
-List services in a namespace:
-
-```bash
-./sigilum service list --namespace johndee
-```
-
-Rotate/update gateway upstream secret for a service:
-
-```bash
-export LINEAR_TOKEN="lin_api_..."
-./sigilum service secret set --service-slug linear --upstream-secret-env LINEAR_TOKEN
-```
-
-Security default:
-- `sigilum service add` and `sigilum service secret set` mask raw secret values in output by default.
-- use `--reveal-secrets` only when you intentionally need plaintext output in terminal history/logs.
-
-Protocol and shared credential notes:
-- `sigilum service add --mode gateway` is the HTTP proxy flow.
-- MCP connections are supported in gateway (`protocol: mcp`) and are typically configured through dashboard provider setup or `sigilum-gateway-cli`.
-- Service-catalog `env_var` fields are dashboard hints for shared credential variables (not automatic process env reads by gateway).
-- Shared variables can be reused across multiple connections by storing secret references like `{{var:OPENAI_API_KEY}}`.
-
-Does usage change?
-- Existing HTTP onboarding stays the same.
-- New optional step if you want reuse across providers: create one shared credential variable and reference it from each connection.
-
-## Run SDK Tests
-
-TypeScript SDK:
-
-```bash
-pnpm --dir sdks/sdk-ts build
-pnpm --dir sdks/sdk-ts test
-pnpm --dir sdks/sdk-ts test:conformance
-```
-
-Go SDK:
-
-```bash
-(cd sdks/sdk-go && go test ./...)
-```
-
-Java SDK:
-
-- `sdks/sdk-java` is currently a placeholder and is not yet supported for runtime use.
-
-Python SDK (optional):
-
-```bash
-python3 -m pip install -e sdks/sdk-python pytest
-python3 -m pytest sdks/sdk-python/tests
-```
-
-## Local Data Paths
-
-- Workspace identities and local bootstrap keys: `./.sigilum-workspace`
-- Gateway local data store: `./.local/gateway-data`
-- API local D1 SQLite files (Wrangler/Miniflare): `./apps/api/.wrangler/state/.../*.sqlite`
-
-Find current local SQLite file:
-
-```bash
-find apps/api/.wrangler/state -name '*.sqlite' -print
-```
+1. Read [`AGENT_RUNBOOK.md`](./AGENT_RUNBOOK.md) first.
+2. Read this README fully.
+3. Follow links to component docs as needed.
+4. Treat code as source of truth if any doc appears stale.
 
 ## Repository Structure
 
-- `MANIFESTO.md` - project vision, problem framing, and sequence of goals.
-- `LICENSE` - open source license for this repository.
-- `docs/` - project documentation.
-- `openclaw/` - OpenClaw integration assets (hooks, skills, installer).
-- `apps/` - runnable applications.
-- `config/` - shared TypeScript config package (`@sigilum/config`).
-- `contracts/` - smart contracts and Foundry project.
-- `sdks/` - language SDKs (TS, Python, Go; Java placeholder) and shared SDK test vectors.
-- `releases/` - release artifacts and metadata.
+```
+├── apps/
+│   ├── api/          # Sigilum API (Cloudflare Workers)
+│   └── gateway/      # Sigilum Gateway (Go)
+├── config/           # Shared TypeScript config (@sigilum/config)
+├── contracts/        # Smart contracts (Foundry)
+├── docs/             # Project documentation
+├── openclaw/         # OpenClaw integration (hooks, skills, installer)
+├── releases/         # Release artifacts and metadata
+└── sdks/             # Language SDKs (TS, Python, Go; Java placeholder)
+```
 
-## Quick Links
+## Prerequisites
 
-- [Agent Runbook (Agents start here)](./AGENT_RUNBOOK.md)
-- [Manifesto](./MANIFESTO.md)
-- [Docs Index](./docs/README.md)
-- [CLI Guide](./docs/cli/README.md)
-- [SDKs Index](./sdks/README.md)
-- [API Guide](./apps/api/README.md)
-- [Gateway Guide](./apps/gateway/README.md)
-- [OpenClaw Integration](./openclaw/README.md)
+- Node.js >= 20, pnpm 10.29.3 (via Corepack)
+- Go >= 1.23 (gateway and Go SDK)
+- Python >= 3.11 (optional, Python SDK)
+- Java 21 + Maven >= 3.9 (optional, Java SDK placeholder)
+
+## License
+
+See [LICENSE](./LICENSE).

@@ -16,6 +16,7 @@ import (
 
 	"sigilum.local/gateway/internal/connectors"
 	"sigilum.local/gateway/internal/util"
+	"sigilum.local/sdk-go/sigilum"
 )
 
 type kvPairs map[string]string
@@ -96,6 +97,8 @@ func main() {
 		err = runRotate(args)
 	case "test":
 		err = runTest(args)
+	case "init-identity":
+		err = runInitIdentity(args)
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -120,6 +123,7 @@ func usage() {
 	_, _ = fmt.Fprintln(os.Stderr, "  delete   --id <id>                 Delete a connection")
 	_, _ = fmt.Fprintln(os.Stderr, "  rotate   --id <id> --secret k=v    Rotate/add secrets")
 	_, _ = fmt.Fprintln(os.Stderr, "  test     --id <id> [flags]         Test upstream connection")
+	_, _ = fmt.Fprintln(os.Stderr, "  init-identity [flags]              Create/load namespace identity")
 	_, _ = fmt.Fprintln(os.Stderr, "")
 	_, _ = fmt.Fprintln(os.Stderr, "Global environment:")
 	_, _ = fmt.Fprintln(os.Stderr, "  GATEWAY_DATA_DIR (default $XDG_DATA_HOME/sigilum-gateway or $HOME/.local/share/sigilum-gateway)")
@@ -513,4 +517,34 @@ func runConnectionTest(service *connectors.Service, connectionID string, input c
 		return "fail", resp.StatusCode, fmt.Sprintf("http %d", resp.StatusCode)
 	}
 	return "fail", resp.StatusCode, fmt.Sprintf("http %d: %s", resp.StatusCode, message)
+}
+
+func runInitIdentity(args []string) error {
+	fs := flag.NewFlagSet("init-identity", flag.ContinueOnError)
+	namespace := fs.String("namespace", "", "Sigilum namespace")
+	homeDir := fs.String("home", "", "Sigilum home directory")
+	force := fs.Bool("force", false, "Regenerate identity if it already exists")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*namespace) == "" {
+		return errors.New("--namespace is required")
+	}
+	result, err := sigilum.InitIdentity(sigilum.InitIdentityOptions{
+		Namespace: strings.TrimSpace(*namespace),
+		HomeDir:   strings.TrimSpace(*homeDir),
+		Force:     *force,
+	})
+	if err != nil {
+		return err
+	}
+	return printJSON(map[string]any{
+		"namespace":     result.Namespace,
+		"did":           result.DID,
+		"key_id":        result.KeyID,
+		"public_key":    result.PublicKey,
+		"created":       result.Created,
+		"home_dir":      result.HomeDir,
+		"identity_path": result.IdentityPath,
+	})
 }
