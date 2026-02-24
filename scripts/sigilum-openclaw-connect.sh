@@ -25,10 +25,10 @@ Usage:
     [--owner-token <jwt>]
 
 What it does:
-  1) Runs: sigilum gateway connect
-  2) Runs: sigilum openclaw install --mode managed --non-interactive
-  3) Bootstraps OpenClaw agent keypairs immediately
-  4) Prints verification hints and diagnostics on failure
+  1) Runs: sigilum openclaw install --mode managed --non-interactive
+  2) Bootstraps OpenClaw agent keypairs immediately
+  3) Runs: sigilum gateway connect (after install/reload window)
+  4) Verifies pair bridge + gateway health; retries reconcile once on failure
 EOF
 }
 
@@ -50,6 +50,51 @@ run() {
   LAST_CMD="$*"
   echo "+ $*" | tee -a "$LOG_FILE"
   "$@" 2>&1 | tee -a "$LOG_FILE"
+}
+
+run_check() {
+  LAST_CMD="$*"
+  echo "+ $*" | tee -a "$LOG_FILE"
+  "$@" 2>&1 | tee -a "$LOG_FILE"
+}
+
+normalize_gateway_admin_url() {
+  local raw
+  raw="$(printf '%s' "${1:-}" | tr -d '[:space:]')"
+  if [[ -z "$raw" ]]; then
+    printf 'http://127.0.0.1:38100'
+    return 0
+  fi
+  if [[ "$raw" =~ ^https?:// ]]; then
+    printf '%s' "${raw%/}"
+    return 0
+  fi
+  if [[ "$raw" =~ ^:[0-9]+$ ]]; then
+    printf 'http://127.0.0.1%s' "$raw"
+    return 0
+  fi
+  if [[ "$raw" =~ ^[^/:]+:[0-9]+$ ]]; then
+    printf 'http://%s' "$raw"
+    return 0
+  fi
+  return 1
+}
+
+verify_gateway_connect_state() {
+  local gateway_health_url="$1"
+  local ok="true"
+
+  if ! run_check sigilum gateway pair --status; then
+    ok="false"
+  fi
+
+  if command -v curl >/dev/null 2>&1; then
+    if ! run_check curl -fsS "$gateway_health_url"; then
+      ok="false"
+    fi
+  fi
+
+  [[ "$ok" == "true" ]]
 }
 
 print_file_or_missing() {
@@ -202,6 +247,16 @@ if [[ -z "$CONFIG_PATH" ]]; then
   CONFIG_PATH="${OPENCLAW_HOME}/openclaw.json"
 fi
 
+if [[ -n "$GATEWAY_ADMIN_URL" ]]; then
+  if ! GATEWAY_ADMIN_URL="$(normalize_gateway_admin_url "$GATEWAY_ADMIN_URL")"; then
+    echo "Invalid --gateway-admin-url: ${GATEWAY_ADMIN_URL}" >&2
+    exit 1
+  fi
+else
+  GATEWAY_ADMIN_URL="http://127.0.0.1:38100"
+fi
+gateway_health_url="${GATEWAY_ADMIN_URL%/}/health"
+
 require_cmd node
 require_cmd sigilum
 
@@ -240,7 +295,6 @@ if [[ -n "$OWNER_TOKEN" ]]; then
   openclaw_install_cmd+=(--owner-token "$OWNER_TOKEN")
 fi
 
-run "${gateway_connect_cmd[@]}"
 run "${openclaw_install_cmd[@]}"
 
 key_bootstrap_cmd=(node "$ROOT_DIR/openclaw/lib/bootstrap-openclaw-agent-keys.mjs" --config "$CONFIG_PATH")
@@ -252,9 +306,17 @@ if [[ -n "$AGENT_ID" ]]; then
 fi
 run "${key_bootstrap_cmd[@]}"
 
-run sigilum gateway pair --status
-if command -v curl >/dev/null 2>&1; then
-  run curl -fsS http://127.0.0.1:38100/health
+echo "+ sleep 2" | tee -a "$LOG_FILE"
+sleep 2
+run "${gateway_connect_cmd[@]}"
+
+if ! verify_gateway_connect_state "$gateway_health_url"; then
+  echo "Gateway verification failed after initial connect; attempting one reconcile pass..." | tee -a "$LOG_FILE"
+  run "${gateway_connect_cmd[@]}"
+  if ! verify_gateway_connect_state "$gateway_health_url"; then
+    echo "Gateway verification failed after reconcile retry." >&2
+    exit 1
+  fi
 fi
 
 echo ""
