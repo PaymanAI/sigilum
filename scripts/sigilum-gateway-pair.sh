@@ -139,8 +139,8 @@ if [[ "$MODE" == "foreground" ]]; then
   exec node "$ROOT_DIR/scripts/gateway-pair-bridge.mjs" "${BRIDGE_ARGS[@]}"
 fi
 
-if ! command -v nohup >/dev/null 2>&1; then
-  echo "Missing required command for --daemon: nohup" >&2
+if ! command -v nohup >/dev/null 2>&1 && ! command -v setsid >/dev/null 2>&1; then
+  echo "Missing required command for --daemon: need 'setsid' or 'nohup'" >&2
   exit 1
 fi
 

@@ -217,8 +217,8 @@ code="$(http_code "$health_url")"
 
 if [[ "$code" != "200" ]]; then
   echo "Gateway is not healthy at ${health_url}; starting gateway..."
-  if ! command -v nohup >/dev/null 2>&1; then
-    echo "Missing required command for auto-start: nohup" >&2
+  if ! command -v nohup >/dev/null 2>&1 && ! command -v setsid >/dev/null 2>&1; then
+    echo "Missing required command for auto-start: need 'setsid' or 'nohup'" >&2
     exit 1
   fi
 
