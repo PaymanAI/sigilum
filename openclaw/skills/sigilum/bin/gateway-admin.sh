@@ -19,7 +19,7 @@ Defaults:
   gateway_url = ${SIGILUM_GATEWAY_URL:-http://localhost:38100}
   namespace   = ${SIGILUM_NAMESPACE}
   key_root    = ${SIGILUM_KEY_ROOT:-$HOME/.openclaw/.sigilum/keys}
-  agent_id    = ${OPENCLAW_AGENT_ID:-${OPENCLAW_AGENT:-${SIGILUM_AGENT_ID:-main}}}
+  agent_id    = ${SIGILUM_AGENT_ID:-${OPENCLAW_AGENT_ID:-${OPENCLAW_AGENT:-main}}}
   subject     = ${SIGILUM_SUBJECT:-<agent_id>}
 
 Notes:
@@ -65,6 +65,70 @@ trim() {
   value="${value#"${value%%[![:space:]]*}"}"
   value="${value%"${value##*[![:space:]]}"}"
   printf '%s' "$value"
+}
+
+sanitize_agent_id() {
+  local value
+  value="$(trim "$1")"
+  value="${value//[^a-zA-Z0-9._-]/_}"
+  printf '%s' "$value"
+}
+
+preferred_agent_from_openclaw_config() {
+  if ! has_cmd node; then
+    return 0
+  fi
+
+  local config_path="${OPENCLAW_CONFIG_PATH:-${OPENCLAW_HOME:-$HOME/.openclaw}/openclaw.json}"
+  if [[ ! -f "$config_path" ]]; then
+    return 0
+  fi
+
+  local resolved
+  resolved="$(node - "$config_path" <<'NODE'
+const fs = require("fs");
+
+const asObject = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value;
+};
+const asString = (value) => (typeof value === "string" ? value.trim() : "");
+const sanitize = (value) => asString(value).replace(/[^a-zA-Z0-9._-]/g, "_");
+
+const configPath = process.argv[2];
+if (!configPath) process.exit(0);
+
+let parsed = {};
+try {
+  parsed = JSON.parse(fs.readFileSync(configPath, "utf8"));
+} catch {
+  process.exit(0);
+}
+
+const cfg = asObject(parsed);
+const agents = asObject(cfg.agents);
+const defaults = asObject(agents.defaults);
+const defaultID = sanitize(defaults.id);
+if (defaultID) {
+  process.stdout.write(defaultID);
+  process.exit(0);
+}
+
+const list = Array.isArray(agents.list) ? agents.list : [];
+for (const entry of list) {
+  const agent = asObject(entry);
+  const id = sanitize(agent.id);
+  if (id) {
+    process.stdout.write(id);
+    process.exit(0);
+  }
+}
+NODE
+)"
+  resolved="$(sanitize_agent_id "$resolved")"
+  if [[ -n "$resolved" ]]; then
+    printf '%s' "$resolved"
+  fi
 }
 
 hex_from_file() {
@@ -386,22 +450,38 @@ resolve_identity_files() {
   local explicit_agent
   explicit_agent="$(trim "${SIGILUM_AGENT_ID:-}")"
   local candidates=()
+  if [[ -n "$explicit_agent" ]]; then
+    candidates+=("$explicit_agent")
+  fi
   if [[ -n "${OPENCLAW_AGENT_ID:-}" ]]; then
     candidates+=("$(trim "${OPENCLAW_AGENT_ID}")")
   fi
   if [[ -n "${OPENCLAW_AGENT:-}" ]]; then
     candidates+=("$(trim "${OPENCLAW_AGENT}")")
   fi
-  if [[ -n "$explicit_agent" ]]; then
-    candidates+=("$explicit_agent")
+  local configured_agent
+  configured_agent="$(preferred_agent_from_openclaw_config)"
+  if [[ -n "$configured_agent" ]]; then
+    candidates+=("$configured_agent")
   fi
   candidates+=("main" "default")
+  local normalized_candidates=()
+  local seen_candidates=" "
+  local candidate normalized_candidate
+  for candidate in "${candidates[@]}"; do
+    normalized_candidate="$(sanitize_agent_id "$candidate")"
+    [[ -z "$normalized_candidate" ]] && continue
+    case "$seen_candidates" in
+      *" ${normalized_candidate} "*) continue ;;
+    esac
+    seen_candidates="${seen_candidates}${normalized_candidate} "
+    normalized_candidates+=("$normalized_candidate")
+  done
 
-  local candidate key_dir key_path pub_path
+  local key_dir key_path pub_path
   local keys
   shopt -s nullglob
-  for candidate in "${candidates[@]}"; do
-    [[ -z "$candidate" ]] && continue
+  for candidate in "${normalized_candidates[@]}"; do
     key_dir="${key_root%/}/${candidate}"
     keys=("${key_dir}"/*.key)
     if (( ${#keys[@]} == 0 )); then

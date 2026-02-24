@@ -184,6 +184,7 @@ Read by `openclaw/skills/sigilum/bin/gateway-admin.sh` and `openclaw/skills/sigi
 | `SIGILUM_AGENT_ID` | runtime | Preferred agent identity for signing. |
 | `OPENCLAW_AGENT_ID` | runtime | Fallback agent identity candidate. |
 | `OPENCLAW_AGENT` | runtime | Additional fallback agent identity candidate. |
+| `OPENCLAW_CONFIG_PATH` | runtime | Optional OpenClaw config path used for helper fallback agent discovery. |
 | `SIGILUM_SUBJECT` | runtime | Optional explicit subject claim override. |
 | `SIGILUM_HTTP_TIMEOUT_SECONDS` | runtime | Timeout for helper HTTP requests. |
 | `SIGILUM_ALLOW_INSECURE_ADMIN` | runtime | Enables legacy insecure `list/test/discover` admin helpers. |

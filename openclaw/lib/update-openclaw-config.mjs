@@ -28,6 +28,35 @@ const asObject = (value) => {
 
 const asString = (value) => (typeof value === "string" ? value.trim() : "");
 const asArray = (value) => (Array.isArray(value) ? value : []);
+const sanitizeAgentID = (value) => asString(value).replace(/[^a-zA-Z0-9._-]/g, "_");
+
+const resolvePreferredAgentID = (cfg, globalEnv, skillEnv) => {
+  const explicitFromGlobal = sanitizeAgentID(globalEnv.SIGILUM_AGENT_ID);
+  if (explicitFromGlobal) {
+    return explicitFromGlobal;
+  }
+  const explicitFromSkill = sanitizeAgentID(skillEnv.SIGILUM_AGENT_ID);
+  if (explicitFromSkill) {
+    return explicitFromSkill;
+  }
+
+  const agents = asObject(cfg.agents);
+  const defaults = asObject(agents.defaults);
+  const defaultID = sanitizeAgentID(defaults.id);
+  if (defaultID) {
+    return defaultID;
+  }
+
+  for (const entry of asArray(agents.list)) {
+    const agent = asObject(entry);
+    const listID = sanitizeAgentID(agent.id);
+    if (listID) {
+      return listID;
+    }
+  }
+
+  return "";
+};
 
 const mapLocalhostToDockerHost = (rawUrl) => {
   const value = asString(rawUrl);
@@ -97,6 +126,10 @@ if (sandboxed) {
 
 config.env = asObject(config.env);
 const existingGlobalEnv = asObject(config.env.vars);
+const existingSkillEnvForResolution = asObject(
+  asObject(asObject(asObject(config.skills).entries).sigilum).env,
+);
+const preferredAgentID = resolvePreferredAgentID(config, existingGlobalEnv, existingSkillEnvForResolution);
 delete existingGlobalEnv.SIGILUM_SKILL_DIR;
 config.env.vars = {
   ...existingGlobalEnv,
@@ -104,6 +137,7 @@ config.env.vars = {
   SIGILUM_RUNTIME_ROOT: sigilumRuntimeRoot,
   SIGILUM_RUNTIME_BIN: runtimeBin,
   SIGILUM_GATEWAY_HELPER_BIN: gatewayHelperBin,
+  ...(preferredAgentID ? { SIGILUM_AGENT_ID: preferredAgentID } : {}),
 };
 if (sigilumHome) {
   config.env.vars.SIGILUM_HOME = sigilumHome;
@@ -164,6 +198,7 @@ sigilumSkill.env = {
   SIGILUM_RUNTIME_ROOT: sigilumRuntimeRoot,
   SIGILUM_RUNTIME_BIN: runtimeBin,
   SIGILUM_GATEWAY_HELPER_BIN: gatewayHelperBin,
+  ...(preferredAgentID ? { SIGILUM_AGENT_ID: preferredAgentID } : {}),
 };
 if (sigilumHome) {
   sigilumSkill.env.SIGILUM_HOME = sigilumHome;
