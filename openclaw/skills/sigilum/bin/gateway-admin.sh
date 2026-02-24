@@ -74,6 +74,63 @@ sanitize_agent_id() {
   printf '%s' "$value"
 }
 
+preferred_agent_from_openclaw_config() {
+  if ! has_cmd node; then
+    return 0
+  fi
+
+  local config_path="${OPENCLAW_CONFIG_PATH:-${OPENCLAW_HOME:-$HOME/.openclaw}/openclaw.json}"
+  if [[ ! -f "$config_path" ]]; then
+    return 0
+  fi
+
+  local resolved
+  resolved="$(node - "$config_path" <<'NODE'
+const fs = require("fs");
+
+const asObject = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value;
+};
+const asString = (value) => (typeof value === "string" ? value.trim() : "");
+const sanitize = (value) => asString(value).replace(/[^a-zA-Z0-9._-]/g, "_");
+
+const configPath = process.argv[2];
+if (!configPath) process.exit(0);
+
+let parsed = {};
+try {
+  parsed = JSON.parse(fs.readFileSync(configPath, "utf8"));
+} catch {
+  process.exit(0);
+}
+
+const cfg = asObject(parsed);
+const agents = asObject(cfg.agents);
+const defaults = asObject(agents.defaults);
+const defaultID = sanitize(defaults.id);
+if (defaultID) {
+  process.stdout.write(defaultID);
+  process.exit(0);
+}
+
+const list = Array.isArray(agents.list) ? agents.list : [];
+for (const entry of list) {
+  const agent = asObject(entry);
+  const id = sanitize(agent.id);
+  if (id) {
+    process.stdout.write(id);
+    process.exit(0);
+  }
+}
+NODE
+)"
+  resolved="$(sanitize_agent_id "$resolved")"
+  if [[ -n "$resolved" ]]; then
+    printf '%s' "$resolved"
+  fi
+}
+
 hex_from_file() {
   local file="$1"
   od -An -tx1 -v "$file" | tr -d ' \n'
@@ -401,6 +458,11 @@ resolve_identity_files() {
   fi
   if [[ -n "${OPENCLAW_AGENT:-}" ]]; then
     candidates+=("$(trim "${OPENCLAW_AGENT}")")
+  fi
+  local configured_agent
+  configured_agent="$(preferred_agent_from_openclaw_config)"
+  if [[ -n "$configured_agent" ]]; then
+    candidates+=("$configured_agent")
   fi
   candidates+=("main" "default")
   local normalized_candidates=()

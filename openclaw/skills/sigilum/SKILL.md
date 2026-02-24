@@ -123,6 +123,7 @@ Optional:
 - `SIGILUM_AGENT_ID`: preferred explicit selector for signed runtime requests
 - `OPENCLAW_AGENT_ID`: runtime fallback selector (when `SIGILUM_AGENT_ID` is unset)
 - `OPENCLAW_AGENT`: runtime fallback selector (when `SIGILUM_AGENT_ID` and `OPENCLAW_AGENT_ID` are unset)
+- `OPENCLAW_CONFIG_PATH`: optional OpenClaw config path for helper fallback identity discovery
 - `SIGILUM_SUBJECT`: optional subject override for signed runtime requests
 - `SIGILUM_GATEWAY_ADMIN_TOKEN`: optional bearer token for helper protocol auto-detect (`/api/admin/connections/{id}`)
 - `SIGILUM_CONNECTION_PROTOCOL`: optional manual override for helper protocol routing (`mcp|http`)
