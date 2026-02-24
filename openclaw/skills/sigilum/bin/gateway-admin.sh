@@ -19,7 +19,7 @@ Defaults:
   gateway_url = ${SIGILUM_GATEWAY_URL:-http://localhost:38100}
   namespace   = ${SIGILUM_NAMESPACE}
   key_root    = ${SIGILUM_KEY_ROOT:-$HOME/.openclaw/.sigilum/keys}
-  agent_id    = ${OPENCLAW_AGENT_ID:-${OPENCLAW_AGENT:-${SIGILUM_AGENT_ID:-main}}}
+  agent_id    = ${SIGILUM_AGENT_ID:-${OPENCLAW_AGENT_ID:-${OPENCLAW_AGENT:-main}}}
   subject     = ${SIGILUM_SUBJECT:-<agent_id>}
 
 Notes:
@@ -64,6 +64,13 @@ trim() {
   local value="$1"
   value="${value#"${value%%[![:space:]]*}"}"
   value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+sanitize_agent_id() {
+  local value
+  value="$(trim "$1")"
+  value="${value//[^a-zA-Z0-9._-]/_}"
   printf '%s' "$value"
 }
 
@@ -386,22 +393,33 @@ resolve_identity_files() {
   local explicit_agent
   explicit_agent="$(trim "${SIGILUM_AGENT_ID:-}")"
   local candidates=()
+  if [[ -n "$explicit_agent" ]]; then
+    candidates+=("$explicit_agent")
+  fi
   if [[ -n "${OPENCLAW_AGENT_ID:-}" ]]; then
     candidates+=("$(trim "${OPENCLAW_AGENT_ID}")")
   fi
   if [[ -n "${OPENCLAW_AGENT:-}" ]]; then
     candidates+=("$(trim "${OPENCLAW_AGENT}")")
   fi
-  if [[ -n "$explicit_agent" ]]; then
-    candidates+=("$explicit_agent")
-  fi
   candidates+=("main" "default")
+  local normalized_candidates=()
+  local seen_candidates=" "
+  local candidate normalized_candidate
+  for candidate in "${candidates[@]}"; do
+    normalized_candidate="$(sanitize_agent_id "$candidate")"
+    [[ -z "$normalized_candidate" ]] && continue
+    case "$seen_candidates" in
+      *" ${normalized_candidate} "*) continue ;;
+    esac
+    seen_candidates="${seen_candidates}${normalized_candidate} "
+    normalized_candidates+=("$normalized_candidate")
+  done
 
-  local candidate key_dir key_path pub_path
+  local key_dir key_path pub_path
   local keys
   shopt -s nullglob
-  for candidate in "${candidates[@]}"; do
-    [[ -z "$candidate" ]] && continue
+  for candidate in "${normalized_candidates[@]}"; do
     key_dir="${key_root%/}/${candidate}"
     keys=("${key_dir}"/*.key)
     if (( ${#keys[@]} == 0 )); then

@@ -32,6 +32,9 @@ HELPER="${SIGILUM_GATEWAY_HELPER_BIN:-/workspace/skills/sigilum/bin/gateway-admi
 if [[ ! -x "${HELPER}" && -x "${HOME}/.openclaw/workspace/skills/sigilum/bin/gateway-admin.sh" ]]; then
   HELPER="${HOME}/.openclaw/workspace/skills/sigilum/bin/gateway-admin.sh"
 fi
+if [[ -z "${SIGILUM_AGENT_ID:-}" ]]; then
+  export SIGILUM_AGENT_ID="${OPENCLAW_AGENT_ID:-${OPENCLAW_AGENT:-}}"
+fi
 ```
 
 Signed tools-list check (per-agent auth):
@@ -117,7 +120,9 @@ Optional:
 - `SIGILUM_GATEWAY_URL`: gateway base URL (optional; defaults to `http://localhost:38100`)
 - `SIGILUM_GATEWAY_HELPER_BIN`: optional absolute path to `gateway-admin.sh`
 - `SIGILUM_KEY_ROOT`: optional agent key root (default `~/.openclaw/.sigilum/keys`)
-- `SIGILUM_AGENT_ID`: optional fallback selector (runtime prefers `OPENCLAW_AGENT_ID`/`OPENCLAW_AGENT` first)
+- `SIGILUM_AGENT_ID`: preferred explicit selector for signed runtime requests
+- `OPENCLAW_AGENT_ID`: runtime fallback selector (when `SIGILUM_AGENT_ID` is unset)
+- `OPENCLAW_AGENT`: runtime fallback selector (when `SIGILUM_AGENT_ID` and `OPENCLAW_AGENT_ID` are unset)
 - `SIGILUM_SUBJECT`: optional subject override for signed runtime requests
 - `SIGILUM_GATEWAY_ADMIN_TOKEN`: optional bearer token for helper protocol auto-detect (`/api/admin/connections/{id}`)
 - `SIGILUM_CONNECTION_PROTOCOL`: optional manual override for helper protocol routing (`mcp|http`)
