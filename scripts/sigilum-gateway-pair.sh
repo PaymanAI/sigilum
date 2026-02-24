@@ -51,6 +51,24 @@ read_pid() {
   printf '%s' "$pid"
 }
 
+start_detached_process() {
+  local log_file="$1"
+  shift
+
+  local pid=""
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$@" >"$log_file" 2>&1 < /dev/null &
+    pid=$!
+  else
+    nohup "$@" >"$log_file" 2>&1 < /dev/null &
+    pid=$!
+  fi
+
+  # Best effort: avoid shell job control ownership for long-running daemons.
+  disown "$pid" 2>/dev/null || true
+  printf '%s' "$pid"
+}
+
 MODE="foreground"
 ACTION="run"
 LOG_FILE="$LOG_FILE_DEFAULT"
@@ -121,8 +139,8 @@ if [[ "$MODE" == "foreground" ]]; then
   exec node "$ROOT_DIR/scripts/gateway-pair-bridge.mjs" "${BRIDGE_ARGS[@]}"
 fi
 
-if ! command -v nohup >/dev/null 2>&1; then
-  echo "Missing required command for --daemon: nohup" >&2
+if ! command -v nohup >/dev/null 2>&1 && ! command -v setsid >/dev/null 2>&1; then
+  echo "Missing required command for --daemon: need 'setsid' or 'nohup'" >&2
   exit 1
 fi
 
@@ -132,8 +150,7 @@ if pid="$(read_pid "$PID_FILE")" && kill -0 "$pid" 2>/dev/null; then
 fi
 
 mkdir -p "$(dirname "$LOG_FILE")" "$(dirname "$PID_FILE")" "$RUN_DIR"
-nohup node "$ROOT_DIR/scripts/gateway-pair-bridge.mjs" "${BRIDGE_ARGS[@]}" >"$LOG_FILE" 2>&1 < /dev/null &
-pid=$!
+pid="$(start_detached_process "$LOG_FILE" node "$ROOT_DIR/scripts/gateway-pair-bridge.mjs" "${BRIDGE_ARGS[@]}")"
 echo "$pid" >"$PID_FILE"
 sleep 1
 if ! kill -0 "$pid" 2>/dev/null; then
