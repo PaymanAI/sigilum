@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"sigilum.local/gateway/internal/connectors"
 )
 
 func TestCollectLegacyJSONCandidatesAndDelete(t *testing.T) {
@@ -229,5 +231,147 @@ func TestPurgeLegacyOpenClawKeysRuntimeFindingAddsWarning(t *testing.T) {
 	}
 	if !actionFound {
 		t.Fatalf("expected manual_runtime_cleanup action")
+	}
+}
+
+func TestImportLegacyOpenClawKeysCreatesProviderConnections(t *testing.T) {
+	tmp := t.TempDir()
+	openClawHome := filepath.Join(tmp, ".openclaw")
+	if err := os.MkdirAll(openClawHome, 0o700); err != nil {
+		t.Fatalf("mkdir openclaw home: %v", err)
+	}
+	configPath := filepath.Join(openClawHome, "openclaw.json")
+	config := map[string]any{
+		"models": map[string]any{
+			"providers": map[string]any{
+				"openai": map[string]any{
+					"apiKey": "sk-openai-1234567890",
+				},
+				"anthropic": map[string]any{
+					"apiKey": "sk-ant-1234567890",
+				},
+			},
+		},
+	}
+	encodedConfig, err := json.Marshal(config)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	if err := os.WriteFile(configPath, encodedConfig, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	t.Setenv("OPENCLAW_HOME", openClawHome)
+	t.Setenv("OPENCLAW_CONFIG_PATH", configPath)
+	connectorService, err := connectors.NewService(filepath.Join(tmp, "gateway"), "test-master-key")
+	if err != nil {
+		t.Fatalf("new connector service: %v", err)
+	}
+	defer connectorService.Close()
+
+	imported, err := importLegacyOpenClawKeys(connectorService, nil, legacyKeyImportRequest{})
+	if err != nil {
+		t.Fatalf("importLegacyOpenClawKeys failed: %v", err)
+	}
+	if imported.ImportedCount < 2 {
+		t.Fatalf("expected at least 2 imported keys, got %d", imported.ImportedCount)
+	}
+	if len(imported.SecuredConnections) < 2 {
+		t.Fatalf("expected at least 2 secured connections, got %d", len(imported.SecuredConnections))
+	}
+	if len(imported.ImportedVariable) != 0 {
+		t.Fatalf("expected no imported variables, got %#v", imported.ImportedVariable)
+	}
+
+	for _, secured := range imported.SecuredConnections {
+		resolved, err := connectorService.ResolveProxyConfig(secured.ConnectionID)
+		if err != nil {
+			t.Fatalf("resolve proxy config for %s: %v", secured.ConnectionID, err)
+		}
+		if strings.TrimSpace(resolved.Secret) == "" {
+			t.Fatalf("expected non-empty resolved secret for %s", secured.ConnectionID)
+		}
+	}
+}
+
+func TestImportLegacyOpenClawKeysUpdatesConnectionDirectly(t *testing.T) {
+	tmp := t.TempDir()
+	openClawHome := filepath.Join(tmp, ".openclaw")
+	if err := os.MkdirAll(openClawHome, 0o700); err != nil {
+		t.Fatalf("mkdir openclaw home: %v", err)
+	}
+	configPath := filepath.Join(openClawHome, "openclaw.json")
+	config := map[string]any{
+		"models": map[string]any{
+			"providers": map[string]any{
+				"openai": map[string]any{
+					"apiKey": "sk-openai-9876543210",
+				},
+			},
+		},
+	}
+	encodedConfig, err := json.Marshal(config)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	if err := os.WriteFile(configPath, encodedConfig, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	t.Setenv("OPENCLAW_HOME", openClawHome)
+	t.Setenv("OPENCLAW_CONFIG_PATH", configPath)
+	connectorService, err := connectors.NewService(filepath.Join(tmp, "gateway"), "test-master-key")
+	if err != nil {
+		t.Fatalf("new connector service: %v", err)
+	}
+	defer connectorService.Close()
+
+	connectionID := "sigilum-secure-openai"
+	if _, err := connectorService.CreateConnection(connectors.CreateConnectionInput{
+		ID:             connectionID,
+		Name:           "OpenAI",
+		BaseURL:        "https://api.openai.com",
+		AuthMode:       "bearer",
+		AuthHeaderName: "Authorization",
+		AuthPrefix:     "Bearer ",
+		AuthSecretKey:  "api_key",
+		Secrets: map[string]string{
+			"api_key": "sk-old-111122223333",
+		},
+		RotationIntervalDays: 90,
+	}); err != nil {
+		t.Fatalf("create connection: %v", err)
+	}
+
+	imported, err := importLegacyOpenClawKeys(connectorService, nil, legacyKeyImportRequest{ConnectionID: connectionID})
+	if err != nil {
+		t.Fatalf("importLegacyOpenClawKeys failed: %v", err)
+	}
+	if imported.ImportedCount != 1 {
+		t.Fatalf("expected imported_count=1, got %d", imported.ImportedCount)
+	}
+	if imported.ConnectionID != connectionID {
+		t.Fatalf("expected connection id %q, got %q", connectionID, imported.ConnectionID)
+	}
+	if imported.BoundSecretKey != "api_key" {
+		t.Fatalf("expected bound secret key api_key, got %q", imported.BoundSecretKey)
+	}
+	if len(imported.ImportedVariable) != 0 {
+		t.Fatalf("expected no imported variables, got %#v", imported.ImportedVariable)
+	}
+
+	resolved, err := connectorService.ResolveProxyConfig(connectionID)
+	if err != nil {
+		t.Fatalf("resolve proxy config: %v", err)
+	}
+	if resolved.Secret != "sk-openai-9876543210" {
+		t.Fatalf("expected updated key, got %q", resolved.Secret)
+	}
+	variables, err := connectorService.ListCredentialVariables()
+	if err != nil {
+		t.Fatalf("list variables: %v", err)
+	}
+	if len(variables) != 0 {
+		t.Fatalf("expected no credential variables, got %d", len(variables))
 	}
 }
