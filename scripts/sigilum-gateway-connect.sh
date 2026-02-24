@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SYSTEMD_GATEWAY_UNIT_BASENAME="sigilum-gateway"
 SYSTEMD_GATEWAY_UNIT="${SYSTEMD_GATEWAY_UNIT_BASENAME}.service"
+SYSTEMD_USER_UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+SYSTEMD_GATEWAY_UNIT_PATH="${SYSTEMD_USER_UNIT_DIR}/${SYSTEMD_GATEWAY_UNIT}"
+SYSTEMD_USER_HELP=""
 
 usage() {
   cat <<'EOF'
@@ -129,11 +132,58 @@ start_detached_process() {
   printf '%s' "$pid"
 }
 
+is_linux_systemd_host() {
+  [[ "$(uname -s)" == "Linux" ]] || return 1
+  [[ -d "/run/systemd/system" ]] || return 1
+  command -v systemctl >/dev/null 2>&1
+}
+
+configure_systemd_user_env() {
+  local uid runtime_dir
+  uid="$(id -u)"
+  runtime_dir="/run/user/${uid}"
+  if [[ -z "${XDG_RUNTIME_DIR:-}" && -d "$runtime_dir" ]]; then
+    export XDG_RUNTIME_DIR="$runtime_dir"
+  fi
+  if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" && -n "${XDG_RUNTIME_DIR:-}" && -S "${XDG_RUNTIME_DIR}/bus" ]]; then
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+  fi
+}
+
+build_systemd_user_help() {
+  local user linger
+  user="$(id -un 2>/dev/null || true)"
+  linger=""
+  if command -v loginctl >/dev/null 2>&1 && [[ -n "$user" ]]; then
+    linger="$(loginctl show-user "$user" -p Linger --value 2>/dev/null || true)"
+  fi
+
+  if [[ -n "$user" && "$linger" != "yes" ]]; then
+    SYSTEMD_USER_HELP="Run: sudo loginctl enable-linger ${user}"
+    return 0
+  fi
+
+  SYSTEMD_USER_HELP="Ensure systemd user manager is running and user D-Bus is reachable (XDG_RUNTIME_DIR + DBUS_SESSION_BUS_ADDRESS)."
+}
+
 systemd_user_available() {
-  if ! command -v systemctl >/dev/null 2>&1 || ! command -v systemd-run >/dev/null 2>&1; then
+  if ! command -v systemctl >/dev/null 2>&1; then
     return 1
   fi
   systemctl --user show-environment >/dev/null 2>&1
+}
+
+ensure_systemd_user_available() {
+  SYSTEMD_USER_HELP=""
+  if ! is_linux_systemd_host; then
+    return 1
+  fi
+  configure_systemd_user_env
+  if systemd_user_available; then
+    return 0
+  fi
+  build_systemd_user_help
+  return 1
 }
 
 systemd_gateway_is_active() {
@@ -157,27 +207,78 @@ write_systemd_log_hint() {
 [sigilum] Gateway is managed by systemd user service: ${SYSTEMD_GATEWAY_UNIT}
 [sigilum] View logs with:
   journalctl --user -u ${SYSTEMD_GATEWAY_UNIT} -n 200 --no-pager
+[sigilum] Unit file:
+  ${SYSTEMD_GATEWAY_UNIT_PATH}
+EOF
+}
+
+write_gateway_systemd_wrapper() {
+  local wrapper_path="$1"
+  shift
+  local start_args=("$@")
+  mkdir -p "$(dirname "$wrapper_path")"
+  {
+    echo '#!/usr/bin/env bash'
+    echo 'set -euo pipefail'
+    printf 'exec %q' "$ROOT_DIR/scripts/sigilum-gateway-start.sh"
+    for arg in "${start_args[@]}"; do
+      printf ' %q' "$arg"
+    done
+    printf '\n'
+  } >"$wrapper_path"
+  chmod 700 "$wrapper_path"
+}
+
+write_gateway_systemd_unit() {
+  local unit_path="$1"
+  local wrapper_path="$2"
+  mkdir -p "$(dirname "$unit_path")"
+  cat >"$unit_path" <<EOF
+[Unit]
+Description=Sigilum Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${wrapper_path}
+Restart=always
+RestartSec=2
+KillMode=process
+WorkingDirectory=${ROOT_DIR}
+
+[Install]
+WantedBy=default.target
 EOF
 }
 
 start_gateway_systemd_service() {
   local log_file="$1"
   shift
+  local run_dir="$1"
+  shift
   local start_args=("$@")
+  local wrapper_path="${run_dir}/gateway-systemd-start.sh"
 
-  systemctl --user stop "$SYSTEMD_GATEWAY_UNIT" >/dev/null 2>&1 || true
-  systemctl --user reset-failed "$SYSTEMD_GATEWAY_UNIT" >/dev/null 2>&1 || true
+  write_gateway_systemd_wrapper "$wrapper_path" "${start_args[@]}"
+  write_gateway_systemd_unit "$SYSTEMD_GATEWAY_UNIT_PATH" "$wrapper_path"
 
-  if ! systemd-run --user \
-    --unit "$SYSTEMD_GATEWAY_UNIT_BASENAME" \
-    --description "Sigilum Gateway" \
-    --property Restart=always \
-    --property RestartSec=2 \
-    --property KillMode=process \
-    --property WorkingDirectory="$ROOT_DIR" \
-    "$ROOT_DIR/scripts/sigilum-gateway-start.sh" "${start_args[@]}" >/dev/null; then
-    echo "Failed to start systemd user service: ${SYSTEMD_GATEWAY_UNIT}" >&2
+  if ! systemctl --user daemon-reload >/dev/null 2>&1; then
+    echo "Failed to reload systemd user manager for ${SYSTEMD_GATEWAY_UNIT}." >&2
     return 1
+  fi
+  systemctl --user enable "$SYSTEMD_GATEWAY_UNIT" >/dev/null 2>&1 || true
+
+  if ! systemctl --user restart "$SYSTEMD_GATEWAY_UNIT" >/dev/null 2>&1; then
+    if ! systemctl --user start "$SYSTEMD_GATEWAY_UNIT" >/dev/null 2>&1; then
+      echo "Failed to start systemd user service: ${SYSTEMD_GATEWAY_UNIT}" >&2
+      return 1
+    fi
+  fi
+
+  if ! systemctl --user reset-failed "$SYSTEMD_GATEWAY_UNIT" >/dev/null 2>&1; then
+    # non-fatal; service may already be healthy.
+    true
   fi
 
   sleep 1
@@ -286,17 +387,26 @@ if [[ "$code" != "200" ]]; then
   mkdir -p "$run_dir"
   gateway_log="${run_dir}/gateway-start.log"
   gateway_pid_file="${run_dir}/gateway-start.pid"
+  systemd_ready="false"
   start_args=(--namespace "$NAMESPACE" --api-url "$API_URL" --addr "$GATEWAY_ADDR")
   if [[ -n "$GATEWAY_HOME" ]]; then
     start_args+=(--home "$GATEWAY_HOME")
   fi
 
-  if systemd_user_available; then
+  if ensure_systemd_user_available; then
+    systemd_ready="true"
     rm -f "$gateway_pid_file"
-    start_gateway_systemd_service "$gateway_log" "${start_args[@]}"
+    start_gateway_systemd_service "$gateway_log" "$run_dir" "${start_args[@]}"
     gateway_pid="$(systemd_gateway_main_pid || true)"
     echo "Gateway started as systemd user service (unit=${SYSTEMD_GATEWAY_UNIT}, pid=${gateway_pid:-unknown})."
     echo "Gateway logs: journalctl --user -u ${SYSTEMD_GATEWAY_UNIT} -n 200 --no-pager"
+  elif is_linux_systemd_host; then
+    echo "Systemd host detected, but user manager is unavailable for ${SYSTEMD_GATEWAY_UNIT}." >&2
+    if [[ -n "$SYSTEMD_USER_HELP" ]]; then
+      echo "$SYSTEMD_USER_HELP" >&2
+    fi
+    echo "Refusing detached fallback on Linux/systemd because it is not lifecycle-stable." >&2
+    exit 1
   else
     if ! command -v nohup >/dev/null 2>&1 && ! command -v setsid >/dev/null 2>&1; then
       echo "Missing required command for auto-start: need systemd user manager, 'setsid', or 'nohup'" >&2
@@ -321,7 +431,7 @@ if [[ "$code" != "200" ]]; then
 
   if ! wait_for_gateway "$health_url" "$START_TIMEOUT_SECONDS"; then
     echo "Gateway did not become healthy within ${START_TIMEOUT_SECONDS}s at ${health_url}" >&2
-    if systemd_user_available; then
+    if [[ "$systemd_ready" == "true" ]]; then
       echo "Inspect gateway logs with: journalctl --user -u ${SYSTEMD_GATEWAY_UNIT} -n 200 --no-pager" >&2
     else
       echo "Inspect gateway logs at ${gateway_log}" >&2
