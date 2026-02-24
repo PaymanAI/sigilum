@@ -109,6 +109,24 @@ wait_for_gateway() {
   return 1
 }
 
+start_detached_process() {
+  local log_file="$1"
+  shift
+
+  local pid=""
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$@" >"$log_file" 2>&1 < /dev/null &
+    pid=$!
+  else
+    nohup "$@" >"$log_file" 2>&1 < /dev/null &
+    pid=$!
+  fi
+
+  # Best effort: avoid shell job control ownership for long-running daemons.
+  disown "$pid" 2>/dev/null || true
+  printf '%s' "$pid"
+}
+
 SESSION_ID=""
 PAIR_CODE=""
 NAMESPACE=""
@@ -199,8 +217,8 @@ code="$(http_code "$health_url")"
 
 if [[ "$code" != "200" ]]; then
   echo "Gateway is not healthy at ${health_url}; starting gateway..."
-  if ! command -v nohup >/dev/null 2>&1; then
-    echo "Missing required command for auto-start: nohup" >&2
+  if ! command -v nohup >/dev/null 2>&1 && ! command -v setsid >/dev/null 2>&1; then
+    echo "Missing required command for auto-start: need 'setsid' or 'nohup'" >&2
     exit 1
   fi
 
@@ -222,8 +240,7 @@ if [[ "$code" != "200" ]]; then
     if [[ -n "$GATEWAY_HOME" ]]; then
       start_args+=(--home "$GATEWAY_HOME")
     fi
-    nohup "$ROOT_DIR/scripts/sigilum-gateway-start.sh" "${start_args[@]}" >"$gateway_log" 2>&1 < /dev/null &
-    gateway_pid=$!
+    gateway_pid="$(start_detached_process "$gateway_log" "$ROOT_DIR/scripts/sigilum-gateway-start.sh" "${start_args[@]}")"
     echo "$gateway_pid" >"$gateway_pid_file"
     echo "Gateway starting in background (pid=${gateway_pid}, log=${gateway_log})"
   fi
