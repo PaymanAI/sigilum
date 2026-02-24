@@ -18,8 +18,9 @@ import (
 type legacyKeySourceType string
 
 const (
-	legacyKeySourceConfig legacyKeySourceType = "openclaw_config"
-	legacyKeySourceDotEnv legacyKeySourceType = "dotenv"
+	legacyKeySourceConfig          legacyKeySourceType = "openclaw_config"
+	legacyKeySourceDotEnv          legacyKeySourceType = "dotenv"
+	legacyKeySourceRuntimeManifest legacyKeySourceType = "openclaw_runtime_manifest"
 )
 
 type legacyKeyFinding struct {
@@ -84,6 +85,20 @@ type legacyKeyScanResult struct {
 	ConfigPath   string
 	Workspace    string
 	ConfigRoot   map[string]any
+}
+
+type runtimeLegacyCredentialReport struct {
+	GeneratedAt string                        `json:"generated_at"`
+	Findings    []runtimeLegacyCredentialItem `json:"findings"`
+}
+
+type runtimeLegacyCredentialItem struct {
+	Provider   string `json:"provider"`
+	Field      string `json:"field"`
+	Variable   string `json:"variable"`
+	Value      string `json:"value"`
+	SourcePath string `json:"source_path"`
+	Location   string `json:"location"`
 }
 
 type legacyPathToken struct {
@@ -229,13 +244,32 @@ func purgeLegacyOpenClawKeys(request legacyKeyPurgeRequest) (legacyKeyPurgeRespo
 	response := legacyKeyPurgeResponse{
 		DryRun:        request.DryRun,
 		SelectedCount: len(selected),
-		PurgedCount:   len(selected),
+		PurgedCount:   0,
 		Warnings:      scan.Warnings,
 		Actions:       []legacyKeyPurgeAction{},
+	}
+	runtimeSelectedCount := 0
+	for _, candidate := range selected {
+		if candidate.Finding.SourceType != string(legacyKeySourceRuntimeManifest) {
+			continue
+		}
+		runtimeSelectedCount += 1
+		response.Actions = append(response.Actions, legacyKeyPurgeAction{
+			Type:   "manual_runtime_cleanup",
+			Target: candidate.Finding.SourcePath,
+			Detail: candidate.Finding.Location,
+		})
+	}
+	if runtimeSelectedCount > 0 {
+		response.Warnings = append(
+			response.Warnings,
+			fmt.Sprintf("%d runtime-discovered key(s) cannot be purged automatically; remove from runtime env or secret manager source", runtimeSelectedCount),
+		)
 	}
 
 	configChanged := false
 	configKeyRemovals := 0
+	envKeyRemovals := 0
 	if scan.ConfigRoot != nil {
 		uniqueJSONPaths := map[string][]legacyPathToken{}
 		for _, candidate := range selected {
@@ -285,6 +319,7 @@ func purgeLegacyOpenClawKeys(request legacyKeyPurgeRequest) (legacyKeyPurgeRespo
 			Target: envPath,
 			Detail: fmt.Sprintf("removed %d key(s)", removed),
 		})
+		envKeyRemovals += removed
 	}
 
 	if request.DeleteSkills && scan.ConfigRoot != nil {
@@ -352,6 +387,7 @@ func purgeLegacyOpenClawKeys(request legacyKeyPurgeRequest) (legacyKeyPurgeRespo
 			})
 		}
 	}
+	response.PurgedCount = configKeyRemovals + envKeyRemovals
 
 	return response, nil
 }
@@ -662,6 +698,14 @@ func scanLegacyOpenClawKeys() legacyKeyScanResult {
 		collectLegacyDotEnvCandidates(envPath, &result.Findings)
 	}
 
+	for _, reportPath := range runtimeLegacyReportPaths(openClawHome, workspace) {
+		if strings.TrimSpace(reportPath) == "" {
+			continue
+		}
+		result.ScannedPaths = append(result.ScannedPaths, reportPath)
+		collectRuntimeLegacyReportCandidates(reportPath, &result.Findings, &result.Warnings)
+	}
+
 	result.Findings = dedupeLegacyCandidates(result.Findings)
 	return result
 }
@@ -670,19 +714,106 @@ func dedupeLegacyCandidates(candidates []legacyKeyCandidate) []legacyKeyCandidat
 	if len(candidates) <= 1 {
 		return candidates
 	}
-	seen := map[string]struct{}{}
+	seenIDs := map[string]struct{}{}
+	seenValueSignatures := map[string]struct{}{}
 	out := make([]legacyKeyCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
 		if candidate.Finding.ID == "" {
 			continue
 		}
-		if _, ok := seen[candidate.Finding.ID]; ok {
+		if _, ok := seenIDs[candidate.Finding.ID]; ok {
 			continue
 		}
-		seen[candidate.Finding.ID] = struct{}{}
+		seenIDs[candidate.Finding.ID] = struct{}{}
+		signature := strings.Join([]string{
+			strings.ToLower(strings.TrimSpace(candidate.Finding.Provider)),
+			strings.ToUpper(strings.TrimSpace(candidate.Finding.Field)),
+			strings.TrimSpace(candidate.Value),
+		}, "|")
+		if signature != "||" {
+			if _, ok := seenValueSignatures[signature]; ok {
+				continue
+			}
+			seenValueSignatures[signature] = struct{}{}
+		}
 		out = append(out, candidate)
 	}
 	return out
+}
+
+func runtimeLegacyReportPaths(openClawHome string, workspace string) []string {
+	override := strings.TrimSpace(os.Getenv("OPENCLAW_LEGACY_RUNTIME_REPORT_PATH"))
+	if override != "" {
+		return []string{override}
+	}
+	return uniquePaths([]string{
+		joinPathIfBase(openClawHome, ".sigilum", "legacy-runtime-credentials.json"),
+		joinPathIfBase(workspace, ".sigilum", "legacy-runtime-credentials.json"),
+	})
+}
+
+func collectRuntimeLegacyReportCandidates(path string, out *[]legacyKeyCandidate, warnings *[]string) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			*warnings = append(*warnings, fmt.Sprintf("Failed to read runtime credential report %s: %v", path, err))
+		}
+		return
+	}
+	report := runtimeLegacyCredentialReport{}
+	if err := json.Unmarshal(raw, &report); err != nil {
+		*warnings = append(*warnings, fmt.Sprintf("Failed to parse runtime credential report %s: %v", path, err))
+		return
+	}
+	for idx, finding := range report.Findings {
+		value := strings.TrimSpace(finding.Value)
+		field := strings.TrimSpace(finding.Field)
+		if !looksLikeLegacySecret(value) {
+			continue
+		}
+		if !looksLikeLegacySecretKeyName(field) && inferProviderFromEnvKey(field) == "" {
+			continue
+		}
+		provider := strings.TrimSpace(finding.Provider)
+		if provider == "" {
+			provider = inferProviderFromEnvKey(field)
+		}
+		if provider == "" {
+			provider = inferProviderFromSource(path)
+		}
+		provider = normalizeProviderToken(provider)
+		if provider == "" {
+			provider = "unknown"
+		}
+		variable := normalizeLegacyVariableKey(finding.Variable)
+		if variable == "" {
+			variable = normalizeLegacyVariableKey(field)
+		}
+		if variable == "" {
+			variable = normalizeLegacyVariableKey(fmt.Sprintf("%s_%s", provider, field))
+		}
+		if variable == "" {
+			variable = "SIGILUM_IMPORTED_KEY"
+		}
+		location := strings.TrimSpace(finding.Location)
+		if location == "" {
+			location = fmt.Sprintf("runtime_report[%d]", idx)
+		}
+		public := legacyKeyFinding{
+			Provider:   provider,
+			Field:      field,
+			Variable:   variable,
+			SourceType: string(legacyKeySourceRuntimeManifest),
+			SourcePath: path,
+			Location:   location,
+			Masked:     maskSecretValue(value),
+		}
+		public.ID = legacyFindingID(public)
+		*out = append(*out, legacyKeyCandidate{
+			Finding: public,
+			Value:   value,
+		})
+	}
 }
 
 func collectLegacyDotEnvCandidates(path string, out *[]legacyKeyCandidate) {

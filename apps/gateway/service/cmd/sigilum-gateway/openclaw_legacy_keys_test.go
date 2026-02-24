@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,5 +119,115 @@ func TestProviderFromConnectionID(t *testing.T) {
 	}
 	if got := providerFromConnectionID("sigilum-secure-unknown"); got != "" {
 		t.Fatalf("expected empty provider for unknown alias, got %q", got)
+	}
+}
+
+func TestCollectRuntimeLegacyReportCandidates(t *testing.T) {
+	tmp := t.TempDir()
+	reportPath := filepath.Join(tmp, "legacy-runtime-credentials.json")
+	report := runtimeLegacyCredentialReport{
+		GeneratedAt: "2026-01-01T00:00:00Z",
+		Findings: []runtimeLegacyCredentialItem{
+			{
+				Provider:   "openai",
+				Field:      "OPENAI_API_KEY",
+				Variable:   "OPENAI_API_KEY",
+				Value:      "sk-live-1234567890",
+				SourcePath: "openclaw_runtime_env",
+				Location:   "process.env.OPENAI_API_KEY",
+			},
+			{
+				Provider:   "openai",
+				Field:      "OPENAI_API_KEY",
+				Variable:   "OPENAI_API_KEY",
+				Value:      "your_api_key_here",
+				SourcePath: "openclaw_runtime_env",
+				Location:   "process.env.OPENAI_API_KEY",
+			},
+		},
+	}
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	if err := os.WriteFile(reportPath, encoded, 0o600); err != nil {
+		t.Fatalf("write report: %v", err)
+	}
+
+	findings := []legacyKeyCandidate{}
+	warnings := []string{}
+	collectRuntimeLegacyReportCandidates(reportPath, &findings, &warnings)
+
+	if len(warnings) != 0 {
+		t.Fatalf("expected no warnings, got %#v", warnings)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 runtime finding, got %d", len(findings))
+	}
+	if findings[0].Finding.SourceType != string(legacyKeySourceRuntimeManifest) {
+		t.Fatalf("expected source type %q, got %q", legacyKeySourceRuntimeManifest, findings[0].Finding.SourceType)
+	}
+	if findings[0].Finding.Provider != "openai" {
+		t.Fatalf("expected provider openai, got %q", findings[0].Finding.Provider)
+	}
+}
+
+func TestPurgeLegacyOpenClawKeysRuntimeFindingAddsWarning(t *testing.T) {
+	tmp := t.TempDir()
+	openClawHome := filepath.Join(tmp, ".openclaw")
+	reportDir := filepath.Join(openClawHome, ".sigilum")
+	if err := os.MkdirAll(reportDir, 0o700); err != nil {
+		t.Fatalf("mkdir report dir: %v", err)
+	}
+	reportPath := filepath.Join(reportDir, "legacy-runtime-credentials.json")
+	report := runtimeLegacyCredentialReport{
+		GeneratedAt: "2026-01-01T00:00:00Z",
+		Findings: []runtimeLegacyCredentialItem{
+			{
+				Provider:   "openai",
+				Field:      "OPENAI_API_KEY",
+				Variable:   "OPENAI_API_KEY",
+				Value:      "sk-live-1234567890",
+				SourcePath: "openclaw_runtime_env",
+				Location:   "process.env.OPENAI_API_KEY",
+			},
+		},
+	}
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	if err := os.WriteFile(reportPath, encoded, 0o600); err != nil {
+		t.Fatalf("write report: %v", err)
+	}
+
+	t.Setenv("OPENCLAW_HOME", openClawHome)
+	t.Setenv("OPENCLAW_CONFIG_PATH", filepath.Join(openClawHome, "openclaw.json"))
+
+	discovered := discoverLegacyOpenClawKeys()
+	if discovered.Total != 1 {
+		t.Fatalf("expected 1 finding, got %d", discovered.Total)
+	}
+	result, err := purgeLegacyOpenClawKeys(legacyKeyPurgeRequest{
+		DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("purgeLegacyOpenClawKeys failed: %v", err)
+	}
+	if result.PurgedCount != 0 {
+		t.Fatalf("expected purged_count=0 for runtime-only findings, got %d", result.PurgedCount)
+	}
+	if len(result.Warnings) == 0 {
+		t.Fatalf("expected warning for runtime-only findings")
+	}
+	actionFound := false
+	for _, action := range result.Actions {
+		if action.Type == "manual_runtime_cleanup" {
+			actionFound = true
+			break
+		}
+	}
+	if !actionFound {
+		t.Fatalf("expected manual_runtime_cleanup action")
 	}
 }

@@ -1,5 +1,8 @@
 import { collectAgentIDs, resolveSigilumPluginConfig, type HookEvent } from "./config.ts";
 import { ensureAgentKeypair } from "./keys.ts";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 
 type HookHandler = (event: HookEvent) => Promise<void>;
 type ConnectionProtocol = "http" | "mcp";
@@ -16,6 +19,262 @@ type GatewayConnectionsResponse = {
   connections?: GatewayConnection[];
 };
 
+type RuntimeCredentialFinding = {
+  provider: string;
+  field: string;
+  variable: string;
+  value: string;
+  source_path: string;
+  location: string;
+};
+
+type RuntimeCredentialReport = {
+  generated_at: string;
+  findings: RuntimeCredentialFinding[];
+};
+
+const PROVIDER_ALIAS: Record<string, string> = {
+  anthropic: "anthropic",
+  claude: "anthropic",
+  azure: "azure",
+  cohere: "cohere",
+  cerebras: "cerebras",
+  deepseek: "deepseek",
+  discord: "discord",
+  fireworks: "fireworks",
+  gemini: "google",
+  google: "google",
+  groq: "groq",
+  hf: "huggingface",
+  huggingface: "huggingface",
+  linear: "linear",
+  mistral: "mistral",
+  notion: "notion",
+  openai: "openai",
+  openrouter: "openrouter",
+  perplexity: "perplexity",
+  replicate: "replicate",
+  serpapi: "serpapi",
+  slack: "slack",
+  together: "together",
+  vertex: "google",
+  voyage: "voyage",
+  xai: "xai",
+};
+
+const RUNTIME_REPORT_FILENAME = "legacy-runtime-credentials.json";
+
+function asObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, unknown>;
+}
+
+function asString(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim();
+}
+
+function splitTokens(input: string): string[] {
+  return String(input || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/g)
+    .filter((token) => token.length > 0);
+}
+
+function inferProviderFromText(input: string): string {
+  for (const token of splitTokens(input)) {
+    const provider = PROVIDER_ALIAS[token];
+    if (provider) {
+      return provider;
+    }
+  }
+  return "";
+}
+
+function looksLikeSecretKeyName(key: string): boolean {
+  const value = String(key || "").trim().toLowerCase();
+  if (!value) {
+    return false;
+  }
+  if (value.includes("apikey") || value.includes("api_key")) {
+    return true;
+  }
+  if (value.endsWith("_token") || value.includes("access_token")) {
+    return true;
+  }
+  if (value.endsWith("_secret") || value.includes("client_secret")) {
+    return true;
+  }
+  if (value.endsWith("_password") || value.includes("auth_token")) {
+    return true;
+  }
+  if (value === "token" || value === "secret" || value === "api_key") {
+    return true;
+  }
+  return false;
+}
+
+function shouldSkipRuntimeCredentialKey(key: string): boolean {
+  const upper = String(key || "").trim().toUpperCase();
+  if (!upper) {
+    return true;
+  }
+  for (const prefix of ["SIGILUM_", "OPENCLAW_", "GATEWAY_"]) {
+    if (upper.startsWith(prefix)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function looksLikeSecretValue(raw: string): boolean {
+  let value = String(raw || "").trim();
+  if (!value || value.length < 8) {
+    return false;
+  }
+  if (value.toLowerCase().startsWith("bearer ")) {
+    value = value.slice(7).trim();
+  }
+  if (value.startsWith("{{") && value.endsWith("}}")) {
+    return false;
+  }
+  if (value.startsWith("${") && value.endsWith("}")) {
+    return false;
+  }
+  const lower = value.toLowerCase();
+  for (const marker of ["your_api_key", "your-api-key", "placeholder", "changeme", "replace_me", "example", "sigilum-provider-proxy-key"]) {
+    if (lower.includes(marker)) {
+      return false;
+    }
+  }
+  for (const prefix of ["sk-", "xoxb-", "xoxp-", "xapp-", "ghp_", "pat_", "pk_live_", "sk_live_", "sk_test_", "aiza", "xai-"]) {
+    if (lower.startsWith(prefix)) {
+      return true;
+    }
+  }
+  if (/\s/.test(value)) {
+    return false;
+  }
+  const letters = (value.match(/[a-z]/gi) || []).length;
+  const digits = (value.match(/[0-9]/g) || []).length;
+  const nonAlphaNum = (value.match(/[^a-z0-9]/gi) || []).length;
+  if (letters < 3 || digits < 2) {
+    return false;
+  }
+  return value.length >= 12 && (nonAlphaNum >= 1 || value.length >= 20);
+}
+
+function normalizeVariableKey(value: string): string {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toUpperCase();
+  return normalized;
+}
+
+function readHookEnv(event: HookEvent, hookName: string): Record<string, unknown> {
+  const cfgFromContext = asObject(event.context?.cfg);
+  const cfg = Object.keys(cfgFromContext).length > 0
+    ? cfgFromContext
+    : asObject(event.context?.config);
+  const hooks = asObject(cfg.hooks);
+  const internal = asObject(hooks.internal);
+  const entries = asObject(internal.entries);
+  const hookEntry = asObject(entries[hookName]);
+  return asObject(hookEntry.env);
+}
+
+function resolveOpenClawHome(event: HookEvent, keyRoot: string): string {
+  const directEnv = asString(process.env.OPENCLAW_HOME);
+  if (directEnv) {
+    return directEnv;
+  }
+  const hookEnv = readHookEnv(event, "sigilum-plugin");
+  const hookOpenClawHome = asString(hookEnv.OPENCLAW_HOME);
+  if (hookOpenClawHome) {
+    return hookOpenClawHome;
+  }
+
+  const normalizedKeyRoot = asString(keyRoot);
+  if (normalizedKeyRoot) {
+    const keyRootParent = path.dirname(normalizedKeyRoot);
+    if (path.basename(keyRootParent) === ".sigilum") {
+      return path.dirname(keyRootParent);
+    }
+  }
+  return path.join(os.homedir(), ".openclaw");
+}
+
+function resolveRuntimeCredentialReportPath(event: HookEvent, keyRoot: string): string {
+  const override = asString(process.env.SIGILUM_LEGACY_RUNTIME_REPORT_PATH);
+  if (override) {
+    return override;
+  }
+  const hookEnv = readHookEnv(event, "sigilum-plugin");
+  const hookOverride = asString(hookEnv.SIGILUM_LEGACY_RUNTIME_REPORT_PATH);
+  if (hookOverride) {
+    return hookOverride;
+  }
+  const openClawHome = resolveOpenClawHome(event, keyRoot);
+  return path.join(openClawHome, ".sigilum", RUNTIME_REPORT_FILENAME);
+}
+
+function collectRuntimeCredentialFindings(): RuntimeCredentialFinding[] {
+  const findings: RuntimeCredentialFinding[] = [];
+  const seen = new Set<string>();
+  for (const [key, value] of Object.entries(process.env)) {
+    const envKey = String(key || "").trim();
+    const envValue = String(value || "").trim();
+    if (shouldSkipRuntimeCredentialKey(envKey)) {
+      continue;
+    }
+    if (!looksLikeSecretKeyName(envKey) || !looksLikeSecretValue(envValue)) {
+      continue;
+    }
+    const signature = `${envKey.toUpperCase()}|${envValue}`;
+    if (seen.has(signature)) {
+      continue;
+    }
+    seen.add(signature);
+
+    const provider = inferProviderFromText(envKey) || inferProviderFromText(envValue) || "unknown";
+    const variable = normalizeVariableKey(envKey) || normalizeVariableKey(`${provider}_API_KEY`) || "SIGILUM_IMPORTED_KEY";
+    findings.push({
+      provider,
+      field: envKey,
+      variable,
+      value: envValue,
+      source_path: "openclaw_runtime_env",
+      location: `process.env.${envKey}`,
+    });
+  }
+  findings.sort((left, right) => left.field.localeCompare(right.field));
+  return findings;
+}
+
+function writeRuntimeCredentialReport(event: HookEvent, keyRoot: string): void {
+  const reportPath = resolveRuntimeCredentialReportPath(event, keyRoot);
+  if (!reportPath) {
+    return;
+  }
+  const findings = collectRuntimeCredentialFindings();
+  const payload: RuntimeCredentialReport = {
+    generated_at: new Date().toISOString(),
+    findings,
+  };
+
+  const directory = path.dirname(reportPath);
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(reportPath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+}
 
 function isGatewayStartupEvent(event: HookEvent): boolean {
   return event.type === "gateway" && event.action === "startup";
@@ -203,6 +462,16 @@ const handler: HookHandler = async (event) => {
 
   try {
     const cfg = resolveSigilumPluginConfig(event);
+    if (isGatewayStartupEvent(event) || isReloadEvent(event)) {
+      try {
+        writeRuntimeCredentialReport(event, cfg.keyRoot);
+      } catch (err) {
+        console.error(
+          "[sigilum-plugin] runtime credential report failed:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
     if (isGatewayStartupEvent(event)) {
       const passkeySetupUrl = buildPasskeySetupUrl(cfg.dashboardUrl, cfg.namespace);
       console.log(
