@@ -375,3 +375,72 @@ func TestImportLegacyOpenClawKeysUpdatesConnectionDirectly(t *testing.T) {
 		t.Fatalf("expected no credential variables, got %d", len(variables))
 	}
 }
+
+func TestImportLegacyOpenClawKeysBulkIgnoresNoopRotateError(t *testing.T) {
+	tmp := t.TempDir()
+	openClawHome := filepath.Join(tmp, ".openclaw")
+	if err := os.MkdirAll(openClawHome, 0o700); err != nil {
+		t.Fatalf("mkdir openclaw home: %v", err)
+	}
+	configPath := filepath.Join(openClawHome, "openclaw.json")
+	googleKey := "AIzaSyA1b2C3d4E5f6G7h8I9j0KLMNOP"
+	config := map[string]any{
+		"models": map[string]any{
+			"providers": map[string]any{
+				"google": map[string]any{
+					"apiKey": googleKey,
+				},
+			},
+		},
+	}
+	encodedConfig, err := json.Marshal(config)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	if err := os.WriteFile(configPath, encodedConfig, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	t.Setenv("OPENCLAW_HOME", openClawHome)
+	t.Setenv("OPENCLAW_CONFIG_PATH", configPath)
+	connectorService, err := connectors.NewService(filepath.Join(tmp, "gateway"), "test-master-key")
+	if err != nil {
+		t.Fatalf("new connector service: %v", err)
+	}
+	defer connectorService.Close()
+
+	existingConnectionID := "sigilum-secure-google"
+	if _, err := connectorService.CreateConnection(connectors.CreateConnectionInput{
+		ID:             existingConnectionID,
+		Name:           "Google",
+		BaseURL:        "https://generativelanguage.googleapis.com",
+		AuthMode:       "header_key",
+		AuthHeaderName: "x-goog-api-key",
+		AuthPrefix:     "",
+		AuthSecretKey:  "api_key",
+		Secrets: map[string]string{
+			"api_key": googleKey,
+		},
+		RotationIntervalDays: 90,
+	}); err != nil {
+		t.Fatalf("create connection: %v", err)
+	}
+
+	imported, err := importLegacyOpenClawKeys(connectorService, nil, legacyKeyImportRequest{})
+	if err != nil {
+		t.Fatalf("importLegacyOpenClawKeys failed: %v", err)
+	}
+	if imported.ImportedCount == 0 {
+		t.Fatalf("expected imported_count > 0")
+	}
+	foundExistingConnection := false
+	for _, secured := range imported.SecuredConnections {
+		if secured.ConnectionID == existingConnectionID {
+			foundExistingConnection = true
+			break
+		}
+	}
+	if !foundExistingConnection {
+		t.Fatalf("expected secured connection to include %q", existingConnectionID)
+	}
+}
