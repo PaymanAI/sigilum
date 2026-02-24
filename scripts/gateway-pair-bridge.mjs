@@ -172,6 +172,14 @@ const RELAY_ALLOWLIST = [
     methods: new Set(["DELETE"]),
   },
   {
+    pattern: /^\/api\/admin\/openclaw\/legacy-keys$/,
+    methods: new Set(["GET"]),
+  },
+  {
+    pattern: /^\/api\/admin\/openclaw\/legacy-keys\/(import|purge)$/,
+    methods: new Set(["POST"]),
+  },
+  {
     pattern: /^\/api\/admin\/service-catalog$/,
     methods: new Set(["GET", "PUT"]),
   },

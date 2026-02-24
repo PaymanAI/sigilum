@@ -392,6 +392,75 @@ func registerAdminRoutes(
 		}
 	}))
 
+	mux.HandleFunc("/api/admin/openclaw/legacy-keys", withRequestTimeout(cfg.AdminRequestTimeout, func(w http.ResponseWriter, r *http.Request) {
+		setCORSHeaders(w, r, cfg.AllowedOrigins)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if !enforceAdminRequestAccess(w, r, cfg) {
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			writeJSON(w, http.StatusOK, discoverLegacyOpenClawKeys())
+		default:
+			writeMethodNotAllowed(w)
+		}
+	}))
+
+	mux.HandleFunc("/api/admin/openclaw/legacy-keys/import", withRequestTimeout(cfg.AdminRequestTimeout, func(w http.ResponseWriter, r *http.Request) {
+		setCORSHeaders(w, r, cfg.AllowedOrigins)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if !enforceAdminRequestAccess(w, r, cfg) {
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w)
+			return
+		}
+		var input legacyKeyImportRequest
+		if err := readJSONBody(r, &input, cfg.MaxRequestBodyBytes); err != nil {
+			writeJSONBodyError(w, err)
+			return
+		}
+		response, err := importLegacyOpenClawKeys(connectorService, input)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, response)
+	}))
+
+	mux.HandleFunc("/api/admin/openclaw/legacy-keys/purge", withRequestTimeout(cfg.AdminRequestTimeout, func(w http.ResponseWriter, r *http.Request) {
+		setCORSHeaders(w, r, cfg.AllowedOrigins)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if !enforceAdminRequestAccess(w, r, cfg) {
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w)
+			return
+		}
+		var input legacyKeyPurgeRequest
+		if err := readJSONBody(r, &input, cfg.MaxRequestBodyBytes); err != nil {
+			writeJSONBodyError(w, err)
+			return
+		}
+		response, err := purgeLegacyOpenClawKeys(input)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, response)
+	}))
+
 	mux.HandleFunc("/api/admin/service-api-keys/", withRequestTimeout(cfg.AdminRequestTimeout, func(w http.ResponseWriter, r *http.Request) {
 		setCORSHeaders(w, r, cfg.AllowedOrigins)
 		if r.Method == http.MethodOptions {
