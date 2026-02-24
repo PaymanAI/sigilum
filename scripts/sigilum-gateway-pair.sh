@@ -35,6 +35,7 @@ Bridge args:
 Helper options:
   --daemon                 Run bridge in background and return immediately
   --foreground             Force foreground mode (default)
+  --lifecycle-mode <mode>  Daemon lifecycle mode: auto|stable|compat (default: auto)
   --log-file <path>        Daemon log file (default: ~/.sigilum/run/gateway-pair-bridge.log)
   --pid-file <path>        Daemon pid file (default: ~/.sigilum/run/gateway-pair-bridge.pid)
   --status                 Print daemon status
@@ -108,6 +109,52 @@ ensure_systemd_user_available() {
   fi
   build_systemd_user_help
   return 1
+}
+
+valid_lifecycle_mode() {
+  case "${1:-}" in
+    auto|stable|compat)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+resolve_lifecycle_mode() {
+  local requested_mode="${1:-auto}"
+
+  if ! valid_lifecycle_mode "$requested_mode"; then
+    echo "Invalid --lifecycle-mode: ${requested_mode}" >&2
+    echo "Expected one of: auto, stable, compat" >&2
+    return 1
+  fi
+
+  if ensure_systemd_user_available; then
+    printf 'stable'
+    return 0
+  fi
+
+  if is_linux_systemd_host; then
+    if [[ "$requested_mode" == "stable" ]]; then
+      echo "Systemd host detected, but user manager is unavailable for ${SYSTEMD_PAIR_UNIT}." >&2
+      if [[ -n "$SYSTEMD_USER_HELP" ]]; then
+        echo "$SYSTEMD_USER_HELP" >&2
+      fi
+      echo "--lifecycle-mode stable requires a working systemd --user manager." >&2
+      return 1
+    fi
+    if [[ "$requested_mode" == "auto" ]]; then
+      echo "Systemd host detected, but user manager is unavailable for ${SYSTEMD_PAIR_UNIT}; falling back to compat mode." >&2
+      if [[ -n "$SYSTEMD_USER_HELP" ]]; then
+        echo "$SYSTEMD_USER_HELP" >&2
+      fi
+    fi
+  fi
+
+  printf 'compat'
+  return 0
 }
 
 systemd_pair_is_active() {
@@ -237,6 +284,7 @@ MODE="foreground"
 ACTION="run"
 LOG_FILE="$LOG_FILE_DEFAULT"
 PID_FILE="$PID_FILE_DEFAULT"
+LIFECYCLE_MODE="auto"
 BRIDGE_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -248,6 +296,10 @@ while [[ $# -gt 0 ]]; do
     --foreground)
       MODE="foreground"
       shift
+      ;;
+    --lifecycle-mode)
+      LIFECYCLE_MODE="${2:-}"
+      shift 2
       ;;
     --log-file)
       LOG_FILE="${2:-}"
@@ -275,6 +327,12 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if ! valid_lifecycle_mode "$LIFECYCLE_MODE"; then
+  echo "Invalid --lifecycle-mode: ${LIFECYCLE_MODE}" >&2
+  echo "Expected one of: auto, stable, compat" >&2
+  exit 1
+fi
 
 if [[ "$ACTION" == "status" ]]; then
   if ensure_systemd_user_available && systemd_pair_is_active; then
@@ -336,8 +394,9 @@ if [[ "$MODE" == "foreground" ]]; then
   exec node "$ROOT_DIR/scripts/gateway-pair-bridge.mjs" "${BRIDGE_ARGS[@]}"
 fi
 
+effective_lifecycle_mode="$(resolve_lifecycle_mode "$LIFECYCLE_MODE")"
 mkdir -p "$(dirname "$LOG_FILE")" "$(dirname "$PID_FILE")" "$RUN_DIR"
-if ensure_systemd_user_available; then
+if [[ "$effective_lifecycle_mode" == "stable" ]]; then
   rm -f "$PID_FILE"
   start_systemd_pair_service "$LOG_FILE" "$RUN_DIR" "${BRIDGE_ARGS[@]}"
   pid="$(systemd_pair_main_pid || true)"
@@ -346,15 +405,6 @@ if ensure_systemd_user_available; then
   echo "  pid:  ${pid:-unknown}"
   echo "  logs: journalctl --user -u ${SYSTEMD_PAIR_UNIT} -n 200 --no-pager"
   exit 0
-fi
-
-if is_linux_systemd_host; then
-  echo "Systemd host detected, but user manager is unavailable for ${SYSTEMD_PAIR_UNIT}." >&2
-  if [[ -n "$SYSTEMD_USER_HELP" ]]; then
-    echo "$SYSTEMD_USER_HELP" >&2
-  fi
-  echo "Refusing detached fallback on Linux/systemd because it is not lifecycle-stable." >&2
-  exit 1
 fi
 
 if ! command -v nohup >/dev/null 2>&1 && ! command -v setsid >/dev/null 2>&1; then
