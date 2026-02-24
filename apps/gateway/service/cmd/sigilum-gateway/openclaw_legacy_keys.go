@@ -25,14 +25,16 @@ const (
 )
 
 type legacyKeyFinding struct {
-	ID         string `json:"id"`
-	Provider   string `json:"provider"`
-	Field      string `json:"field"`
-	Variable   string `json:"variable"`
-	SourceType string `json:"source_type"`
-	SourcePath string `json:"source_path"`
-	Location   string `json:"location"`
-	Masked     string `json:"masked"`
+	ID                  string `json:"id"`
+	Provider            string `json:"provider"`
+	Field               string `json:"field"`
+	Variable            string `json:"variable"`
+	SourceType          string `json:"source_type"`
+	SourcePath          string `json:"source_path"`
+	Location            string `json:"location"`
+	Masked              string `json:"masked"`
+	AlreadySecured      bool   `json:"already_secured"`
+	SecuredConnectionID string `json:"secured_connection_id,omitempty"`
 }
 
 type legacyKeyDiscoveryResponse struct {
@@ -137,14 +139,25 @@ type legacyKeyCandidate struct {
 	EnvKey   string
 }
 
-func discoverLegacyOpenClawKeys() legacyKeyDiscoveryResponse {
+type legacySecuredConnectionSecrets struct {
+	Provider     string
+	ConnectionID string
+	SecretValues map[string]struct{}
+}
+
+func discoverLegacyOpenClawKeys(connectorService *connectors.Service) legacyKeyDiscoveryResponse {
 	scan := scanLegacyOpenClawKeys()
+	securedByProvider, securedAnyProvider, securedWarnings := discoverLegacySecuredConnections(connectorService)
 	findings := make([]legacyKeyFinding, 0, len(scan.Findings))
 	providerCount := map[string]int{}
 	for _, finding := range scan.Findings {
 		public := finding.Finding
 		if strings.TrimSpace(public.Provider) == "" {
 			public.Provider = "unknown"
+		}
+		if connectionID := findLegacySecuredConnectionID(finding, securedByProvider, securedAnyProvider); connectionID != "" {
+			public.AlreadySecured = true
+			public.SecuredConnectionID = connectionID
 		}
 		providerCount[public.Provider] += 1
 		findings = append(findings, public)
@@ -163,7 +176,7 @@ func discoverLegacyOpenClawKeys() legacyKeyDiscoveryResponse {
 		Total:         len(findings),
 		ProviderCount: providerCount,
 		ScannedPaths:  scan.ScannedPaths,
-		Warnings:      scan.Warnings,
+		Warnings:      append(scan.Warnings, securedWarnings...),
 		GeneratedAt:   time.Now().UTC(),
 	}
 }
@@ -630,6 +643,113 @@ func chooseConnectionSecretKey(connection connectors.Connection) string {
 		return strings.TrimSpace(connection.CredentialKeys[0])
 	}
 	return "api_key"
+}
+
+func discoverLegacySecuredConnections(connectorService *connectors.Service) (map[string][]legacySecuredConnectionSecrets, []legacySecuredConnectionSecrets, []string) {
+	if connectorService == nil {
+		return map[string][]legacySecuredConnectionSecrets{}, nil, nil
+	}
+
+	connections, err := connectorService.ListConnections()
+	if err != nil {
+		return map[string][]legacySecuredConnectionSecrets{}, nil, []string{fmt.Sprintf("failed to inspect secured provider connections: %v", err)}
+	}
+
+	byProvider := map[string][]legacySecuredConnectionSecrets{}
+	all := make([]legacySecuredConnectionSecrets, 0, len(connections))
+	warnings := []string{}
+
+	for _, connection := range connections {
+		connectionID := strings.TrimSpace(connection.ID)
+		if connectionID == "" {
+			continue
+		}
+		provider := providerFromConnectionID(connectionID)
+		if provider == "" {
+			continue
+		}
+		resolved, err := connectorService.ResolveProxyConfig(connectionID)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("could not inspect secured key for %q: %v", connectionID, err))
+			continue
+		}
+
+		secretValues := map[string]struct{}{}
+		for _, value := range resolved.Secrets {
+			for _, variant := range legacySecretLookupVariants(value) {
+				secretValues[variant] = struct{}{}
+			}
+		}
+		for _, variant := range legacySecretLookupVariants(resolved.Secret) {
+			secretValues[variant] = struct{}{}
+		}
+		if len(secretValues) == 0 {
+			continue
+		}
+
+		entry := legacySecuredConnectionSecrets{
+			Provider:     provider,
+			ConnectionID: connectionID,
+			SecretValues: secretValues,
+		}
+		byProvider[provider] = append(byProvider[provider], entry)
+		all = append(all, entry)
+	}
+
+	for provider := range byProvider {
+		sort.Slice(byProvider[provider], func(i, j int) bool {
+			return byProvider[provider][i].ConnectionID < byProvider[provider][j].ConnectionID
+		})
+	}
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].Provider != all[j].Provider {
+			return all[i].Provider < all[j].Provider
+		}
+		return all[i].ConnectionID < all[j].ConnectionID
+	})
+
+	return byProvider, all, warnings
+}
+
+func findLegacySecuredConnectionID(
+	candidate legacyKeyCandidate,
+	byProvider map[string][]legacySecuredConnectionSecrets,
+	anyProvider []legacySecuredConnectionSecrets,
+) string {
+	valueCandidates := legacySecretLookupVariants(candidate.Value)
+	if len(valueCandidates) == 0 {
+		return ""
+	}
+	provider := normalizeProviderToken(candidate.Finding.Provider)
+	if provider != "" {
+		return findLegacySecuredConnectionByProvider(valueCandidates, byProvider[provider])
+	}
+	return findLegacySecuredConnectionByProvider(valueCandidates, anyProvider)
+}
+
+func findLegacySecuredConnectionByProvider(valueCandidates []string, entries []legacySecuredConnectionSecrets) string {
+	for _, entry := range entries {
+		for _, candidate := range valueCandidates {
+			if _, ok := entry.SecretValues[candidate]; ok {
+				return entry.ConnectionID
+			}
+		}
+	}
+	return ""
+}
+
+func legacySecretLookupVariants(value string) []string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	variants := []string{trimmed}
+	if strings.HasPrefix(strings.ToLower(trimmed), "bearer ") {
+		if stripped := strings.TrimSpace(trimmed[7:]); stripped != "" {
+			variants = append(variants, stripped)
+		}
+	}
+	return dedupeLegacyStringList(variants)
 }
 
 func isLegacyNoopRotateError(err error) bool {
