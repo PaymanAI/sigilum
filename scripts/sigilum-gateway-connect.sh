@@ -21,7 +21,8 @@ Usage:
     [--gateway-admin-url <url>] \
     [--home <path>] \
     [--addr <addr>] \
-    [--gateway-start-timeout-seconds <n>]
+    [--gateway-start-timeout-seconds <n>] \
+    [--lifecycle-mode <auto|stable|compat>]
 
 What it does:
   1) Ensures local gateway is running (starts it if needed)
@@ -186,6 +187,52 @@ ensure_systemd_user_available() {
   return 1
 }
 
+valid_lifecycle_mode() {
+  case "${1:-}" in
+    auto|stable|compat)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+resolve_lifecycle_mode() {
+  local requested_mode="${1:-auto}"
+
+  if ! valid_lifecycle_mode "$requested_mode"; then
+    echo "Invalid --lifecycle-mode: ${requested_mode}" >&2
+    echo "Expected one of: auto, stable, compat" >&2
+    return 1
+  fi
+
+  if ensure_systemd_user_available; then
+    printf 'stable'
+    return 0
+  fi
+
+  if is_linux_systemd_host; then
+    if [[ "$requested_mode" == "stable" ]]; then
+      echo "Systemd host detected, but user manager is unavailable for ${SYSTEMD_GATEWAY_UNIT}." >&2
+      if [[ -n "$SYSTEMD_USER_HELP" ]]; then
+        echo "$SYSTEMD_USER_HELP" >&2
+      fi
+      echo "--lifecycle-mode stable requires a working systemd --user manager." >&2
+      return 1
+    fi
+    if [[ "$requested_mode" == "auto" ]]; then
+      echo "Systemd host detected, but user manager is unavailable for ${SYSTEMD_GATEWAY_UNIT}; falling back to compat mode." >&2
+      if [[ -n "$SYSTEMD_USER_HELP" ]]; then
+        echo "$SYSTEMD_USER_HELP" >&2
+      fi
+    fi
+  fi
+
+  printf 'compat'
+  return 0
+}
+
 systemd_gateway_is_active() {
   systemctl --user is-active --quiet "$SYSTEMD_GATEWAY_UNIT"
 }
@@ -301,6 +348,7 @@ GATEWAY_HOME=""
 GATEWAY_ADDR=":38100"
 START_TIMEOUT_SECONDS=20
 ADDR_SET="false"
+LIFECYCLE_MODE="auto"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -337,6 +385,10 @@ while [[ $# -gt 0 ]]; do
       START_TIMEOUT_SECONDS="${2:-}"
       shift 2
       ;;
+    --lifecycle-mode)
+      LIFECYCLE_MODE="${2:-}"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -355,6 +407,11 @@ if [[ -z "$SESSION_ID" || -z "$PAIR_CODE" || -z "$NAMESPACE" ]]; then
 fi
 if [[ ! "$START_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [[ "$START_TIMEOUT_SECONDS" -lt 1 ]]; then
   echo "--gateway-start-timeout-seconds must be a positive integer" >&2
+  exit 1
+fi
+if ! valid_lifecycle_mode "$LIFECYCLE_MODE"; then
+  echo "Invalid --lifecycle-mode: ${LIFECYCLE_MODE}" >&2
+  echo "Expected one of: auto, stable, compat" >&2
   exit 1
 fi
 
@@ -379,6 +436,7 @@ fi
 
 health_url="$(parse_health_url "$GATEWAY_ADMIN_URL")"
 code="$(http_code "$health_url")"
+effective_lifecycle_mode="$(resolve_lifecycle_mode "$LIFECYCLE_MODE")"
 
 if [[ "$code" != "200" ]]; then
   echo "Gateway is not healthy at ${health_url}; starting gateway..."
@@ -393,20 +451,13 @@ if [[ "$code" != "200" ]]; then
     start_args+=(--home "$GATEWAY_HOME")
   fi
 
-  if ensure_systemd_user_available; then
+  if [[ "$effective_lifecycle_mode" == "stable" ]]; then
     systemd_ready="true"
     rm -f "$gateway_pid_file"
     start_gateway_systemd_service "$gateway_log" "$run_dir" "${start_args[@]}"
     gateway_pid="$(systemd_gateway_main_pid || true)"
     echo "Gateway started as systemd user service (unit=${SYSTEMD_GATEWAY_UNIT}, pid=${gateway_pid:-unknown})."
     echo "Gateway logs: journalctl --user -u ${SYSTEMD_GATEWAY_UNIT} -n 200 --no-pager"
-  elif is_linux_systemd_host; then
-    echo "Systemd host detected, but user manager is unavailable for ${SYSTEMD_GATEWAY_UNIT}." >&2
-    if [[ -n "$SYSTEMD_USER_HELP" ]]; then
-      echo "$SYSTEMD_USER_HELP" >&2
-    fi
-    echo "Refusing detached fallback on Linux/systemd because it is not lifecycle-stable." >&2
-    exit 1
   else
     if ! command -v nohup >/dev/null 2>&1 && ! command -v setsid >/dev/null 2>&1; then
       echo "Missing required command for auto-start: need systemd user manager, 'setsid', or 'nohup'" >&2
@@ -447,7 +498,8 @@ echo "Gateway is healthy at ${health_url}"
   --pair-code "$PAIR_CODE" \
   --namespace "$NAMESPACE" \
   --api-url "$API_URL" \
-  --gateway-admin-url "$GATEWAY_ADMIN_URL"
+  --gateway-admin-url "$GATEWAY_ADMIN_URL" \
+  --lifecycle-mode "$effective_lifecycle_mode"
 
 echo "Connect complete."
 echo "  gateway health: ${health_url}"

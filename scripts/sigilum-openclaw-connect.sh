@@ -22,13 +22,16 @@ Usage:
     [--key-root <path>] \
     [--agent-id <id>] \
     [--enable-authz-notify <true|false>] \
-    [--owner-token <jwt>]
+    [--owner-token <jwt>] \
+    [--lifecycle-mode <auto|stable|compat>] \
+    [--force-install]
 
 What it does:
-  1) Runs: sigilum openclaw install --mode managed --non-interactive
-  2) Bootstraps OpenClaw agent keypairs immediately
-  3) Runs: sigilum gateway connect (after install/reload window)
-  4) Verifies pair bridge + gateway health; retries reconcile with backoff on failure
+  1) Preflights lifecycle mode and host readiness
+  2) Runs: sigilum openclaw install --mode managed --non-interactive (skips if already configured)
+  3) Bootstraps OpenClaw agent keypairs immediately
+  4) Runs: sigilum gateway connect (after install/reload window)
+  5) Verifies pair bridge + gateway health; retries reconcile with backoff on failure
 EOF
 }
 
@@ -47,6 +50,7 @@ touch "$LOG_FILE"
 LAST_CMD=""
 CONNECT_RETRY_MAX=4
 CONNECT_RETRY_DELAY_SECONDS=3
+SYSTEMD_USER_HELP=""
 
 run() {
   LAST_CMD="$*"
@@ -58,6 +62,154 @@ run_check() {
   LAST_CMD="$*"
   echo "+ $*" | tee -a "$LOG_FILE"
   "$@" 2>&1 | tee -a "$LOG_FILE"
+}
+
+is_linux_systemd_host() {
+  [[ "$(uname -s)" == "Linux" ]] || return 1
+  [[ -d "/run/systemd/system" ]] || return 1
+  command -v systemctl >/dev/null 2>&1
+}
+
+configure_systemd_user_env() {
+  local uid runtime_dir
+  uid="$(id -u)"
+  runtime_dir="/run/user/${uid}"
+  if [[ -z "${XDG_RUNTIME_DIR:-}" && -d "$runtime_dir" ]]; then
+    export XDG_RUNTIME_DIR="$runtime_dir"
+  fi
+  if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" && -n "${XDG_RUNTIME_DIR:-}" && -S "${XDG_RUNTIME_DIR}/bus" ]]; then
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+  fi
+}
+
+build_systemd_user_help() {
+  local user linger
+  user="$(id -un 2>/dev/null || true)"
+  linger=""
+  if command -v loginctl >/dev/null 2>&1 && [[ -n "$user" ]]; then
+    linger="$(loginctl show-user "$user" -p Linger --value 2>/dev/null || true)"
+  fi
+
+  if [[ -n "$user" && "$linger" != "yes" ]]; then
+    SYSTEMD_USER_HELP="Run: sudo loginctl enable-linger ${user}"
+    return 0
+  fi
+
+  SYSTEMD_USER_HELP="Ensure systemd user manager is running and user D-Bus is reachable (XDG_RUNTIME_DIR + DBUS_SESSION_BUS_ADDRESS)."
+}
+
+systemd_user_available() {
+  if ! command -v systemctl >/dev/null 2>&1; then
+    return 1
+  fi
+  systemctl --user show-environment >/dev/null 2>&1
+}
+
+ensure_systemd_user_available() {
+  SYSTEMD_USER_HELP=""
+  if ! is_linux_systemd_host; then
+    return 1
+  fi
+  configure_systemd_user_env
+  if systemd_user_available; then
+    return 0
+  fi
+  build_systemd_user_help
+  return 1
+}
+
+valid_lifecycle_mode() {
+  case "${1:-}" in
+    auto|stable|compat)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+resolve_lifecycle_mode() {
+  local requested_mode="${1:-auto}"
+
+  if ! valid_lifecycle_mode "$requested_mode"; then
+    echo "Invalid --lifecycle-mode: ${requested_mode}" >&2
+    echo "Expected one of: auto, stable, compat" >&2
+    return 1
+  fi
+
+  if ensure_systemd_user_available; then
+    printf 'stable'
+    return 0
+  fi
+
+  if is_linux_systemd_host; then
+    if [[ "$requested_mode" == "stable" ]]; then
+      echo "Systemd host detected, but user manager is unavailable." >&2
+      if [[ -n "$SYSTEMD_USER_HELP" ]]; then
+        echo "$SYSTEMD_USER_HELP" >&2
+      fi
+      echo "--lifecycle-mode stable requires a working systemd --user manager." >&2
+      return 1
+    fi
+    if [[ "$requested_mode" == "auto" ]]; then
+      echo "Preflight: systemd user manager is unavailable; falling back to compat mode for this run." | tee -a "$LOG_FILE"
+      if [[ -n "$SYSTEMD_USER_HELP" ]]; then
+        echo "Hint: $SYSTEMD_USER_HELP" | tee -a "$LOG_FILE"
+      fi
+    fi
+  fi
+
+  printf 'compat'
+  return 0
+}
+
+openclaw_install_is_configured() {
+  local config_path="$1"
+  local expected_namespace="$2"
+  local expected_api_url="$3"
+  local hooks_dir="${OPENCLAW_HOME%/}/hooks/sigilum-plugin"
+  local skills_dir="${OPENCLAW_HOME%/}/skills/sigilum"
+
+  if [[ ! -f "$config_path" ]]; then
+    return 1
+  fi
+  if [[ ! -d "$hooks_dir" || ! -d "$skills_dir" ]]; then
+    return 1
+  fi
+
+  node - "$config_path" "$expected_namespace" "$expected_api_url" <<'NODE'
+const fs = require("node:fs");
+const configPath = process.argv[2] || "";
+const expectedNamespace = (process.argv[3] || "").trim();
+const expectedApiUrl = (process.argv[4] || "").trim().replace(/\/+$/g, "");
+const trim = (value) => (typeof value === "string" ? value.trim() : "");
+const normalizeUrl = (value) => trim(value).replace(/\/+$/g, "");
+
+if (!configPath || !expectedNamespace) process.exit(1);
+
+let cfg;
+try {
+  cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
+} catch {
+  process.exit(1);
+}
+
+const plugin = cfg?.hooks?.internal?.entries?.["sigilum-plugin"];
+const skill = cfg?.skills?.entries?.sigilum;
+if (plugin?.enabled !== true || skill?.enabled !== true) process.exit(1);
+
+const namespaceCandidates = [trim(plugin?.env?.SIGILUM_NAMESPACE), trim(skill?.env?.SIGILUM_NAMESPACE)].filter(Boolean);
+if (!namespaceCandidates.includes(expectedNamespace)) process.exit(1);
+
+const modeCandidates = [trim(plugin?.env?.SIGILUM_MODE), trim(skill?.env?.SIGILUM_MODE)].filter(Boolean);
+if (modeCandidates.length > 0 && !modeCandidates.includes("managed")) process.exit(1);
+
+const configuredApiUrl = normalizeUrl(plugin?.env?.SIGILUM_API_URL) || normalizeUrl(skill?.env?.SIGILUM_API_URL);
+if (configuredApiUrl && expectedApiUrl && configuredApiUrl !== expectedApiUrl) process.exit(1);
+
+process.exit(0);
+NODE
 }
 
 normalize_gateway_admin_url() {
@@ -183,6 +335,8 @@ KEY_ROOT=""
 AGENT_ID=""
 ENABLE_AUTHZ_NOTIFY="false"
 OWNER_TOKEN=""
+LIFECYCLE_MODE="auto"
+FORCE_INSTALL="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -242,6 +396,14 @@ while [[ $# -gt 0 ]]; do
       OWNER_TOKEN="${2:-}"
       shift 2
       ;;
+    --lifecycle-mode)
+      LIFECYCLE_MODE="${2:-}"
+      shift 2
+      ;;
+    --force-install)
+      FORCE_INSTALL="true"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -268,6 +430,11 @@ if [[ "$ENABLE_AUTHZ_NOTIFY" == "true" && -z "$OWNER_TOKEN" ]]; then
   echo "--owner-token is required when --enable-authz-notify=true" >&2
   exit 1
 fi
+if ! valid_lifecycle_mode "$LIFECYCLE_MODE"; then
+  echo "Invalid --lifecycle-mode: ${LIFECYCLE_MODE}" >&2
+  echo "Expected one of: auto, stable, compat" >&2
+  exit 1
+fi
 
 if [[ -z "$CONFIG_PATH" ]]; then
   CONFIG_PATH="${OPENCLAW_HOME}/openclaw.json"
@@ -286,11 +453,14 @@ gateway_health_url="${GATEWAY_ADMIN_URL%/}/health"
 require_cmd node
 require_cmd sigilum
 
+effective_lifecycle_mode="$(resolve_lifecycle_mode "$LIFECYCLE_MODE")"
+
 gateway_connect_cmd=(sigilum gateway connect
   --session-id "$SESSION_ID"
   --pair-code "$PAIR_CODE"
   --namespace "$NAMESPACE"
   --api-url "$API_URL"
+  --lifecycle-mode "$effective_lifecycle_mode"
 )
 if [[ -n "$GATEWAY_ADMIN_URL" ]]; then
   gateway_connect_cmd+=(--gateway-admin-url "$GATEWAY_ADMIN_URL")
@@ -321,7 +491,14 @@ if [[ -n "$OWNER_TOKEN" ]]; then
   openclaw_install_cmd+=(--owner-token "$OWNER_TOKEN")
 fi
 
-run "${openclaw_install_cmd[@]}"
+if [[ "$FORCE_INSTALL" == "true" ]]; then
+  echo "Force install enabled; running OpenClaw install." | tee -a "$LOG_FILE"
+  run "${openclaw_install_cmd[@]}"
+elif openclaw_install_is_configured "$CONFIG_PATH" "$NAMESPACE" "$API_URL"; then
+  echo "OpenClaw Sigilum install already configured for namespace=${NAMESPACE}; skipping install." | tee -a "$LOG_FILE"
+else
+  run "${openclaw_install_cmd[@]}"
+fi
 
 key_bootstrap_cmd=(node "$ROOT_DIR/openclaw/lib/bootstrap-openclaw-agent-keys.mjs" --config "$CONFIG_PATH")
 if [[ -n "$KEY_ROOT" ]]; then

@@ -186,6 +186,7 @@ ${CLR_BOLD}${CLR_CYAN}Options:${CLR_RESET}
   ${CLR_BOLD}--reconnect-ms <ms>${CLR_RESET}        ${CLR_DIM}WebSocket reconnect delay (default: 2000)${CLR_RESET}
   ${CLR_BOLD}--connect-timeout-ms <ms>${CLR_RESET}  ${CLR_DIM}HTTP/WebSocket preflight timeout (default: 5000)${CLR_RESET}
   ${CLR_BOLD}--gateway-start-timeout-seconds <n>${CLR_RESET} ${CLR_DIM}Connect wait for gateway health${CLR_RESET}
+  ${CLR_BOLD}--lifecycle-mode <auto|stable|compat>${CLR_RESET} ${CLR_DIM}Gateway/pair lifecycle strategy (default: auto)${CLR_RESET}
   ${CLR_BOLD}--daemon${CLR_RESET}                   ${CLR_DIM}Run pair bridge in background${CLR_RESET}
   ${CLR_BOLD}--status${CLR_RESET}                   ${CLR_DIM}Show pair bridge daemon status${CLR_RESET}
   ${CLR_BOLD}--stop${CLR_RESET}                     ${CLR_DIM}Stop pair bridge daemon${CLR_RESET}
