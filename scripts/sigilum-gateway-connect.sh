@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SYSTEMD_GATEWAY_UNIT_BASENAME="sigilum-gateway"
+SYSTEMD_GATEWAY_UNIT="${SYSTEMD_GATEWAY_UNIT_BASENAME}.service"
 
 usage() {
   cat <<'EOF'
@@ -127,6 +129,68 @@ start_detached_process() {
   printf '%s' "$pid"
 }
 
+systemd_user_available() {
+  if ! command -v systemctl >/dev/null 2>&1 || ! command -v systemd-run >/dev/null 2>&1; then
+    return 1
+  fi
+  systemctl --user show-environment >/dev/null 2>&1
+}
+
+systemd_gateway_is_active() {
+  systemctl --user is-active --quiet "$SYSTEMD_GATEWAY_UNIT"
+}
+
+systemd_gateway_main_pid() {
+  local pid=""
+  pid="$(systemctl --user show --property MainPID --value "$SYSTEMD_GATEWAY_UNIT" 2>/dev/null || true)"
+  if [[ "$pid" =~ ^[0-9]+$ ]] && [[ "$pid" -gt 0 ]]; then
+    printf '%s' "$pid"
+    return 0
+  fi
+  return 1
+}
+
+write_systemd_log_hint() {
+  local log_file="$1"
+  mkdir -p "$(dirname "$log_file")"
+  cat >"$log_file" <<EOF
+[sigilum] Gateway is managed by systemd user service: ${SYSTEMD_GATEWAY_UNIT}
+[sigilum] View logs with:
+  journalctl --user -u ${SYSTEMD_GATEWAY_UNIT} -n 200 --no-pager
+EOF
+}
+
+start_gateway_systemd_service() {
+  local log_file="$1"
+  shift
+  local start_args=("$@")
+
+  systemctl --user stop "$SYSTEMD_GATEWAY_UNIT" >/dev/null 2>&1 || true
+  systemctl --user reset-failed "$SYSTEMD_GATEWAY_UNIT" >/dev/null 2>&1 || true
+
+  if ! systemd-run --user \
+    --unit "$SYSTEMD_GATEWAY_UNIT_BASENAME" \
+    --description "Sigilum Gateway" \
+    --property Restart=always \
+    --property RestartSec=2 \
+    --property KillMode=process \
+    --property WorkingDirectory="$ROOT_DIR" \
+    "$ROOT_DIR/scripts/sigilum-gateway-start.sh" "${start_args[@]}" >/dev/null; then
+    echo "Failed to start systemd user service: ${SYSTEMD_GATEWAY_UNIT}" >&2
+    return 1
+  fi
+
+  sleep 1
+  if ! systemd_gateway_is_active; then
+    echo "Gateway service is not active after start: ${SYSTEMD_GATEWAY_UNIT}" >&2
+    echo "Inspect logs: journalctl --user -u ${SYSTEMD_GATEWAY_UNIT} -n 200 --no-pager" >&2
+    return 1
+  fi
+
+  write_systemd_log_hint "$log_file"
+  return 0
+}
+
 SESSION_ID=""
 PAIR_CODE=""
 NAMESPACE=""
@@ -217,37 +281,51 @@ code="$(http_code "$health_url")"
 
 if [[ "$code" != "200" ]]; then
   echo "Gateway is not healthy at ${health_url}; starting gateway..."
-  if ! command -v nohup >/dev/null 2>&1 && ! command -v setsid >/dev/null 2>&1; then
-    echo "Missing required command for auto-start: need 'setsid' or 'nohup'" >&2
-    exit 1
-  fi
 
   run_dir="${SIGILUM_CONFIG_HOME:-$HOME/.sigilum}/run"
   mkdir -p "$run_dir"
   gateway_log="${run_dir}/gateway-start.log"
   gateway_pid_file="${run_dir}/gateway-start.pid"
-  if [[ -f "$gateway_pid_file" ]]; then
-    existing_pid="$(tr -d '\r\n' <"$gateway_pid_file" 2>/dev/null || true)"
-    if [[ "$existing_pid" =~ ^[0-9]+$ ]] && kill -0 "$existing_pid" 2>/dev/null; then
-      echo "Gateway start process already running (pid=${existing_pid}); waiting for health..."
-    else
-      rm -f "$gateway_pid_file"
-    fi
+  start_args=(--namespace "$NAMESPACE" --api-url "$API_URL" --addr "$GATEWAY_ADDR")
+  if [[ -n "$GATEWAY_HOME" ]]; then
+    start_args+=(--home "$GATEWAY_HOME")
   fi
 
-  if [[ ! -f "$gateway_pid_file" ]]; then
-    start_args=(--namespace "$NAMESPACE" --api-url "$API_URL" --addr "$GATEWAY_ADDR")
-    if [[ -n "$GATEWAY_HOME" ]]; then
-      start_args+=(--home "$GATEWAY_HOME")
+  if systemd_user_available; then
+    rm -f "$gateway_pid_file"
+    start_gateway_systemd_service "$gateway_log" "${start_args[@]}"
+    gateway_pid="$(systemd_gateway_main_pid || true)"
+    echo "Gateway started as systemd user service (unit=${SYSTEMD_GATEWAY_UNIT}, pid=${gateway_pid:-unknown})."
+    echo "Gateway logs: journalctl --user -u ${SYSTEMD_GATEWAY_UNIT} -n 200 --no-pager"
+  else
+    if ! command -v nohup >/dev/null 2>&1 && ! command -v setsid >/dev/null 2>&1; then
+      echo "Missing required command for auto-start: need systemd user manager, 'setsid', or 'nohup'" >&2
+      exit 1
     fi
-    gateway_pid="$(start_detached_process "$gateway_log" "$ROOT_DIR/scripts/sigilum-gateway-start.sh" "${start_args[@]}")"
-    echo "$gateway_pid" >"$gateway_pid_file"
-    echo "Gateway starting in background (pid=${gateway_pid}, log=${gateway_log})"
+
+    if [[ -f "$gateway_pid_file" ]]; then
+      existing_pid="$(tr -d '\r\n' <"$gateway_pid_file" 2>/dev/null || true)"
+      if [[ "$existing_pid" =~ ^[0-9]+$ ]] && kill -0 "$existing_pid" 2>/dev/null; then
+        echo "Gateway start process already running (pid=${existing_pid}); waiting for health..."
+      else
+        rm -f "$gateway_pid_file"
+      fi
+    fi
+
+    if [[ ! -f "$gateway_pid_file" ]]; then
+      gateway_pid="$(start_detached_process "$gateway_log" "$ROOT_DIR/scripts/sigilum-gateway-start.sh" "${start_args[@]}")"
+      echo "$gateway_pid" >"$gateway_pid_file"
+      echo "Gateway starting in background (pid=${gateway_pid}, log=${gateway_log})"
+    fi
   fi
 
   if ! wait_for_gateway "$health_url" "$START_TIMEOUT_SECONDS"; then
     echo "Gateway did not become healthy within ${START_TIMEOUT_SECONDS}s at ${health_url}" >&2
-    echo "Inspect gateway logs at ${gateway_log}" >&2
+    if systemd_user_available; then
+      echo "Inspect gateway logs with: journalctl --user -u ${SYSTEMD_GATEWAY_UNIT} -n 200 --no-pager" >&2
+    else
+      echo "Inspect gateway logs at ${gateway_log}" >&2
+    fi
     exit 1
   fi
 fi
