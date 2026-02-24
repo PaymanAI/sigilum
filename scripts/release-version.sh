@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-release_version_pattern='^[0-9]{4}-[0-9]{2}-[0-9]{2}(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$'
+release_version_pattern='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
 
 normalize_component_version() {
   local raw_version="$1"
@@ -26,12 +26,12 @@ validate_release_version() {
 
   cat >&2 <<EOF
 Error: invalid release version: ${raw_version}
-Expected format: YYYY-MM-DD or YYYY-MM-DD-<suffix>
+Expected format: SemVer (MAJOR.MINOR.PATCH with optional pre-release/build metadata)
 Examples:
-  2026-02-20
-  2026-02-20-beta.1
-  v2026-02-20
-  v2026-02-20-beta.1
+  0.1.0
+  0.1.1-beta.1
+  v0.1.0
+  v0.1.1-rc.1
 EOF
   return 1
 }

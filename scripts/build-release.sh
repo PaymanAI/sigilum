@@ -14,7 +14,7 @@ Usage:
   ./scripts/build-release.sh <version>
 
 Arguments:
-  version     Release version tag (YYYY-MM-DD with optional suffix, e.g. v2026-02-20-beta.1)
+  version     Release version tag (SemVer, e.g. v0.1.0 or v0.1.1-beta.1)
 
 Options:
   --out-dir <path>             Output directory (default: ./releases)
@@ -24,10 +24,10 @@ Options:
   -h, --help                   Show help
 
 Examples:
-  ./scripts/build-release.sh v2026-02-20
-  ./scripts/build-release.sh v2026-02-20 --platform macos-apple-silicon --gateway-bin-dir ./.release-bin
-  ./scripts/build-release.sh v2026-02-20-beta.1 --out-dir /tmp/builds
-  ./scripts/build-release.sh v2026-02-20-beta.1 --signing-key-file ./release-private.pem
+  ./scripts/build-release.sh v0.1.0
+  ./scripts/build-release.sh v0.1.0 --platform macos-apple-silicon --gateway-bin-dir ./.release-bin
+  ./scripts/build-release.sh v0.1.1-beta.1 --out-dir /tmp/builds
+  ./scripts/build-release.sh v0.1.1-beta.1 --signing-key-file ./release-private.pem
 EOF
 }
 

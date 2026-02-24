@@ -145,6 +145,7 @@ Removed during uninstall:
 | `SIGILUM_KEY_ROOT` | persisted/runtime | Filesystem root for per-agent keypairs. |
 | `SIGILUM_AUTO_BOOTSTRAP_AGENTS` | persisted/runtime | Enables auto key bootstrap for configured agents. |
 | `SIGILUM_GATEWAY_ADMIN_TOKEN` | runtime override | Optional bearer token for gateway admin inventory calls. |
+| `SIGILUM_LEGACY_RUNTIME_REPORT_PATH` | runtime override | Optional path override for runtime credential discovery report used by legacy key migration. |
 
 ### `sigilum-authz-notify` hook env
 

@@ -24,7 +24,8 @@ What it does:
    - avoid `/api/admin/*` for capability checks
    - do not request direct provider API keys unless gateway path fails
 5. Lists active `sigilum-secure-*` gateway connections and their provider aliases (including `sigilum-secure-linear` when present).
-6. Runs at gateway startup and when new sessions/config reload events happen.
+6. Writes a runtime credential discovery report for migration at `<openclaw-home>/.sigilum/legacy-runtime-credentials.json`.
+7. Runs at gateway startup and when new sessions/config reload events happen.
 
 ## Recommended OpenClaw Config
 
@@ -61,6 +62,7 @@ What it does:
 - `SIGILUM_DASHBOARD_URL` (optional)
 - `SIGILUM_KEY_ROOT` (optional)
 - `SIGILUM_AUTO_BOOTSTRAP_AGENTS` (`true|false`, optional, default `true`)
+- `SIGILUM_LEGACY_RUNTIME_REPORT_PATH` (optional; override runtime discovery report path)
 
 ## Output Layout
 

@@ -14,7 +14,7 @@ Usage:
   ./scripts/verify-version-markers.sh <version>
 
 Arguments:
-  version     Release version (YYYY-MM-DD with optional suffix, e.g. v2026-02-20-beta.1)
+  version     Release version (SemVer, e.g. v0.1.0 or v0.1.1-beta.1)
 EOF
 }
 
