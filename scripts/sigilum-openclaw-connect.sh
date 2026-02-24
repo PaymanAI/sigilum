@@ -28,7 +28,7 @@ What it does:
   1) Runs: sigilum openclaw install --mode managed --non-interactive
   2) Bootstraps OpenClaw agent keypairs immediately
   3) Runs: sigilum gateway connect (after install/reload window)
-  4) Verifies pair bridge + gateway health; retries reconcile once on failure
+  4) Verifies pair bridge + gateway health; retries reconcile with backoff on failure
 EOF
 }
 
@@ -45,6 +45,8 @@ LOG_FILE="${RUN_DIR}/openclaw-connect.log"
 touch "$LOG_FILE"
 
 LAST_CMD=""
+CONNECT_RETRY_MAX=4
+CONNECT_RETRY_DELAY_SECONDS=3
 
 run() {
   LAST_CMD="$*"
@@ -95,6 +97,30 @@ verify_gateway_connect_state() {
   fi
 
   [[ "$ok" == "true" ]]
+}
+
+reconcile_gateway_connect() {
+  local gateway_health_url="$1"
+  shift
+  local connect_cmd=("$@")
+  local attempt=1
+
+  while (( attempt <= CONNECT_RETRY_MAX )); do
+    echo "Gateway connect attempt ${attempt}/${CONNECT_RETRY_MAX}..." | tee -a "$LOG_FILE"
+    run "${connect_cmd[@]}"
+    if verify_gateway_connect_state "$gateway_health_url"; then
+      return 0
+    fi
+
+    if (( attempt < CONNECT_RETRY_MAX )); then
+      echo "Gateway verification failed for attempt ${attempt}; waiting ${CONNECT_RETRY_DELAY_SECONDS}s before retry..." | tee -a "$LOG_FILE"
+      echo "+ sleep ${CONNECT_RETRY_DELAY_SECONDS}" | tee -a "$LOG_FILE"
+      sleep "$CONNECT_RETRY_DELAY_SECONDS"
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  return 1
 }
 
 print_file_or_missing() {
@@ -308,15 +334,9 @@ run "${key_bootstrap_cmd[@]}"
 
 echo "+ sleep 2" | tee -a "$LOG_FILE"
 sleep 2
-run "${gateway_connect_cmd[@]}"
-
-if ! verify_gateway_connect_state "$gateway_health_url"; then
-  echo "Gateway verification failed after initial connect; attempting one reconcile pass..." | tee -a "$LOG_FILE"
-  run "${gateway_connect_cmd[@]}"
-  if ! verify_gateway_connect_state "$gateway_health_url"; then
-    echo "Gateway verification failed after reconcile retry." >&2
-    exit 1
-  fi
+if ! reconcile_gateway_connect "$gateway_health_url" "${gateway_connect_cmd[@]}"; then
+  echo "Gateway verification failed after ${CONNECT_RETRY_MAX} attempts." >&2
+  exit 1
 fi
 
 echo ""
