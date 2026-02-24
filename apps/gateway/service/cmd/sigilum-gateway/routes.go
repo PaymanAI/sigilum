@@ -427,7 +427,7 @@ func registerAdminRoutes(
 			writeJSONBodyError(w, err)
 			return
 		}
-		response, err := importLegacyOpenClawKeys(connectorService, input)
+		response, err := importLegacyOpenClawKeys(connectorService, catalogStore, input)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
 			return

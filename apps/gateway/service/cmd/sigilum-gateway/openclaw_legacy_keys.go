@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"sigilum.local/gateway/internal/catalog"
 	"sigilum.local/gateway/internal/connectors"
 )
 
@@ -49,12 +50,34 @@ type legacyKeyImportRequest struct {
 }
 
 type legacyKeyImportResponse struct {
-	ImportedCount    int      `json:"imported_count"`
-	ImportedVariable []string `json:"imported_variables"`
-	ConnectionID     string   `json:"connection_id,omitempty"`
-	BoundSecretKey   string   `json:"bound_secret_key,omitempty"`
-	BoundVariable    string   `json:"bound_variable,omitempty"`
-	Warnings         []string `json:"warnings,omitempty"`
+	ImportedCount      int                       `json:"imported_count"`
+	ImportedVariable   []string                  `json:"imported_variables"`
+	ConnectionID       string                    `json:"connection_id,omitempty"`
+	BoundSecretKey     string                    `json:"bound_secret_key,omitempty"`
+	BoundVariable      string                    `json:"bound_variable,omitempty"`
+	SecuredFindingIDs  []string                  `json:"secured_finding_ids,omitempty"`
+	SecuredConnections []legacySecuredConnection `json:"secured_connections,omitempty"`
+	SkippedFindings    []legacySkippedFinding    `json:"skipped_findings,omitempty"`
+	Warnings           []string                  `json:"warnings,omitempty"`
+}
+
+type legacySecuredConnection struct {
+	Provider       string   `json:"provider"`
+	ConnectionID   string   `json:"connection_id"`
+	ConnectionName string   `json:"connection_name"`
+	TemplateKey    string   `json:"template_key,omitempty"`
+	Created        bool     `json:"created"`
+	ImportedCount  int      `json:"imported_count"`
+	SecretKeys     []string `json:"secret_keys,omitempty"`
+}
+
+type legacySkippedFinding struct {
+	ID         string `json:"id"`
+	Provider   string `json:"provider"`
+	Field      string `json:"field"`
+	SourcePath string `json:"source_path"`
+	Masked     string `json:"masked"`
+	Reason     string `json:"reason"`
 }
 
 type legacyKeyPurgeRequest struct {
@@ -145,7 +168,7 @@ func discoverLegacyOpenClawKeys() legacyKeyDiscoveryResponse {
 	}
 }
 
-func importLegacyOpenClawKeys(connectorService *connectors.Service, request legacyKeyImportRequest) (legacyKeyImportResponse, error) {
+func importLegacyOpenClawKeys(connectorService *connectors.Service, catalogStore *catalog.Store, request legacyKeyImportRequest) (legacyKeyImportResponse, error) {
 	scan := scanLegacyOpenClawKeys()
 	selected, err := selectLegacyCandidates(scan.Findings, request.FindingIDs)
 	if err != nil {
@@ -154,80 +177,240 @@ func importLegacyOpenClawKeys(connectorService *connectors.Service, request lega
 	if len(selected) == 0 {
 		return legacyKeyImportResponse{}, errors.New("no legacy keys selected")
 	}
-
-	existingVars, err := connectorService.ListCredentialVariables()
-	if err != nil {
-		return legacyKeyImportResponse{}, fmt.Errorf("list credential variables: %w", err)
-	}
-	usedVariableKeys := map[string]struct{}{}
-	for _, v := range existingVars {
-		usedVariableKeys[strings.ToUpper(strings.TrimSpace(v.Key))] = struct{}{}
-	}
-
-	candidateVariableByID := map[string]string{}
-	importedVariables := make([]string, 0, len(selected))
-	for _, candidate := range selected {
-		variable := chooseImportVariableKey(candidate, usedVariableKeys)
-		if _, ok := candidateVariableByID[candidate.Finding.ID]; ok {
-			continue
-		}
-		if _, err := connectorService.UpsertCredentialVariable(connectors.UpsertSharedCredentialVariableInput{
-			Key:   variable,
-			Value: candidate.Value,
-		}); err != nil {
-			return legacyKeyImportResponse{}, fmt.Errorf("store credential variable %q: %w", variable, err)
-		}
-		candidateVariableByID[candidate.Finding.ID] = variable
-		importedVariables = append(importedVariables, variable)
-		usedVariableKeys[strings.ToUpper(variable)] = struct{}{}
-	}
+	sortLegacyCandidates(selected)
 
 	response := legacyKeyImportResponse{
-		ImportedCount:    len(candidateVariableByID),
-		ImportedVariable: importedVariables,
-		Warnings:         scan.Warnings,
-	}
-	if strings.TrimSpace(request.ConnectionID) == "" || len(importedVariables) == 0 {
-		return response, nil
-	}
-
-	connection, err := connectorService.GetConnection(strings.TrimSpace(request.ConnectionID))
-	if err != nil {
-		return legacyKeyImportResponse{}, fmt.Errorf("load connection %q: %w", request.ConnectionID, err)
-	}
-	selectedForConnection := chooseLegacyCandidateForConnection(selected, connection.ID)
-	if selectedForConnection == nil {
-		return response, nil
+		ImportedCount:      0,
+		ImportedVariable:   []string{},
+		SecuredFindingIDs:  []string{},
+		SecuredConnections: []legacySecuredConnection{},
+		SkippedFindings:    []legacySkippedFinding{},
+		Warnings:           scan.Warnings,
 	}
 
-	boundVariable, ok := candidateVariableByID[selectedForConnection.Finding.ID]
-	if !ok {
-		return response, nil
-	}
-	secretKey := chooseConnectionSecretKey(connection)
-	if strings.TrimSpace(secretKey) == "" {
-		return legacyKeyImportResponse{}, fmt.Errorf("connection %q has no secret key field", connection.ID)
-	}
-	if _, err := connectorService.RotateSecret(connection.ID, connectors.RotateSecretInput{
-		Secrets: map[string]string{
-			secretKey: fmt.Sprintf("{{%s}}", boundVariable),
-		},
-		RotatedBy:      "gateway-admin",
-		RotationReason: "import openclaw legacy key",
-	}); err != nil {
-		return legacyKeyImportResponse{}, fmt.Errorf("bind credential variable to connection %q: %w", connection.ID, err)
-	}
-	if strings.TrimSpace(connection.AuthSecretKey) == "" {
-		if _, err := connectorService.UpdateConnection(connection.ID, connectors.UpdateConnectionInput{
-			AuthSecretKey: secretKey,
+	if connectionID := strings.TrimSpace(request.ConnectionID); connectionID != "" {
+		connection, err := connectorService.GetConnection(connectionID)
+		if err != nil {
+			return legacyKeyImportResponse{}, fmt.Errorf("load connection %q: %w", request.ConnectionID, err)
+		}
+		selectedForConnection := chooseLegacyCandidateForConnection(selected, connection.ID)
+		if selectedForConnection == nil {
+			return response, nil
+		}
+		secretKey := chooseConnectionSecretKey(connection)
+		if strings.TrimSpace(secretKey) == "" {
+			return legacyKeyImportResponse{}, fmt.Errorf("connection %q has no secret key field", connection.ID)
+		}
+		if _, err := connectorService.RotateSecret(connection.ID, connectors.RotateSecretInput{
+			Secrets: map[string]string{
+				secretKey: selectedForConnection.Value,
+			},
+			RotatedBy:      "gateway-admin",
+			RotationReason: "import openclaw legacy key",
 		}); err != nil {
-			return legacyKeyImportResponse{}, fmt.Errorf("set connection auth_secret_key: %w", err)
+			return legacyKeyImportResponse{}, fmt.Errorf("set connection secret for %q: %w", connection.ID, err)
+		}
+		if strings.TrimSpace(connection.AuthSecretKey) == "" {
+			if _, err := connectorService.UpdateConnection(connection.ID, connectors.UpdateConnectionInput{
+				AuthSecretKey: secretKey,
+			}); err != nil {
+				return legacyKeyImportResponse{}, fmt.Errorf("set connection auth_secret_key: %w", err)
+			}
+		}
+
+		provider := normalizeProviderToken(selectedForConnection.Finding.Provider)
+		if provider == "" {
+			provider = "unknown"
+		}
+		response.ConnectionID = connection.ID
+		response.BoundSecretKey = secretKey
+		response.SecuredFindingIDs = append(response.SecuredFindingIDs, selectedForConnection.Finding.ID)
+		response.ImportedCount = 1
+		response.SecuredConnections = append(response.SecuredConnections, legacySecuredConnection{
+			Provider:       provider,
+			ConnectionID:   connection.ID,
+			ConnectionName: connection.Name,
+			Created:        false,
+			ImportedCount:  1,
+			SecretKeys:     []string{secretKey},
+		})
+		return response, nil
+	}
+
+	templates, templateWarnings := loadLegacyImportTemplates(catalogStore)
+	response.Warnings = append(response.Warnings, templateWarnings...)
+
+	existingConnections, err := connectorService.ListConnections()
+	if err != nil {
+		return legacyKeyImportResponse{}, fmt.Errorf("list connections: %w", err)
+	}
+	usedConnectionIDs := map[string]struct{}{}
+	existingByProvider := map[string][]connectors.Connection{}
+	for _, existing := range existingConnections {
+		usedConnectionIDs[existing.ID] = struct{}{}
+		provider := providerFromConnectionID(existing.ID)
+		if provider == "" {
+			continue
+		}
+		existingByProvider[provider] = append(existingByProvider[provider], existing)
+	}
+	for provider := range existingByProvider {
+		sort.Slice(existingByProvider[provider], func(i, j int) bool {
+			return existingByProvider[provider][i].ID < existingByProvider[provider][j].ID
+		})
+	}
+
+	candidatesByProvider := map[string][]legacyKeyCandidate{}
+	for _, candidate := range selected {
+		provider := normalizeProviderToken(candidate.Finding.Provider)
+		if provider == "" {
+			provider = "unknown"
+		}
+		candidatesByProvider[provider] = append(candidatesByProvider[provider], candidate)
+	}
+	providers := make([]string, 0, len(candidatesByProvider))
+	for provider := range candidatesByProvider {
+		providers = append(providers, provider)
+	}
+	sort.Strings(providers)
+
+	securedFindingIDSet := map[string]struct{}{}
+	for _, provider := range providers {
+		providerCandidates := candidatesByProvider[provider]
+		template, ok := selectLegacyTemplateForProvider(provider, templates)
+		if !ok {
+			for _, candidate := range providerCandidates {
+				response.SkippedFindings = append(response.SkippedFindings, legacySkippedFinding{
+					ID:         candidate.Finding.ID,
+					Provider:   candidate.Finding.Provider,
+					Field:      candidate.Finding.Field,
+					SourcePath: candidate.Finding.SourcePath,
+					Masked:     candidate.Finding.Masked,
+					Reason:     "No Sigilum provider template matched this provider",
+				})
+			}
+			continue
+		}
+		assignments := buildLegacyImportAssignments(providerCandidates, template)
+		if len(assignments) == 0 {
+			continue
+		}
+
+		providerExisting := existingByProvider[provider]
+		existingIndex := 0
+		for _, assignment := range assignments {
+			if len(assignment.Secrets) == 0 {
+				continue
+			}
+			authSecretKey := resolvedTemplateAuthSecretKey(template)
+			if strings.TrimSpace(assignment.Secrets[authSecretKey]) == "" {
+				if value, ok := firstLegacySecretValue(assignment.Secrets); ok {
+					assignment.Secrets[authSecretKey] = value
+				}
+			}
+			if strings.TrimSpace(assignment.Secrets[authSecretKey]) == "" {
+				continue
+			}
+
+			if existingIndex < len(providerExisting) {
+				existingConnection := providerExisting[existingIndex]
+				existingIndex += 1
+				connectionSecretKey := chooseConnectionSecretKey(existingConnection)
+				if strings.TrimSpace(connectionSecretKey) == "" {
+					connectionSecretKey = authSecretKey
+				}
+				if strings.TrimSpace(assignment.Secrets[connectionSecretKey]) == "" {
+					assignment.Secrets[connectionSecretKey] = assignment.Secrets[authSecretKey]
+				}
+				if _, err := connectorService.RotateSecret(existingConnection.ID, connectors.RotateSecretInput{
+					Secrets:        assignment.Secrets,
+					RotatedBy:      "gateway-admin",
+					RotationReason: "import openclaw legacy key",
+				}); err != nil {
+					return legacyKeyImportResponse{}, fmt.Errorf("update provider %q (%s): %w", existingConnection.ID, provider, err)
+				}
+				if strings.TrimSpace(existingConnection.AuthSecretKey) == "" {
+					if _, err := connectorService.UpdateConnection(existingConnection.ID, connectors.UpdateConnectionInput{
+						AuthSecretKey: connectionSecretKey,
+					}); err != nil {
+						return legacyKeyImportResponse{}, fmt.Errorf("set auth_secret_key for %q: %w", existingConnection.ID, err)
+					}
+				}
+
+				importedCount := 0
+				for _, findingID := range assignment.FindingIDs {
+					if _, exists := securedFindingIDSet[findingID]; exists {
+						continue
+					}
+					securedFindingIDSet[findingID] = struct{}{}
+					importedCount += 1
+				}
+				if importedCount == 0 {
+					importedCount = 1
+				}
+				response.SecuredConnections = append(response.SecuredConnections, legacySecuredConnection{
+					Provider:       provider,
+					ConnectionID:   existingConnection.ID,
+					ConnectionName: existingConnection.Name,
+					TemplateKey:    template.Key,
+					Created:        false,
+					ImportedCount:  importedCount,
+					SecretKeys:     sortedLegacySecretKeys(assignment.Secrets),
+				})
+				continue
+			}
+
+			connectionID := nextLegacyConnectionID(legacySecureConnectionBase(provider, template), usedConnectionIDs)
+			createInput := legacyCreateConnectionInput(template, connectionID, assignment.Secrets)
+			createdConnection, err := connectorService.CreateConnection(createInput)
+			if err != nil {
+				return legacyKeyImportResponse{}, fmt.Errorf("create provider connection %q (%s): %w", connectionID, provider, err)
+			}
+			usedConnectionIDs[connectionID] = struct{}{}
+
+			importedCount := 0
+			for _, findingID := range assignment.FindingIDs {
+				if _, exists := securedFindingIDSet[findingID]; exists {
+					continue
+				}
+				securedFindingIDSet[findingID] = struct{}{}
+				importedCount += 1
+			}
+			if importedCount == 0 {
+				importedCount = 1
+			}
+			response.SecuredConnections = append(response.SecuredConnections, legacySecuredConnection{
+				Provider:       provider,
+				ConnectionID:   createdConnection.ID,
+				ConnectionName: createdConnection.Name,
+				TemplateKey:    template.Key,
+				Created:        true,
+				ImportedCount:  importedCount,
+				SecretKeys:     sortedLegacySecretKeys(assignment.Secrets),
+			})
 		}
 	}
 
-	response.ConnectionID = connection.ID
-	response.BoundSecretKey = secretKey
-	response.BoundVariable = boundVariable
+	for findingID := range securedFindingIDSet {
+		response.SecuredFindingIDs = append(response.SecuredFindingIDs, findingID)
+	}
+	sort.Strings(response.SecuredFindingIDs)
+	response.ImportedCount = len(response.SecuredFindingIDs)
+	sort.Slice(response.SecuredConnections, func(i, j int) bool {
+		if response.SecuredConnections[i].Provider != response.SecuredConnections[j].Provider {
+			return response.SecuredConnections[i].Provider < response.SecuredConnections[j].Provider
+		}
+		return response.SecuredConnections[i].ConnectionID < response.SecuredConnections[j].ConnectionID
+	})
+	sort.Slice(response.SkippedFindings, func(i, j int) bool {
+		if response.SkippedFindings[i].Provider != response.SkippedFindings[j].Provider {
+			return response.SkippedFindings[i].Provider < response.SkippedFindings[j].Provider
+		}
+		if response.SkippedFindings[i].SourcePath != response.SkippedFindings[j].SourcePath {
+			return response.SkippedFindings[i].SourcePath < response.SkippedFindings[j].SourcePath
+		}
+		return response.SkippedFindings[i].Field < response.SkippedFindings[j].Field
+	})
 	return response, nil
 }
 
@@ -441,6 +624,459 @@ func chooseConnectionSecretKey(connection connectors.Connection) string {
 		return strings.TrimSpace(connection.CredentialKeys[0])
 	}
 	return "api_key"
+}
+
+type legacyImportAssignment struct {
+	Secrets    map[string]string
+	FindingIDs []string
+}
+
+func sortLegacyCandidates(candidates []legacyKeyCandidate) {
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].Finding.Provider != candidates[j].Finding.Provider {
+			return candidates[i].Finding.Provider < candidates[j].Finding.Provider
+		}
+		if candidates[i].Finding.SourcePath != candidates[j].Finding.SourcePath {
+			return candidates[i].Finding.SourcePath < candidates[j].Finding.SourcePath
+		}
+		if candidates[i].Finding.Location != candidates[j].Finding.Location {
+			return candidates[i].Finding.Location < candidates[j].Finding.Location
+		}
+		return candidates[i].Finding.Field < candidates[j].Finding.Field
+	})
+}
+
+func loadLegacyImportTemplates(catalogStore *catalog.Store) ([]catalog.ServiceTemplate, []string) {
+	warnings := []string{}
+	if catalogStore == nil {
+		defaultCatalog := catalog.DefaultCatalog()
+		return defaultCatalog.Services, warnings
+	}
+	loaded, err := catalogStore.Load()
+	if err != nil {
+		defaultCatalog := catalog.DefaultCatalog()
+		warnings = append(warnings, fmt.Sprintf("failed to load service catalog: %v (using default templates)", err))
+		return defaultCatalog.Services, warnings
+	}
+	return loaded.Services, warnings
+}
+
+func selectLegacyTemplateForProvider(provider string, templates []catalog.ServiceTemplate) (catalog.ServiceTemplate, bool) {
+	if len(templates) == 0 {
+		return catalog.ServiceTemplate{}, false
+	}
+	aliases := legacyProviderTemplateAliases(provider)
+	best := -1
+	bestScore := -1
+	for idx, template := range templates {
+		score := 0
+		templateKey := strings.ToLower(strings.TrimSpace(template.Key))
+		connectionID := strings.ToLower(strings.TrimSpace(template.ConnectionID))
+		label := strings.ToLower(strings.TrimSpace(template.Label))
+		for _, alias := range aliases {
+			if alias == "" {
+				continue
+			}
+			if templateKey == alias {
+				score += 100
+			}
+			if strings.Contains(connectionID, alias) {
+				score += 60
+			}
+			if strings.Contains(label, alias) {
+				score += 40
+			}
+		}
+		if score == 0 {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(template.Protocol)) == "http" || strings.TrimSpace(template.Protocol) == "" {
+			score += 10
+		}
+		if score > bestScore {
+			bestScore = score
+			best = idx
+		}
+	}
+	if best < 0 {
+		return catalog.ServiceTemplate{}, false
+	}
+	return templates[best], true
+}
+
+func legacyProviderTemplateAliases(provider string) []string {
+	base := normalizeProviderToken(provider)
+	if base == "" {
+		base = strings.ToLower(strings.TrimSpace(provider))
+	}
+	aliases := []string{base}
+	switch base {
+	case "anthropic":
+		aliases = append(aliases, "claude")
+	case "google":
+		aliases = append(aliases, "gemini")
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(aliases))
+	for _, alias := range aliases {
+		trimmed := strings.TrimSpace(strings.ToLower(alias))
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func buildLegacyImportAssignments(candidates []legacyKeyCandidate, template catalog.ServiceTemplate) []legacyImportAssignment {
+	if len(candidates) == 0 {
+		return nil
+	}
+	authSecretKey := resolvedTemplateAuthSecretKey(template)
+	grouped := map[string][]legacyKeyCandidate{}
+	for _, candidate := range candidates {
+		grouped[legacyImportGroupKey(candidate)] = append(grouped[legacyImportGroupKey(candidate)], candidate)
+	}
+	groupKeys := make([]string, 0, len(grouped))
+	for key := range grouped {
+		groupKeys = append(groupKeys, key)
+	}
+	sort.Strings(groupKeys)
+
+	assignments := make([]legacyImportAssignment, 0, len(groupKeys))
+	for _, groupKey := range groupKeys {
+		groupCandidates := grouped[groupKey]
+		sortLegacyCandidates(groupCandidates)
+
+		extraSecrets := map[string]string{}
+		extraIDs := []string{}
+		primaryCandidates := []legacyKeyCandidate{}
+		for _, candidate := range groupCandidates {
+			fieldKey := matchLegacyCandidateToTemplateField(candidate, template)
+			if strings.TrimSpace(fieldKey) == "" {
+				fieldKey = authSecretKey
+			}
+			if fieldKey == authSecretKey {
+				primaryCandidates = append(primaryCandidates, candidate)
+				continue
+			}
+			if strings.TrimSpace(extraSecrets[fieldKey]) != "" {
+				continue
+			}
+			extraSecrets[fieldKey] = candidate.Value
+			extraIDs = append(extraIDs, candidate.Finding.ID)
+		}
+		if len(primaryCandidates) == 0 && len(groupCandidates) > 0 {
+			primaryCandidates = append(primaryCandidates, groupCandidates[0])
+		}
+		for _, primary := range primaryCandidates {
+			secrets := map[string]string{}
+			for key, value := range extraSecrets {
+				secrets[key] = value
+			}
+			secrets[authSecretKey] = primary.Value
+			findingIDs := append([]string{}, extraIDs...)
+			findingIDs = append(findingIDs, primary.Finding.ID)
+			findingIDs = dedupeLegacyStringList(findingIDs)
+			assignments = append(assignments, legacyImportAssignment{
+				Secrets:    secrets,
+				FindingIDs: findingIDs,
+			})
+		}
+	}
+	return assignments
+}
+
+func legacyImportGroupKey(candidate legacyKeyCandidate) string {
+	sourceType := strings.TrimSpace(candidate.Finding.SourceType)
+	scope := strings.TrimSpace(candidate.Finding.SourcePath)
+	switch sourceType {
+	case string(legacyKeySourceConfig):
+		location := strings.TrimSpace(candidate.Finding.Location)
+		if idx := strings.LastIndex(location, "."); idx > 0 {
+			location = location[:idx]
+		}
+		if location != "" {
+			scope = location
+		}
+	case string(legacyKeySourceDotEnv):
+		// Group dotenv keys by file path so provider keys from the same file can be secured together.
+	case string(legacyKeySourceRuntimeManifest):
+		// Runtime report keys are grouped per source path.
+	default:
+		location := strings.TrimSpace(candidate.Finding.Location)
+		if location != "" {
+			scope = location
+		}
+	}
+	return fmt.Sprintf("%s|%s", sourceType, scope)
+}
+
+func matchLegacyCandidateToTemplateField(candidate legacyKeyCandidate, template catalog.ServiceTemplate) string {
+	authSecretKey := resolvedTemplateAuthSecretKey(template)
+	if len(template.CredentialFields) == 0 {
+		return authSecretKey
+	}
+	candidateField := normalizeLegacyFieldToken(candidate.Finding.Field)
+	candidateVariable := normalizeLegacyFieldToken(candidate.Finding.Variable)
+	bestField := ""
+	bestScore := -1
+	for _, field := range template.CredentialFields {
+		fieldKey := strings.TrimSpace(field.Key)
+		if fieldKey == "" {
+			continue
+		}
+		normalizedField := normalizeLegacyFieldToken(fieldKey)
+		score := 0
+		if candidateField != "" && normalizedField == candidateField {
+			score += 100
+		}
+		if candidateVariable != "" && normalizedField == candidateVariable {
+			score += 95
+		}
+		if candidateField != "" && (strings.Contains(candidateField, normalizedField) || strings.Contains(normalizedField, candidateField)) {
+			score += 70
+		}
+		if candidateVariable != "" && (strings.Contains(candidateVariable, normalizedField) || strings.Contains(normalizedField, candidateVariable)) {
+			score += 60
+		}
+		candidateBucket := legacyFieldBucket(candidateField)
+		fieldBucket := legacyFieldBucket(normalizedField)
+		if candidateBucket != "" && candidateBucket == fieldBucket {
+			score += 35
+		}
+		if fieldKey == authSecretKey && candidateBucket != "" {
+			score += 10
+		}
+		if score > bestScore {
+			bestScore = score
+			bestField = fieldKey
+		}
+	}
+	if strings.TrimSpace(bestField) == "" {
+		return authSecretKey
+	}
+	return bestField
+}
+
+func normalizeLegacyFieldToken(value string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(value))
+	if trimmed == "" {
+		return ""
+	}
+	var builder strings.Builder
+	builder.Grow(len(trimmed))
+	lastUnderscore := false
+	for _, r := range trimmed {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			builder.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			builder.WriteRune('_')
+			lastUnderscore = true
+		}
+	}
+	normalized := strings.Trim(builder.String(), "_")
+	normalized = strings.ReplaceAll(normalized, "__", "_")
+	return normalized
+}
+
+func legacyFieldBucket(field string) string {
+	switch {
+	case strings.Contains(field, "bot_token"):
+		return "bot_token"
+	case strings.Contains(field, "app_token"):
+		return "app_token"
+	case strings.Contains(field, "access_token"):
+		return "access_token"
+	case strings.Contains(field, "api_key") || strings.Contains(field, "apikey"):
+		return "api_key"
+	case strings.Contains(field, "client_secret"):
+		return "client_secret"
+	case strings.Contains(field, "secret"):
+		return "secret"
+	case strings.Contains(field, "token"):
+		return "token"
+	default:
+		return ""
+	}
+}
+
+func resolvedTemplateAuthSecretKey(template catalog.ServiceTemplate) string {
+	if key := strings.TrimSpace(template.AuthSecretKey); key != "" {
+		return key
+	}
+	for _, field := range template.CredentialFields {
+		if key := strings.TrimSpace(field.Key); key != "" {
+			return key
+		}
+	}
+	return "api_key"
+}
+
+func firstLegacySecretValue(secrets map[string]string) (string, bool) {
+	keys := sortedLegacySecretKeys(secrets)
+	for _, key := range keys {
+		value := strings.TrimSpace(secrets[key])
+		if value != "" {
+			return value, true
+		}
+	}
+	return "", false
+}
+
+func sortedLegacySecretKeys(secrets map[string]string) []string {
+	if len(secrets) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(secrets))
+	for key, value := range secrets {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func dedupeLegacyStringList(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func legacySecureConnectionBase(provider string, template catalog.ServiceTemplate) string {
+	base := normalizeLegacyConnectionSlug(provider)
+	if base == "" {
+		base = normalizeLegacyConnectionSlug(template.Key)
+	}
+	if base == "" {
+		base = normalizeLegacyConnectionSlug(template.ConnectionID)
+	}
+	if base == "" {
+		base = "provider"
+	}
+	if strings.HasPrefix(base, "sigilum-secure-") {
+		return base
+	}
+	return "sigilum-secure-" + base
+}
+
+func normalizeLegacyConnectionSlug(value string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(value))
+	if trimmed == "" {
+		return ""
+	}
+	var builder strings.Builder
+	builder.Grow(len(trimmed))
+	lastHyphen := false
+	for _, r := range trimmed {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			builder.WriteRune(r)
+			lastHyphen = false
+			continue
+		}
+		if !lastHyphen {
+			builder.WriteRune('-')
+			lastHyphen = true
+		}
+	}
+	normalized := strings.Trim(builder.String(), "-")
+	normalized = strings.ReplaceAll(normalized, "--", "-")
+	return normalized
+}
+
+func nextLegacyConnectionID(base string, used map[string]struct{}) string {
+	normalizedBase := normalizeLegacyConnectionSlug(base)
+	if normalizedBase == "" {
+		normalizedBase = "sigilum-secure-provider"
+	}
+	if _, exists := used[normalizedBase]; !exists {
+		return normalizedBase
+	}
+	index := 2
+	for {
+		candidate := fmt.Sprintf("%s-%d", normalizedBase, index)
+		if _, exists := used[candidate]; !exists {
+			return candidate
+		}
+		index += 1
+	}
+}
+
+func legacyCreateConnectionInput(template catalog.ServiceTemplate, connectionID string, secrets map[string]string) connectors.CreateConnectionInput {
+	protocol := strings.TrimSpace(template.Protocol)
+	baseURL := strings.TrimSpace(template.BaseURL)
+	if strings.ToLower(protocol) == "mcp" && strings.TrimSpace(template.MCPBaseURL) != "" {
+		baseURL = strings.TrimSpace(template.MCPBaseURL)
+	}
+	name := strings.TrimSpace(template.Label)
+	if name == "" {
+		name = connectionID
+	}
+	if !strings.EqualFold(connectionID, normalizeLegacyConnectionSlug(template.ConnectionID)) {
+		name = fmt.Sprintf("%s (%s)", name, connectionID)
+	}
+	return connectors.CreateConnectionInput{
+		ID:                     connectionID,
+		Name:                   name,
+		Protocol:               protocol,
+		BaseURL:                baseURL,
+		PathPrefix:             strings.TrimSpace(template.PathPrefix),
+		AuthMode:               strings.TrimSpace(template.AuthMode),
+		AuthHeaderName:         strings.TrimSpace(template.AuthHeaderName),
+		AuthPrefix:             template.AuthPrefix,
+		AuthSecretKey:          resolvedTemplateAuthSecretKey(template),
+		Secrets:                secrets,
+		RotationIntervalDays:   90,
+		MCPTransport:           strings.TrimSpace(template.MCPTransport),
+		MCPEndpoint:            strings.TrimSpace(template.MCPEndpoint),
+		MCPToolAllowlist:       append([]string{}, template.MCPToolAllowlist...),
+		MCPToolDenylist:        append([]string{}, template.MCPToolDenylist...),
+		MCPMaxToolsExposed:     template.MCPMaxToolsExposed,
+		MCPSubjectToolPolicies: mapCatalogSubjectPolicies(template.MCPSubjectToolPolicies),
+	}
+}
+
+func mapCatalogSubjectPolicies(policies map[string]catalog.MCPToolPolicy) map[string]connectors.MCPToolPolicy {
+	if len(policies) == 0 {
+		return nil
+	}
+	out := make(map[string]connectors.MCPToolPolicy, len(policies))
+	for subject, policy := range policies {
+		trimmedSubject := strings.TrimSpace(subject)
+		if trimmedSubject == "" {
+			continue
+		}
+		out[trimmedSubject] = connectors.MCPToolPolicy{
+			Allowlist:       append([]string{}, policy.Allowlist...),
+			Denylist:        append([]string{}, policy.Denylist...),
+			MaxToolsExposed: policy.MaxToolsExposed,
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func chooseImportVariableKey(candidate legacyKeyCandidate, used map[string]struct{}) string {
