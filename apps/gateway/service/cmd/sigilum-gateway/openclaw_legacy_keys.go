@@ -208,7 +208,10 @@ func importLegacyOpenClawKeys(connectorService *connectors.Service, catalogStore
 			RotatedBy:      "gateway-admin",
 			RotationReason: "import openclaw legacy key",
 		}); err != nil {
-			return legacyKeyImportResponse{}, fmt.Errorf("set connection secret for %q: %w", connection.ID, err)
+			if !isLegacyNoopRotateError(err) {
+				return legacyKeyImportResponse{}, fmt.Errorf("set connection secret for %q: %w", connection.ID, err)
+			}
+			response.Warnings = append(response.Warnings, fmt.Sprintf("provider %q already secured; secret unchanged", connection.ID))
 		}
 		if strings.TrimSpace(connection.AuthSecretKey) == "" {
 			if _, err := connectorService.UpdateConnection(connection.ID, connectors.UpdateConnectionInput{
@@ -327,7 +330,10 @@ func importLegacyOpenClawKeys(connectorService *connectors.Service, catalogStore
 					RotatedBy:      "gateway-admin",
 					RotationReason: "import openclaw legacy key",
 				}); err != nil {
-					return legacyKeyImportResponse{}, fmt.Errorf("update provider %q (%s): %w", existingConnection.ID, provider, err)
+					if !isLegacyNoopRotateError(err) {
+						return legacyKeyImportResponse{}, fmt.Errorf("update provider %q (%s): %w", existingConnection.ID, provider, err)
+					}
+					response.Warnings = append(response.Warnings, fmt.Sprintf("provider %q already secured; secret unchanged", existingConnection.ID))
 				}
 				if strings.TrimSpace(existingConnection.AuthSecretKey) == "" {
 					if _, err := connectorService.UpdateConnection(existingConnection.ID, connectors.UpdateConnectionInput{
@@ -624,6 +630,14 @@ func chooseConnectionSecretKey(connection connectors.Connection) string {
 		return strings.TrimSpace(connection.CredentialKeys[0])
 	}
 	return "api_key"
+}
+
+func isLegacyNoopRotateError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return message == "secrets are required"
 }
 
 type legacyImportAssignment struct {
