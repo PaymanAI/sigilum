@@ -403,7 +403,7 @@ func registerAdminRoutes(
 		}
 		switch r.Method {
 		case http.MethodGet:
-			writeJSON(w, http.StatusOK, discoverLegacyOpenClawKeys())
+			writeJSON(w, http.StatusOK, discoverLegacyOpenClawKeys(connectorService))
 		default:
 			writeMethodNotAllowed(w)
 		}

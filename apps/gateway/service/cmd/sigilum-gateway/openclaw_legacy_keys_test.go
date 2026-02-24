@@ -206,7 +206,7 @@ func TestPurgeLegacyOpenClawKeysRuntimeFindingAddsWarning(t *testing.T) {
 	t.Setenv("OPENCLAW_HOME", openClawHome)
 	t.Setenv("OPENCLAW_CONFIG_PATH", filepath.Join(openClawHome, "openclaw.json"))
 
-	discovered := discoverLegacyOpenClawKeys()
+	discovered := discoverLegacyOpenClawKeys(nil)
 	if discovered.Total != 1 {
 		t.Fatalf("expected 1 finding, got %d", discovered.Total)
 	}
@@ -442,5 +442,68 @@ func TestImportLegacyOpenClawKeysBulkIgnoresNoopRotateError(t *testing.T) {
 	}
 	if !foundExistingConnection {
 		t.Fatalf("expected secured connection to include %q", existingConnectionID)
+	}
+}
+
+func TestDiscoverLegacyOpenClawKeysMarksAlreadySecuredFindings(t *testing.T) {
+	tmp := t.TempDir()
+	openClawHome := filepath.Join(tmp, ".openclaw")
+	if err := os.MkdirAll(openClawHome, 0o700); err != nil {
+		t.Fatalf("mkdir openclaw home: %v", err)
+	}
+	configPath := filepath.Join(openClawHome, "openclaw.json")
+	googleKey := "AIzaSyAbCdEfGhIjKlMnOpQrStUv"
+	config := map[string]any{
+		"models": map[string]any{
+			"providers": map[string]any{
+				"google": map[string]any{
+					"apiKey": googleKey,
+				},
+			},
+		},
+	}
+	encodedConfig, err := json.Marshal(config)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	if err := os.WriteFile(configPath, encodedConfig, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	t.Setenv("OPENCLAW_HOME", openClawHome)
+	t.Setenv("OPENCLAW_CONFIG_PATH", configPath)
+	connectorService, err := connectors.NewService(filepath.Join(tmp, "gateway"), "test-master-key")
+	if err != nil {
+		t.Fatalf("new connector service: %v", err)
+	}
+	defer connectorService.Close()
+
+	securedConnectionID := "sigilum-secure-google"
+	if _, err := connectorService.CreateConnection(connectors.CreateConnectionInput{
+		ID:             securedConnectionID,
+		Name:           "Google",
+		BaseURL:        "https://generativelanguage.googleapis.com",
+		AuthMode:       "header_key",
+		AuthHeaderName: "x-goog-api-key",
+		AuthPrefix:     "",
+		AuthSecretKey:  "api_key",
+		Secrets: map[string]string{
+			"api_key": googleKey,
+		},
+		RotationIntervalDays: 90,
+	}); err != nil {
+		t.Fatalf("create connection: %v", err)
+	}
+
+	discovered := discoverLegacyOpenClawKeys(connectorService)
+	if discovered.Total != 1 {
+		t.Fatalf("expected total=1, got %d", discovered.Total)
+	}
+	finding := discovered.Findings[0]
+	if !finding.AlreadySecured {
+		t.Fatalf("expected finding to be marked already_secured")
+	}
+	if finding.SecuredConnectionID != securedConnectionID {
+		t.Fatalf("expected secured_connection_id %q, got %q", securedConnectionID, finding.SecuredConnectionID)
 	}
 }
