@@ -166,10 +166,12 @@ resolve_lifecycle_mode() {
   fi
 
   if is_linux_systemd_host; then
-    echo "Preflight: systemd user manager is unavailable; falling back to compat mode for this run." | tee -a "$LOG_FILE" >&2
+    echo "Preflight: systemd user manager is unavailable on this Linux host." | tee -a "$LOG_FILE" >&2
     if [[ -n "$SYSTEMD_USER_HELP" ]]; then
       echo "Hint: $SYSTEMD_USER_HELP" | tee -a "$LOG_FILE" >&2
     fi
+    echo "--lifecycle-mode auto requires a working systemd --user manager on Linux (or pass --lifecycle-mode compat explicitly)." | tee -a "$LOG_FILE" >&2
+    return 1
   fi
 
   printf 'compat'

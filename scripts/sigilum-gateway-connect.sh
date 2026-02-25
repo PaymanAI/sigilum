@@ -254,10 +254,12 @@ resolve_lifecycle_mode() {
   fi
 
   if is_linux_systemd_host; then
-    echo "Systemd host detected, but user manager is unavailable for ${SYSTEMD_GATEWAY_UNIT}; falling back to compat mode." >&2
+    echo "Systemd host detected, but user manager is unavailable for ${SYSTEMD_GATEWAY_UNIT}." >&2
     if [[ -n "$SYSTEMD_USER_HELP" ]]; then
       echo "$SYSTEMD_USER_HELP" >&2
     fi
+    echo "--lifecycle-mode auto requires a working systemd --user manager on Linux (or pass --lifecycle-mode compat explicitly)." >&2
+    return 1
   fi
 
   printf 'compat'
