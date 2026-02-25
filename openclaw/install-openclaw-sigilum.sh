@@ -1065,8 +1065,10 @@ if [[ -z "$RUNTIME_ROOT" ]]; then
 fi
 
 SKILL_HELPER_BIN="${SKILLS_DIR}/sigilum/bin/gateway-admin.sh"
+SKILL_SUBJECT_RESOLVER_BIN="${SKILLS_DIR}/sigilum/bin/resolve-subject.mjs"
 if [[ -n "$AGENT_WORKSPACE" ]]; then
   SKILL_HELPER_BIN="${AGENT_WORKSPACE%/}/skills/sigilum/bin/gateway-admin.sh"
+  SKILL_SUBJECT_RESOLVER_BIN="${AGENT_WORKSPACE%/}/skills/sigilum/bin/resolve-subject.mjs"
 fi
 
 log_step "Installing bundled Sigilum runtime..."
@@ -1093,6 +1095,7 @@ node "$UPDATE_OPENCLAW_CONFIG_SCRIPT" \
   "$DASHBOARD_URL" \
   "$RUNTIME_ROOT" \
   "$SKILL_HELPER_BIN" \
+  "$SKILL_SUBJECT_RESOLVER_BIN" \
   "$RUNTIME_HOME"
 
 persist_sigilum_cli_defaults

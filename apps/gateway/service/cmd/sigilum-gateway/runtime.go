@@ -59,9 +59,11 @@ func handleProxyRequest(
 	}
 	_ = r.Body.Close()
 
-	if _, ok := authorizeConnectionRequest(w, r, body, connectionID, remoteIP, nonceCache, claimsCache, cfg); !ok {
+	identity, ok := authorizeConnectionRequest(w, r, body, connectionID, remoteIP, nonceCache, claimsCache, cfg)
+	if !ok {
 		return
 	}
+	did := constructDID(identity.Namespace, connectionID, didAgentFragment(identity.PublicKey), identity.Subject)
 
 	proxyCfg, err := connectorService.ResolveProxyConfig(connectionID)
 	if err != nil {
@@ -85,6 +87,7 @@ func handleProxyRequest(
 		logGatewayDecisionIf(cfg.LogProxyRequests, "rotation_warning", map[string]any{
 			"request_id":  requestID,
 			"connection":  connectionID,
+			"subject":     identity.Subject,
 			"reason_code": "ROTATION_WARNING",
 		})
 	}
@@ -106,6 +109,7 @@ func handleProxyRequest(
 		logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_upstream_error", map[string]any{
 			"request_id":  requestID,
 			"connection":  connectionID,
+			"subject":     identity.Subject,
 			"decision":    "error",
 			"reason_code": "UPSTREAM_ERROR",
 			"error":       proxyErr,
@@ -126,6 +130,8 @@ func handleProxyRequest(
 		"request_id":     requestID,
 		"method":         r.Method,
 		"connection":     connectionID,
+		"subject":        identity.Subject,
+		"did":            did,
 		"status":         recorder.status,
 		"duration_ms":    time.Since(start).Milliseconds(),
 		"response_bytes": recorder.bytesWritten,
@@ -179,6 +185,7 @@ func handleMCPRequest(
 	if !ok {
 		return
 	}
+	did := constructDID(identity.Namespace, connectionID, didAgentFragment(identity.PublicKey), identity.Subject)
 
 	proxyCfg, err := connectorService.ResolveProxyConfig(connectionID)
 	if err != nil {
@@ -200,6 +207,7 @@ func handleMCPRequest(
 		logGatewayDecisionIf(cfg.LogProxyRequests, "rotation_warning", map[string]any{
 			"request_id":  requestID,
 			"connection":  connectionID,
+			"subject":     identity.Subject,
 			"reason_code": "ROTATION_WARNING",
 		})
 	}
@@ -244,6 +252,7 @@ func handleMCPRequest(
 			logGatewayDecisionIf(cfg.LogProxyRequests, "mcp_discovery_stale_if_error", map[string]any{
 				"request_id":  requestID,
 				"connection":  connectionID,
+				"subject":     identity.Subject,
 				"reason_code": "MCP_DISCOVERY_STALE_IF_ERROR",
 				"error":       discoveryResolution.RefreshError,
 			})
@@ -373,6 +382,8 @@ func handleMCPRequest(
 		"request_id":  requestID,
 		"method":      r.Method,
 		"connection":  connectionID,
+		"subject":     identity.Subject,
+		"did":         did,
 		"action":      action,
 		"duration_ms": time.Since(start).Milliseconds(),
 	})

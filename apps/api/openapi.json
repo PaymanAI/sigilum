@@ -2685,6 +2685,12 @@
               "string",
               "null"
             ]
+          },
+          "agent_name": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -2731,6 +2737,12 @@
           "approved_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "agent_name": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },

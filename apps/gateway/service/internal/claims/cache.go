@@ -291,6 +291,8 @@ func (c *Cache) SubmitClaim(ctx context.Context, input SubmitClaimInput) (Submit
 		"service":    service,
 		"agent_ip":   agentIP,
 		"nonce":      nonce,
+		// "agent_name" maps to the subject identity (who triggered the request).
+		// Historical naming; subject in Sigilum headers.
 		"agent_name": strings.TrimSpace(input.Subject),
 	})
 	if err != nil {

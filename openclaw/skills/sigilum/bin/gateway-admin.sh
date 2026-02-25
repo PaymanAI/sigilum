@@ -21,6 +21,7 @@ Defaults:
   key_root    = ${SIGILUM_KEY_ROOT:-$HOME/.openclaw/.sigilum/keys}
   agent_id    = ${SIGILUM_AGENT_ID:-${OPENCLAW_AGENT_ID:-${OPENCLAW_AGENT:-main}}}
   subject     = ${SIGILUM_SUBJECT:-<agent_id>}
+  resolver    = ${SIGILUM_SUBJECT_RESOLVER_BIN:-<disabled>}
 
 Notes:
   - This helper prefers `curl` (supports HTTP/HTTPS); falls back to bash /dev/tcp for HTTP when curl is unavailable.
@@ -580,6 +581,17 @@ build_signing_context() {
 
   SIG_NAMESPACE="$namespace"
   SIG_SUBJECT="$(trim "${SIGILUM_SUBJECT:-}")"
+  if [[ -z "$SIG_SUBJECT" ]]; then
+    local subject_resolver_bin resolved_subject
+    subject_resolver_bin="$(trim "${SIGILUM_SUBJECT_RESOLVER_BIN:-}")"
+    if [[ -n "$subject_resolver_bin" && -f "$subject_resolver_bin" ]] && has_cmd node; then
+      resolved_subject="$(node "$subject_resolver_bin" 2>/dev/null || true)"
+      resolved_subject="$(trim "$resolved_subject")"
+      if [[ -n "$resolved_subject" ]]; then
+        SIG_SUBJECT="$resolved_subject"
+      fi
+    fi
+  fi
   if [[ -z "$SIG_SUBJECT" ]]; then
     SIG_SUBJECT="$AGENT_ID"
   fi

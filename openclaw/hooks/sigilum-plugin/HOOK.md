@@ -1,7 +1,7 @@
 ---
 name: sigilum-plugin
-description: "Bootstrap Sigilum identity keys for OpenClaw agents on startup and config reload."
-metadata: {"openclaw":{"emoji":"🔐","events":["gateway:startup","command:new","config:reload","gateway:reload"],"requires":{"env":["SIGILUM_NAMESPACE"]}}}
+description: "Bootstrap Sigilum identity keys and capture subject hints for OpenClaw agents."
+metadata: {"openclaw":{"emoji":"🔐","events":["gateway:startup","command:new","config:reload","gateway:reload","message:received"],"requires":{"env":["SIGILUM_NAMESPACE"]}}}
 ---
 
 # Sigilum Plugin Hook
@@ -25,7 +25,8 @@ What it does:
    - do not request direct provider API keys unless gateway path fails
 5. Lists active `sigilum-secure-*` gateway connections and their provider aliases (including `sigilum-secure-linear` when present).
 6. Writes a runtime credential discovery report for migration at `<openclaw-home>/.sigilum/legacy-runtime-credentials.json`.
-7. Runs at gateway startup and when new sessions/config reload events happen.
+7. Captures per-message sender identity hints at `<openclaw-home>/.sigilum/subject-hints.json` for automatic `sigilum-subject` resolution in the gateway helper.
+8. Runs at gateway startup, new sessions/config reload, and `message:received` events.
 
 ## Recommended OpenClaw Config
 
@@ -63,6 +64,7 @@ What it does:
 - `SIGILUM_KEY_ROOT` (optional)
 - `SIGILUM_AUTO_BOOTSTRAP_AGENTS` (`true|false`, optional, default `true`)
 - `SIGILUM_LEGACY_RUNTIME_REPORT_PATH` (optional; override runtime discovery report path)
+- `SIGILUM_SUBJECT_HINTS_PATH` (optional; override subject hint capture path)
 
 ## Output Layout
 

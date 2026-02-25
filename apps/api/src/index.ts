@@ -143,6 +143,7 @@ async function handleScheduled(env: Env): Promise<void> {
           service: claim.service,
           public_key: claim.public_key,
           agent_ip: claim.agent_ip,
+          agent_name: claim.agent_name ?? null,
         }, env);
 
         expired++;
