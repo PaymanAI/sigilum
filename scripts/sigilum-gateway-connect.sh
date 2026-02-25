@@ -133,6 +133,31 @@ start_detached_process() {
   printf '%s' "$pid"
 }
 
+stop_legacy_gateway_process_from_pid_file() {
+  local pid_file="$1"
+  [[ -f "$pid_file" ]] || return 0
+
+  local pid
+  pid="$(tr -d '\r\n' <"$pid_file" 2>/dev/null || true)"
+  if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+    echo "Stopping legacy gateway process from pid file (${pid}) to migrate lifecycle to systemd..."
+    kill "$pid" 2>/dev/null || true
+    for _ in 1 2 3 4 5; do
+      if ! kill -0 "$pid" 2>/dev/null; then
+        break
+      fi
+      sleep 1
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "Legacy gateway process (pid=${pid}) did not exit promptly; stop it manually and retry." >&2
+      return 1
+    fi
+  fi
+
+  rm -f "$pid_file"
+  return 0
+}
+
 is_linux_systemd_host() {
   [[ "$(uname -s)" == "Linux" ]] || return 1
   [[ -d "/run/systemd/system" ]] || return 1
@@ -207,25 +232,31 @@ resolve_lifecycle_mode() {
     return 1
   fi
 
+  if [[ "$requested_mode" == "compat" ]]; then
+    printf 'compat'
+    return 0
+  fi
+
   if ensure_systemd_user_available; then
     printf 'stable'
     return 0
   fi
 
-  if is_linux_systemd_host; then
-    if [[ "$requested_mode" == "stable" ]]; then
+  if [[ "$requested_mode" == "stable" ]]; then
+    if is_linux_systemd_host; then
       echo "Systemd host detected, but user manager is unavailable for ${SYSTEMD_GATEWAY_UNIT}." >&2
       if [[ -n "$SYSTEMD_USER_HELP" ]]; then
         echo "$SYSTEMD_USER_HELP" >&2
       fi
-      echo "--lifecycle-mode stable requires a working systemd --user manager." >&2
-      return 1
     fi
-    if [[ "$requested_mode" == "auto" ]]; then
-      echo "Systemd host detected, but user manager is unavailable for ${SYSTEMD_GATEWAY_UNIT}; falling back to compat mode." >&2
-      if [[ -n "$SYSTEMD_USER_HELP" ]]; then
-        echo "$SYSTEMD_USER_HELP" >&2
-      fi
+    echo "--lifecycle-mode stable requires a working systemd --user manager." >&2
+    return 1
+  fi
+
+  if is_linux_systemd_host; then
+    echo "Systemd host detected, but user manager is unavailable for ${SYSTEMD_GATEWAY_UNIT}; falling back to compat mode." >&2
+    if [[ -n "$SYSTEMD_USER_HELP" ]]; then
+      echo "$SYSTEMD_USER_HELP" >&2
     fi
   fi
 
@@ -279,6 +310,7 @@ write_gateway_systemd_wrapper() {
 write_gateway_systemd_unit() {
   local unit_path="$1"
   local wrapper_path="$2"
+  local sigilum_home="$3"
   mkdir -p "$(dirname "$unit_path")"
   cat >"$unit_path" <<EOF
 [Unit]
@@ -289,8 +321,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=${wrapper_path}
+Environment=SIGILUM_HOME=${sigilum_home}
 Restart=always
-RestartSec=2
+RestartSec=5
 KillMode=process
 WorkingDirectory=${ROOT_DIR}
 
@@ -304,11 +337,13 @@ start_gateway_systemd_service() {
   shift
   local run_dir="$1"
   shift
+  local sigilum_home="$1"
+  shift
   local start_args=("$@")
   local wrapper_path="${run_dir}/gateway-systemd-start.sh"
 
   write_gateway_systemd_wrapper "$wrapper_path" "${start_args[@]}"
-  write_gateway_systemd_unit "$SYSTEMD_GATEWAY_UNIT_PATH" "$wrapper_path"
+  write_gateway_systemd_unit "$SYSTEMD_GATEWAY_UNIT_PATH" "$wrapper_path" "$sigilum_home"
 
   if ! systemctl --user daemon-reload >/dev/null 2>&1; then
     echo "Failed to reload systemd user manager for ${SYSTEMD_GATEWAY_UNIT}." >&2
@@ -437,28 +472,45 @@ fi
 health_url="$(parse_health_url "$GATEWAY_ADMIN_URL")"
 code="$(http_code "$health_url")"
 effective_lifecycle_mode="$(resolve_lifecycle_mode "$LIFECYCLE_MODE")"
+run_dir="${SIGILUM_CONFIG_HOME:-$HOME/.sigilum}/run"
+mkdir -p "$run_dir"
+gateway_log="${run_dir}/gateway-start.log"
+gateway_pid_file="${run_dir}/gateway-start.pid"
+systemd_ready="false"
+start_args=(--namespace "$NAMESPACE" --api-url "$API_URL" --addr "$GATEWAY_ADDR")
+if [[ -n "$GATEWAY_HOME" ]]; then
+  start_args+=(--home "$GATEWAY_HOME")
+fi
 
-if [[ "$code" != "200" ]]; then
-  echo "Gateway is not healthy at ${health_url}; starting gateway..."
+if [[ "$effective_lifecycle_mode" == "stable" ]]; then
+  systemd_ready="true"
+  if systemd_gateway_is_active; then
+    if [[ "$code" != "200" ]]; then
+      echo "Gateway systemd unit is active but health is not 200; restarting ${SYSTEMD_GATEWAY_UNIT}..."
+      start_gateway_systemd_service "$gateway_log" "$run_dir" "${SIGILUM_HOME:-$ROOT_DIR}" "${start_args[@]}"
+    fi
+  else
+    if [[ "$code" == "200" ]]; then
+      stop_legacy_gateway_process_from_pid_file "$gateway_pid_file"
+      code="$(http_code "$health_url")"
+      if [[ "$code" == "200" ]]; then
+        echo "Gateway is healthy but not managed by ${SYSTEMD_GATEWAY_UNIT}; another process is likely bound to ${GATEWAY_ADDR}." >&2
+        echo "Stop the existing gateway process and rerun to migrate lifecycle management to systemd." >&2
+        exit 1
+      fi
+    else
+      echo "Gateway is not healthy at ${health_url}; starting gateway under systemd..."
+    fi
 
-  run_dir="${SIGILUM_CONFIG_HOME:-$HOME/.sigilum}/run"
-  mkdir -p "$run_dir"
-  gateway_log="${run_dir}/gateway-start.log"
-  gateway_pid_file="${run_dir}/gateway-start.pid"
-  systemd_ready="false"
-  start_args=(--namespace "$NAMESPACE" --api-url "$API_URL" --addr "$GATEWAY_ADDR")
-  if [[ -n "$GATEWAY_HOME" ]]; then
-    start_args+=(--home "$GATEWAY_HOME")
-  fi
-
-  if [[ "$effective_lifecycle_mode" == "stable" ]]; then
-    systemd_ready="true"
-    rm -f "$gateway_pid_file"
-    start_gateway_systemd_service "$gateway_log" "$run_dir" "${start_args[@]}"
+    start_gateway_systemd_service "$gateway_log" "$run_dir" "${SIGILUM_HOME:-$ROOT_DIR}" "${start_args[@]}"
     gateway_pid="$(systemd_gateway_main_pid || true)"
     echo "Gateway started as systemd user service (unit=${SYSTEMD_GATEWAY_UNIT}, pid=${gateway_pid:-unknown})."
     echo "Gateway logs: journalctl --user -u ${SYSTEMD_GATEWAY_UNIT} -n 200 --no-pager"
-  else
+  fi
+else
+  if [[ "$code" != "200" ]]; then
+    echo "Gateway is not healthy at ${health_url}; starting gateway..."
+
     if ! command -v nohup >/dev/null 2>&1 && ! command -v setsid >/dev/null 2>&1; then
       echo "Missing required command for auto-start: need systemd user manager, 'setsid', or 'nohup'" >&2
       exit 1
@@ -479,16 +531,16 @@ if [[ "$code" != "200" ]]; then
       echo "Gateway starting in background (pid=${gateway_pid}, log=${gateway_log})"
     fi
   fi
+fi
 
-  if ! wait_for_gateway "$health_url" "$START_TIMEOUT_SECONDS"; then
-    echo "Gateway did not become healthy within ${START_TIMEOUT_SECONDS}s at ${health_url}" >&2
-    if [[ "$systemd_ready" == "true" ]]; then
-      echo "Inspect gateway logs with: journalctl --user -u ${SYSTEMD_GATEWAY_UNIT} -n 200 --no-pager" >&2
-    else
-      echo "Inspect gateway logs at ${gateway_log}" >&2
-    fi
-    exit 1
+if ! wait_for_gateway "$health_url" "$START_TIMEOUT_SECONDS"; then
+  echo "Gateway did not become healthy within ${START_TIMEOUT_SECONDS}s at ${health_url}" >&2
+  if [[ "$systemd_ready" == "true" ]]; then
+    echo "Inspect gateway logs with: journalctl --user -u ${SYSTEMD_GATEWAY_UNIT} -n 200 --no-pager" >&2
+  else
+    echo "Inspect gateway logs at ${gateway_log}" >&2
   fi
+  exit 1
 fi
 
 echo "Gateway is healthy at ${health_url}"

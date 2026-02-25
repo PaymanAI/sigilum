@@ -2,6 +2,17 @@
 
 import process from "node:process";
 
+const TERMINAL_PAIR_SESSION_EXIT_CODE = 42;
+const TERMINAL_PAIR_SESSION_MARKER = "PAIR_SESSION_TERMINAL";
+const TERMINAL_CONNECT_FAILURE_THRESHOLD = 3;
+
+class PairSessionTerminalError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "PairSessionTerminalError";
+  }
+}
+
 function usage() {
   console.error(`Usage:
   node scripts/gateway-pair-bridge.mjs \\
@@ -140,6 +151,23 @@ function truncateText(value, max = 180) {
   return `${text.slice(0, max)}...`;
 }
 
+function isLikelyTerminalPairFailureReason(reasonInput) {
+  const reason = String(reasonInput || "").toLowerCase();
+  if (!reason) return false;
+  if (reason.includes("connect-timeout")) return false;
+  return [
+    "pair session expired",
+    "pair session not found",
+    "invalid pair code",
+    "namespace mismatch",
+    "forbidden",
+    "unauthorized",
+    "http 403",
+    "http 404",
+    "http 410",
+  ].some((token) => reason.includes(token));
+}
+
 function isLikelyHtml(contentType, body) {
   const ctype = String(contentType || "").toLowerCase();
   if (ctype.includes("text/html")) return true;
@@ -247,6 +275,17 @@ async function preflight(cfg) {
   await ensureHealthy(cfg.apiUrl, "Sigilum API", cfg.connectTimeoutMs);
   await ensurePairingRoute(cfg.apiUrl, cfg.connectTimeoutMs);
   await ensureHealthy(cfg.gatewayAdminUrl, "Local Sigilum gateway admin", cfg.connectTimeoutMs);
+}
+
+async function controlPlaneHealthy(cfg, timeoutMs) {
+  try {
+    await ensureHealthy(cfg.apiUrl, "Sigilum API", timeoutMs);
+    await ensurePairingRoute(cfg.apiUrl, timeoutMs);
+    await ensureHealthy(cfg.gatewayAdminUrl, "Local Sigilum gateway admin", timeoutMs);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function sanitizePath(pathInput) {
@@ -397,12 +436,21 @@ async function run() {
   );
   console.log("[sigilum] next: keep this process running while dashboard setup is active");
 
+  let consecutivePreOpenFailures = 0;
   while (!shuttingDown) {
+    let lastCloseInfo = {
+      opened: false,
+      code: 0,
+      reason: "",
+      durationMs: 0,
+    };
     try {
-      await new Promise((resolve, reject) => {
+      lastCloseInfo = await new Promise((resolve) => {
         const ws = new WebSocket(wsUrl);
         activeSocket = ws;
         let heartbeatTimer = null;
+        let opened = false;
+        const attemptStartedAt = Date.now();
         let connectTimer = setTimeout(() => {
           console.error(
             `[sigilum] websocket connect timeout after ${cfg.connectTimeoutMs}ms (url=${wsUrl})`,
@@ -415,6 +463,7 @@ async function run() {
         }, cfg.connectTimeoutMs);
 
         ws.onopen = () => {
+          opened = true;
           if (connectTimer) {
             clearTimeout(connectTimer);
             connectTimer = null;
@@ -485,8 +534,16 @@ async function run() {
             clearInterval(heartbeatTimer);
             heartbeatTimer = null;
           }
-          console.log(`[sigilum] websocket closed (${event.code}) ${event.reason || ""}`);
-          resolve();
+          const closeCode = Number(event?.code ?? 0);
+          const closeReason = String(event?.reason || "").trim();
+          const durationMs = Math.max(0, Date.now() - attemptStartedAt);
+          console.log(`[sigilum] websocket closed (${closeCode}) ${closeReason}`);
+          resolve({
+            opened,
+            code: Number.isFinite(closeCode) ? closeCode : 0,
+            reason: closeReason,
+            durationMs,
+          });
         };
 
         if (shuttingDown) {
@@ -495,22 +552,56 @@ async function run() {
           } catch {
             // ignore
           }
-          resolve();
+          resolve({
+            opened,
+            code: 1000,
+            reason: "shutdown",
+            durationMs: Math.max(0, Date.now() - attemptStartedAt),
+          });
         }
       });
     } catch (error) {
       console.error(`[sigilum] websocket loop error: ${String(error)}`);
+      lastCloseInfo = {
+        opened: false,
+        code: 0,
+        reason: String(error),
+        durationMs: 0,
+      };
     }
 
-    if (!shuttingDown) {
-      await sleep(cfg.reconnectMs);
+    if (shuttingDown) {
+      break;
     }
+
+    if (lastCloseInfo.opened) {
+      consecutivePreOpenFailures = 0;
+    } else {
+      consecutivePreOpenFailures += 1;
+      const reasonHint = isLikelyTerminalPairFailureReason(lastCloseInfo.reason);
+      const fastFailure = lastCloseInfo.durationMs > 0 && lastCloseInfo.durationMs <= 5000;
+      if (reasonHint || (fastFailure && consecutivePreOpenFailures >= TERMINAL_CONNECT_FAILURE_THRESHOLD)) {
+        const probeTimeoutMs = Math.min(Math.max(cfg.connectTimeoutMs, 1000), 3000);
+        const healthy = await controlPlaneHealthy(cfg, probeTimeoutMs);
+        if (healthy) {
+          throw new PairSessionTerminalError(
+            `Pair session appears expired or invalid after ${consecutivePreOpenFailures} failed connect attempts (close_code=${lastCloseInfo.code}, reason=${truncateText(lastCloseInfo.reason || "none", 120)}). Start a new dashboard pairing session and rerun with fresh --session-id/--pair-code.`,
+          );
+        }
+      }
+    }
+
+    await sleep(cfg.reconnectMs);
   }
 
   console.log("[sigilum] gateway pairing bridge stopped");
 }
 
 run().catch((error) => {
+  if (error instanceof PairSessionTerminalError) {
+    console.error(`[sigilum] ${TERMINAL_PAIR_SESSION_MARKER}: ${error.message}`);
+    process.exit(TERMINAL_PAIR_SESSION_EXIT_CODE);
+  }
   console.error(`[sigilum] ${String(error)}`);
   process.exit(1);
 });

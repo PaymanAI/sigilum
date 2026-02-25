@@ -10,6 +10,8 @@ SYSTEMD_PAIR_UNIT="${SYSTEMD_PAIR_UNIT_BASENAME}.service"
 SYSTEMD_USER_UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 SYSTEMD_PAIR_UNIT_PATH="${SYSTEMD_USER_UNIT_DIR}/${SYSTEMD_PAIR_UNIT}"
 SYSTEMD_USER_HELP=""
+PAIR_TERMINAL_EXIT_CODE=42
+PAIR_TERMINAL_MARKER="PAIR_SESSION_TERMINAL"
 
 usage() {
   cat <<'EOF'
@@ -131,25 +133,31 @@ resolve_lifecycle_mode() {
     return 1
   fi
 
+  if [[ "$requested_mode" == "compat" ]]; then
+    printf 'compat'
+    return 0
+  fi
+
   if ensure_systemd_user_available; then
     printf 'stable'
     return 0
   fi
 
-  if is_linux_systemd_host; then
-    if [[ "$requested_mode" == "stable" ]]; then
+  if [[ "$requested_mode" == "stable" ]]; then
+    if is_linux_systemd_host; then
       echo "Systemd host detected, but user manager is unavailable for ${SYSTEMD_PAIR_UNIT}." >&2
       if [[ -n "$SYSTEMD_USER_HELP" ]]; then
         echo "$SYSTEMD_USER_HELP" >&2
       fi
-      echo "--lifecycle-mode stable requires a working systemd --user manager." >&2
-      return 1
     fi
-    if [[ "$requested_mode" == "auto" ]]; then
-      echo "Systemd host detected, but user manager is unavailable for ${SYSTEMD_PAIR_UNIT}; falling back to compat mode." >&2
-      if [[ -n "$SYSTEMD_USER_HELP" ]]; then
-        echo "$SYSTEMD_USER_HELP" >&2
-      fi
+    echo "--lifecycle-mode stable requires a working systemd --user manager." >&2
+    return 1
+  fi
+
+  if is_linux_systemd_host; then
+    echo "Systemd host detected, but user manager is unavailable for ${SYSTEMD_PAIR_UNIT}; falling back to compat mode." >&2
+    if [[ -n "$SYSTEMD_USER_HELP" ]]; then
+      echo "$SYSTEMD_USER_HELP" >&2
     fi
   fi
 
@@ -169,6 +177,27 @@ systemd_pair_main_pid() {
     return 0
   fi
   return 1
+}
+
+systemd_pair_main_exit_status() {
+  local status=""
+  status="$(systemctl --user show --property ExecMainStatus --value "$SYSTEMD_PAIR_UNIT" 2>/dev/null || true)"
+  if [[ "$status" =~ ^[0-9]+$ ]]; then
+    printf '%s' "$status"
+    return 0
+  fi
+  return 1
+}
+
+print_pair_terminal_hint() {
+  echo "Gateway pair bridge stopped: pairing session is stale/expired." >&2
+  echo "Start a new dashboard pairing session and rerun sigilum gateway connect with fresh --session-id/--pair-code." >&2
+}
+
+log_contains_terminal_marker() {
+  local log_file="$1"
+  [[ -f "$log_file" ]] || return 1
+  grep -Fq "$PAIR_TERMINAL_MARKER" "$log_file" 2>/dev/null
 }
 
 write_systemd_log_hint() {
@@ -214,6 +243,7 @@ Wants=network-online.target
 Type=simple
 ExecStart=${wrapper_path}
 Restart=always
+RestartPreventExitStatus=${PAIR_TERMINAL_EXIT_CODE}
 RestartSec=2
 KillMode=process
 WorkingDirectory=${ROOT_DIR}
@@ -239,6 +269,7 @@ start_systemd_pair_service() {
     return 1
   fi
   systemctl --user enable "$SYSTEMD_PAIR_UNIT" >/dev/null 2>&1 || true
+  systemctl --user reset-failed "$SYSTEMD_PAIR_UNIT" >/dev/null 2>&1 || true
 
   if ! systemctl --user restart "$SYSTEMD_PAIR_UNIT" >/dev/null 2>&1; then
     if ! systemctl --user start "$SYSTEMD_PAIR_UNIT" >/dev/null 2>&1; then
@@ -247,12 +278,16 @@ start_systemd_pair_service() {
     fi
   fi
 
-  if ! systemctl --user reset-failed "$SYSTEMD_PAIR_UNIT" >/dev/null 2>&1; then
-    true
-  fi
-
   sleep 1
   if ! systemd_pair_is_active; then
+    local main_status=""
+    main_status="$(systemd_pair_main_exit_status || true)"
+    if [[ "$main_status" == "$PAIR_TERMINAL_EXIT_CODE" ]]; then
+      print_pair_terminal_hint
+      echo "Gateway pair bridge service exited with terminal status (${PAIR_TERMINAL_EXIT_CODE}) for ${SYSTEMD_PAIR_UNIT}." >&2
+      echo "Inspect logs: journalctl --user -u ${SYSTEMD_PAIR_UNIT} -n 200 --no-pager" >&2
+      return "$PAIR_TERMINAL_EXIT_CODE"
+    fi
     echo "Gateway pair bridge service is not active after start: ${SYSTEMD_PAIR_UNIT}" >&2
     echo "Inspect logs: journalctl --user -u ${SYSTEMD_PAIR_UNIT} -n 200 --no-pager" >&2
     return 1
@@ -335,11 +370,19 @@ if ! valid_lifecycle_mode "$LIFECYCLE_MODE"; then
 fi
 
 if [[ "$ACTION" == "status" ]]; then
-  if ensure_systemd_user_available && systemd_pair_is_active; then
-    pid="$(systemd_pair_main_pid || true)"
-    echo "Gateway pair bridge is running (systemd unit=${SYSTEMD_PAIR_UNIT}, pid=${pid:-unknown})."
-    echo "  logs: journalctl --user -u ${SYSTEMD_PAIR_UNIT} -n 200 --no-pager"
-    exit 0
+  if ensure_systemd_user_available; then
+    if systemd_pair_is_active; then
+      pid="$(systemd_pair_main_pid || true)"
+      echo "Gateway pair bridge is running (systemd unit=${SYSTEMD_PAIR_UNIT}, pid=${pid:-unknown})."
+      echo "  logs: journalctl --user -u ${SYSTEMD_PAIR_UNIT} -n 200 --no-pager"
+      exit 0
+    fi
+    main_status="$(systemd_pair_main_exit_status || true)"
+    if [[ "$main_status" == "$PAIR_TERMINAL_EXIT_CODE" ]]; then
+      print_pair_terminal_hint
+      echo "  logs: journalctl --user -u ${SYSTEMD_PAIR_UNIT} -n 200 --no-pager" >&2
+      exit 1
+    fi
   fi
 
   if pid="$(read_pid "$PID_FILE")" && kill -0 "$pid" 2>/dev/null; then
@@ -347,6 +390,11 @@ if [[ "$ACTION" == "status" ]]; then
     echo "  pid_file: ${PID_FILE}"
     echo "  log_file: ${LOG_FILE}"
     exit 0
+  fi
+  if log_contains_terminal_marker "$LOG_FILE"; then
+    print_pair_terminal_hint
+    echo "  log_file: ${LOG_FILE}" >&2
+    exit 1
   fi
   echo "Gateway pair bridge is not running."
   exit 1
@@ -421,6 +469,11 @@ pid="$(start_detached_process "$LOG_FILE" node "$ROOT_DIR/scripts/gateway-pair-b
 echo "$pid" >"$PID_FILE"
 sleep 1
 if ! kill -0 "$pid" 2>/dev/null; then
+  rm -f "$PID_FILE"
+  if log_contains_terminal_marker "$LOG_FILE"; then
+    print_pair_terminal_hint
+    exit "$PAIR_TERMINAL_EXIT_CODE"
+  fi
   echo "Gateway pair bridge failed to start. Check logs: ${LOG_FILE}" >&2
   exit 1
 fi
