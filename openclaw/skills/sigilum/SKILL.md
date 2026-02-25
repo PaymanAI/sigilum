@@ -37,6 +37,12 @@ if [[ -z "${SIGILUM_AGENT_ID:-}" ]]; then
 fi
 ```
 
+Subject behavior:
+
+- `gateway-admin.sh` keeps current behavior: explicit `SIGILUM_SUBJECT` wins.
+- When unset, helper resolves subject automatically from `message:received` hook hints.
+- For Slack subjects, resolver attempts `users.info` email lookup (token/scopes required) and falls back to Slack user ID.
+
 Signed tools-list check (per-agent auth):
 
 ```bash
@@ -119,12 +125,16 @@ Optional:
 - `SIGILUM_RUNTIME_BIN`: explicit launcher path (preferred when available)
 - `SIGILUM_GATEWAY_URL`: gateway base URL (optional; defaults to `http://localhost:38100`)
 - `SIGILUM_GATEWAY_HELPER_BIN`: optional absolute path to `gateway-admin.sh`
+- `SIGILUM_SUBJECT_RESOLVER_BIN`: optional absolute path to `resolve-subject.mjs` (auto-set by installer)
 - `SIGILUM_KEY_ROOT`: optional agent key root (default `~/.openclaw/.sigilum/keys`)
 - `SIGILUM_AGENT_ID`: preferred explicit selector for signed runtime requests
 - `OPENCLAW_AGENT_ID`: runtime fallback selector (when `SIGILUM_AGENT_ID` is unset)
 - `OPENCLAW_AGENT`: runtime fallback selector (when `SIGILUM_AGENT_ID` and `OPENCLAW_AGENT_ID` are unset)
 - `OPENCLAW_CONFIG_PATH`: optional OpenClaw config path for helper fallback identity discovery
 - `SIGILUM_SUBJECT`: optional subject override for signed runtime requests
+- `SIGILUM_SUBJECT_HINTS_PATH`: optional subject hint store path (default `<OPENCLAW_HOME>/.sigilum/subject-hints.json`)
+- `SIGILUM_SLACK_EMAIL_CACHE_PATH`: optional cache path for Slack email lookups
+- `SLACK_USER_TOKEN` or `SLACK_BOT_TOKEN`: optional Slack token used for `users.info` email resolution
 - `SIGILUM_GATEWAY_ADMIN_TOKEN`: optional bearer token for helper protocol auto-detect (`/api/admin/connections/{id}`)
 - `SIGILUM_CONNECTION_PROTOCOL`: optional manual override for helper protocol routing (`mcp|http`)
 - `SIGILUM_PROXY_TOOLS_PATH`: optional path used by `tools` when connection protocol is `http` (default `/`)

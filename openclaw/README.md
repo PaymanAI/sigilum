@@ -72,7 +72,7 @@ Yes, for v1 integration flows.
 
 OpenClaw already exposes enough extension points:
 
-- Hooks (`gateway:startup`, `command:new`, reload events)
+- Hooks (`gateway:startup`, `command:new`, `message:received`, reload events)
 - Skills (command wrappers and workflows)
 - Plugins (optional, external load paths)
 - Provider/channel config (`models.providers.*.baseUrl`, channel proxy settings where supported)
@@ -132,7 +132,8 @@ So for channel keys, v1 supports:
 Purpose:
 
 - Bootstraps one Sigilum Ed25519 keypair per OpenClaw agent ID.
-- Runs on startup/new/reload events.
+- Captures per-message sender identity hints for automatic `sigilum-subject` stamping.
+- Runs on startup/new/reload/message events.
 
 Required env:
 
@@ -145,6 +146,7 @@ Optional env:
 - `SIGILUM_DASHBOARD_URL`
 - `SIGILUM_KEY_ROOT`
 - `SIGILUM_AUTO_BOOTSTRAP_AGENTS`
+- `SIGILUM_SUBJECT_HINTS_PATH`
 
 ### Attach passkey for seeded namespace (JWT-only)
 
@@ -174,9 +176,10 @@ Security model:
 - Default behavior after install:
   - check `sigilum-secure-*` gateway runtime access first for provider access (for example `sigilum-secure-linear`)
   - use signed `/mcp/{connection_id}/tools` checks with per-agent key material from `SIGILUM_KEY_ROOT`
+  - auto-resolve `sigilum-subject` from channel sender identity (Slack email when resolvable, fallback sender ID)
   - treat `401/403` as authorization-required (claim approval needed for that agent key)
   - avoid direct provider API key prompts unless gateway path fails
-- Installer enables the skill, and the `sigilum-plugin` hook injects gateway-first routing guidance on startup/new/reload events.
+- Installer enables the skill, and the `sigilum-plugin` hook injects gateway-first routing guidance on startup/new/reload/message events.
 
 ## Installer behavior
 

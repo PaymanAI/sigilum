@@ -63,6 +63,7 @@ func main() {
 	resp, err := bindings.Do(context.Background(), sigilum.SignRequestInput{
 		URL:    "/v1/namespaces/" + namespace,
 		Method: "GET",
+		Subject: "customer-12345", // optional per-request subject override
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -81,6 +82,14 @@ Expected outcome:
 All protected API endpoints require signed headers. Requests are signed with Ed25519 using RFC 9421-style `Signature-Input` and `Signature`, and can be validated server-side with `VerifyHTTPSignature`.
 Signed identity headers include `sigilum-namespace`, `sigilum-subject`, `sigilum-agent-key`, and `sigilum-agent-cert`.
 Use a stable `sigilum-subject` principal id; gateway policy may apply subject-level controls using this value.
+`Subject` means "who triggered this action" (the authenticated human or system identity). The platform/integration layer is responsible for setting this value accurately.
+If `Subject` is omitted, SDK signing defaults it to the signer namespace for backward compatibility.
+
+## Subject + DID model
+
+- Identity hierarchy: `namespace -> service -> agent -> subject`
+- DID format: `did:sigilum:{namespace}:{service}#{agent}#{subject}`
+- Example: `did:sigilum:mfs:narmi#davis-agent#customer-12345`
 
 `VerifyHTTPSignature` returns deterministic failure metadata for automation:
 

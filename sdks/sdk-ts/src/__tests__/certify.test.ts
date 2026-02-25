@@ -82,6 +82,55 @@ describe("certify(agent)", () => {
     expect(verification.namespace).toBe("alice");
   });
 
+  it("supports per-request subject override", async () => {
+    const homeDir = makeHomeDir();
+    initIdentity({ namespace: "alice", homeDir });
+
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    const fetchImpl: typeof fetch = async (
+      input: Parameters<typeof fetch>[0],
+      init?: RequestInit,
+    ): Promise<Response> => {
+      calls.push({ input: String(input), init });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    const certified = certify({}, {
+      namespace: "alice",
+      homeDir,
+      apiBaseUrl: "https://api.sigilum.local",
+      fetchImpl,
+    });
+
+    await certified.sigilum.request("/claims", {
+      method: "GET",
+      subject: "customer-12345",
+    });
+
+    expect(calls).toHaveLength(1);
+    const call = calls[0];
+    expect(call).toBeDefined();
+    if (!call) {
+      throw new Error("Expected a recorded fetch call");
+    }
+
+    const verification = verifyHttpSignature({
+      url: call.input,
+      method: String(call.init?.method ?? "GET"),
+      headers: call.init?.headers ?? {},
+      body: (call.init?.body ?? null) as string,
+      expectedNamespace: "alice",
+      expectedSubject: "customer-12345",
+    });
+
+    expect(verification.valid).toBe(true);
+    expect(verification.subject).toBe("customer-12345");
+    expect((call.init as Record<string, unknown> | undefined)?.subject).toBeUndefined();
+  });
+
   it("is idempotent when called multiple times", () => {
     const homeDir = makeHomeDir();
     initIdentity({ namespace: "alice", homeDir });

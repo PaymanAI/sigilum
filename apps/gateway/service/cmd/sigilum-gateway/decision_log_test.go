@@ -34,6 +34,39 @@ func TestSanitizeDecisionValueHashesIdentityFields(t *testing.T) {
 	}
 }
 
+func TestSanitizeDecisionValueDoesNotHashSubject(t *testing.T) {
+	got := sanitizeDecisionValue("subject", "customer-12345")
+	subject, ok := got.(string)
+	if !ok {
+		t.Fatalf("expected subject string, got %#v", got)
+	}
+	if subject != "customer-12345" {
+		t.Fatalf("expected cleartext subject, got %q", subject)
+	}
+}
+
+func TestConstructDID(t *testing.T) {
+	did := constructDID("mfs", "narmi", "davis-agent", "customer-12345")
+	if did != "did:sigilum:mfs:narmi#davis-agent#customer-12345" {
+		t.Fatalf("unexpected did with subject: %q", did)
+	}
+
+	did = constructDID("tyllenb", "github", "hamza", "tyllenb")
+	if did != "did:sigilum:tyllenb:github#hamza" {
+		t.Fatalf("unexpected did namespace fallback: %q", did)
+	}
+}
+
+func TestDIDAgentFragmentFromPublicKey(t *testing.T) {
+	fragment := didAgentFragment("ed25519:abcDEF1234567890+/==")
+	if strings.Contains(fragment, ":") || strings.Contains(fragment, "+") || strings.Contains(fragment, "/") {
+		t.Fatalf("expected sanitized agent fragment, got %q", fragment)
+	}
+	if fragment == "" {
+		t.Fatal("expected non-empty agent fragment")
+	}
+}
+
 func TestSanitizeDecisionValueMasksIP(t *testing.T) {
 	if got := sanitizeDecisionValue("remote_ip", "203.0.113.10"); got != "203.0.113.0/24" {
 		t.Fatalf("expected masked ipv4 value, got %#v", got)

@@ -49,7 +49,7 @@ func authorizeConnectionRequest(
 		return authorizedIdentity{}, false
 	}
 
-	if !enforceNonceReplayProtection(w, headers, identity.Namespace, connectionID, remoteIP, requestID, nonceCache, cfg) {
+	if !enforceNonceReplayProtection(w, headers, identity.Namespace, identity.Subject, connectionID, remoteIP, requestID, nonceCache, cfg) {
 		return authorizedIdentity{}, false
 	}
 
@@ -153,6 +153,7 @@ func enforceNonceReplayProtection(
 	w http.ResponseWriter,
 	headers http.Header,
 	namespace string,
+	subject string,
 	connectionID string,
 	remoteIP string,
 	requestID string,
@@ -164,6 +165,8 @@ func enforceNonceReplayProtection(
 		logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_auth_denied", map[string]any{
 			"request_id":  requestID,
 			"connection":  connectionID,
+			"namespace":   namespace,
+			"subject":     subject,
 			"remote_ip":   remoteIP,
 			"stage":       "nonce_validation",
 			"decision":    "deny",
@@ -178,6 +181,7 @@ func enforceNonceReplayProtection(
 			"connection":  connectionID,
 			"remote_ip":   remoteIP,
 			"namespace":   namespace,
+			"subject":     subject,
 			"stage":       "replay_detection",
 			"decision":    "deny",
 			"reason_code": codeAuthReplayDetected,
@@ -202,6 +206,8 @@ func enforceClaimAuthorization(
 		logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_auth_denied", map[string]any{
 			"request_id":  requestID,
 			"connection":  connectionID,
+			"namespace":   identity.Namespace,
+			"subject":     identity.Subject,
 			"stage":       "claims_cache",
 			"decision":    "deny",
 			"reason_code": codeAuthClaimsUnavailable,
@@ -217,6 +223,7 @@ func enforceClaimAuthorization(
 			"connection":  connectionID,
 			"remote_ip":   remoteIP,
 			"namespace":   identity.Namespace,
+			"subject":     identity.Subject,
 			"stage":       "claims_lookup",
 			"decision":    "deny",
 			"reason_code": codeAuthClaimsLookupFailed,
@@ -229,6 +236,7 @@ func enforceClaimAuthorization(
 		"request_id": requestID,
 		"connection": connectionID,
 		"namespace":  identity.Namespace,
+		"subject":    identity.Subject,
 		"approved":   approved,
 	})
 	if !approved {
@@ -293,6 +301,7 @@ func enforceClaimAuthorization(
 			"connection":  connectionID,
 			"remote_ip":   remoteIP,
 			"namespace":   identity.Namespace,
+			"subject":     identity.Subject,
 			"stage":       "claims_authorization",
 			"decision":    "deny",
 			"reason_code": codeAuthClaimRequired,

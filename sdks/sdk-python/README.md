@@ -87,10 +87,25 @@ agent.sigilum.fetch(
     url=f"/v1/namespaces/{agent.sigilum.namespace}",
     method="GET",
 )
+
+# Override subject for a single request (for example, the end user ID)
+agent.sigilum.request(
+    "/claims",
+    method="POST",
+    subject="customer-12345",
+)
 ```
 
 All protected API endpoints require signed headers. This SDK signs requests with Ed25519 using RFC 9421-style `Signature-Input` and `Signature`, including `sigilum-namespace`, `sigilum-subject`, `sigilum-agent-key`, and `sigilum-agent-cert`.
 Use a stable `sigilum-subject` principal id; gateway policy can use it for subject-level controls.
+`subject` means "who triggered this action" (the authenticated human or system identity). The platform/integration layer is responsible for setting this value accurately.
+If `subject` is omitted, SDK signing defaults it to the signer namespace for backward compatibility.
+
+## Subject + DID model
+
+- Identity hierarchy: `namespace -> service -> agent -> subject`
+- DID format: `did:sigilum:{namespace}:{service}#{agent}#{subject}`
+- Example: `did:sigilum:mfs:narmi#davis-agent#customer-12345`
 
 `verify_http_signature(...)` returns deterministic failure metadata for automation:
 

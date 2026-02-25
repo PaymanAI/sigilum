@@ -33,6 +33,24 @@ type RuntimeCredentialReport = {
   findings: RuntimeCredentialFinding[];
 };
 
+type SubjectHintRecord = {
+  agent_id: string;
+  session_key: string;
+  channel: string;
+  from: string;
+  sender_id: string;
+  sender_e164: string;
+  subject: string;
+  updated_at: string;
+};
+
+type SubjectHintStore = {
+  updated_at: string;
+  by_session: Record<string, SubjectHintRecord>;
+  by_agent: Record<string, SubjectHintRecord>;
+  recent: SubjectHintRecord[];
+};
+
 const PROVIDER_ALIAS: Record<string, string> = {
   anthropic: "anthropic",
   claude: "anthropic",
@@ -63,6 +81,8 @@ const PROVIDER_ALIAS: Record<string, string> = {
 };
 
 const RUNTIME_REPORT_FILENAME = "legacy-runtime-credentials.json";
+const SUBJECT_HINTS_FILENAME = "subject-hints.json";
+const MAX_RECENT_SUBJECT_HINTS = 200;
 
 function asObject(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -76,6 +96,22 @@ function asString(value: unknown): string {
     return "";
   }
   return value.trim();
+}
+
+function sanitizeAgentID(value: string): string {
+  return asString(value).replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+function parseAgentIDFromSessionKey(sessionKey: string): string {
+  const normalized = asString(sessionKey);
+  if (!normalized) {
+    return "";
+  }
+  const parts = normalized.split(":");
+  if (parts.length >= 2 && parts[0].toLowerCase() === "agent") {
+    return sanitizeAgentID(parts[1]);
+  }
+  return sanitizeAgentID(parts[0]);
 }
 
 function splitTokens(input: string): string[] {
@@ -227,6 +263,159 @@ function resolveRuntimeCredentialReportPath(event: HookEvent, keyRoot: string): 
   return path.join(openClawHome, ".sigilum", RUNTIME_REPORT_FILENAME);
 }
 
+function resolveSubjectHintsPath(event: HookEvent, keyRoot: string): string {
+  const override = asString(process.env.SIGILUM_SUBJECT_HINTS_PATH);
+  if (override) {
+    return override;
+  }
+  const hookEnv = readHookEnv(event, "sigilum-plugin");
+  const hookOverride = asString(hookEnv.SIGILUM_SUBJECT_HINTS_PATH);
+  if (hookOverride) {
+    return hookOverride;
+  }
+  const openClawHome = resolveOpenClawHome(event, keyRoot);
+  return path.join(openClawHome, ".sigilum", SUBJECT_HINTS_FILENAME);
+}
+
+function isMessageReceivedEvent(event: HookEvent): boolean {
+  return event.type === "message" && event.action === "received";
+}
+
+function readSubjectHintStore(filePath: string): SubjectHintStore {
+  const fallback: SubjectHintStore = {
+    updated_at: new Date(0).toISOString(),
+    by_session: {},
+    by_agent: {},
+    recent: [],
+  };
+  if (!fs.existsSync(filePath)) {
+    return fallback;
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8")) as SubjectHintStore;
+    const bySession = asObject(parsed.by_session) as Record<string, SubjectHintRecord>;
+    const byAgent = asObject(parsed.by_agent) as Record<string, SubjectHintRecord>;
+    const recent = Array.isArray(parsed.recent)
+      ? parsed.recent.filter((entry) => entry && typeof entry === "object") as SubjectHintRecord[]
+      : [];
+    return {
+      updated_at: asString(parsed.updated_at) || fallback.updated_at,
+      by_session: bySession,
+      by_agent: byAgent,
+      recent,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function slackSenderFromFromField(rawFrom: string): string {
+  const from = asString(rawFrom);
+  if (!from) {
+    return "";
+  }
+  const lower = from.toLowerCase();
+  if (!lower.startsWith("slack:")) {
+    return "";
+  }
+  return from.slice("slack:".length).trim();
+}
+
+function extractSubjectHint(event: HookEvent): SubjectHintRecord | null {
+  const context = asObject(event.context);
+  const metadata = asObject(context.metadata);
+  const sessionKey = asString(event.sessionKey);
+  const agentID = parseAgentIDFromSessionKey(sessionKey);
+  if (!sessionKey || !agentID) {
+    return null;
+  }
+
+  const from = asString(context.from);
+  const slackFromSender = slackSenderFromFromField(from);
+  let channel =
+    asString(context.channelId).toLowerCase() ||
+    asString(metadata.provider).toLowerCase() ||
+    asString(metadata.surface).toLowerCase();
+  if (!channel && slackFromSender) {
+    channel = "slack";
+  }
+  const senderID = asString(metadata.senderId) || slackFromSender;
+  const senderE164 = asString(metadata.senderE164);
+
+  const subjectCandidates: string[] = [];
+  if (channel === "slack") {
+    subjectCandidates.push(senderID, slackFromSender);
+  } else {
+    subjectCandidates.push(senderE164, senderID);
+  }
+  subjectCandidates.push(from);
+  const subject = subjectCandidates.map((candidate) => asString(candidate)).find(Boolean) || "";
+
+  if (!subject && !senderID && !senderE164 && !from) {
+    return null;
+  }
+
+  return {
+    agent_id: agentID,
+    session_key: sessionKey,
+    channel,
+    from,
+    sender_id: senderID,
+    sender_e164: senderE164,
+    subject,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function upsertSubjectHint(event: HookEvent, keyRoot: string): void {
+  const hint = extractSubjectHint(event);
+  if (!hint) {
+    return;
+  }
+
+  const storePath = resolveSubjectHintsPath(event, keyRoot);
+  if (!storePath) {
+    return;
+  }
+  const store = readSubjectHintStore(storePath);
+  store.updated_at = hint.updated_at;
+  store.by_session[hint.session_key] = hint;
+  store.by_agent[hint.agent_id] = hint;
+  store.recent = [
+    hint,
+    ...store.recent.filter((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return false;
+      }
+      const sessionKey = asString(entry.session_key);
+      if (sessionKey && sessionKey === hint.session_key) {
+        return false;
+      }
+      const stamp = [
+        asString(entry.agent_id),
+        asString(entry.channel),
+        asString(entry.subject),
+        asString(entry.sender_id),
+        asString(entry.sender_e164),
+      ].join("|");
+      const nextStamp = [
+        hint.agent_id,
+        hint.channel,
+        hint.subject,
+        hint.sender_id,
+        hint.sender_e164,
+      ].join("|");
+      return stamp !== nextStamp;
+    }),
+  ].slice(0, MAX_RECENT_SUBJECT_HINTS);
+
+  const directory = path.dirname(storePath);
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const temporary = `${storePath}.tmp-${process.pid}`;
+  fs.writeFileSync(temporary, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temporary, storePath);
+}
+
 function collectRuntimeCredentialFindings(): RuntimeCredentialFinding[] {
   const findings: RuntimeCredentialFinding[] = [];
   const seen = new Set<string>();
@@ -296,6 +485,7 @@ function shouldRun(event: HookEvent): boolean {
   return (
     (event.type === "gateway" && event.action === "startup") ||
     (event.type === "command" && event.action === "new") ||
+    isMessageReceivedEvent(event) ||
     isReloadEvent(event)
   );
 }
@@ -462,6 +652,18 @@ const handler: HookHandler = async (event) => {
 
   try {
     const cfg = resolveSigilumPluginConfig(event);
+    if (isMessageReceivedEvent(event)) {
+      try {
+        upsertSubjectHint(event, cfg.keyRoot);
+      } catch (err) {
+        console.error(
+          "[sigilum-plugin] subject hint capture failed:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+      return;
+    }
+
     if (isGatewayStartupEvent(event) || isReloadEvent(event)) {
       try {
         writeRuntimeCredentialReport(event, cfg.keyRoot);

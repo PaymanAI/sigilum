@@ -39,6 +39,13 @@ Supported SDKs implement the same signed-header profile for API requests:
 
 `sigilum-subject` is not decorative: treat it as a stable requester principal id inside a namespace. Gateway can apply subject-aware policy using this value (for example MCP tool filtering).
 When `subject` is omitted at signing time, supported SDKs default `sigilum-subject` to the signer namespace.
+`subject` means "who triggered this action" (the authenticated human or system identity). Platforms/integrations are responsible for setting it accurately.
+
+Canonical identity model for audit records:
+
+- Hierarchy: `namespace -> service -> agent -> subject`
+- DID format: `did:sigilum:{namespace}:{service}#{agent}#{subject}`
+- Example: `did:sigilum:mfs:narmi#davis-agent#customer-12345`
 
 Shared conformance vectors are stored in:
 

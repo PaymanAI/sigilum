@@ -179,6 +179,16 @@ claimsRouter.post("/", async (c) => {
       .bind(claimId, body.namespace, body.service, body.public_key, body.agent_ip, agentName)
       .run();
 
+    await dispatchWebhookEvent(c.env.DB, "request.rejected", {
+      claim_id: claimId,
+      namespace: body.namespace,
+      service: body.service,
+      public_key: body.public_key,
+      agent_ip: body.agent_ip,
+      agent_name: agentName,
+      reason: "service_limit_reached",
+    }, c.env);
+
     return c.json(
         {
           claim_id: claimId,
@@ -205,6 +215,16 @@ claimsRouter.post("/", async (c) => {
     )
       .bind(claimId, body.namespace, body.service, body.public_key, body.agent_ip, agentName)
       .run();
+
+    await dispatchWebhookEvent(c.env.DB, "request.rejected", {
+      claim_id: claimId,
+      namespace: body.namespace,
+      service: body.service,
+      public_key: body.public_key,
+      agent_ip: body.agent_ip,
+      agent_name: agentName,
+      reason: "agent_limit_reached",
+    }, c.env);
 
     return c.json(
         {
@@ -261,6 +281,7 @@ claimsRouter.post("/", async (c) => {
         service: body.service,
         public_key: body.public_key,
         agent_ip: body.agent_ip,
+        agent_name: agentName,
         reason: "max_pending_reached",
       }, c.env);
 
@@ -401,6 +422,7 @@ claimsRouter.post("/", async (c) => {
       service: body.service,
       public_key: body.public_key,
       agent_ip: body.agent_ip,
+      agent_name: agentName,
       auto_approved: true,
     }, c.env);
 
@@ -574,6 +596,7 @@ claimsRouter.post("/:claimId/approve", async (c) => {
     service: row.service as string,
     public_key: row.public_key as string,
     agent_ip: row.agent_ip as string,
+    agent_name: (row.agent_name as string | null) ?? null,
   }, c.env);
 
   return c.json({
@@ -618,6 +641,7 @@ claimsRouter.post("/:claimId/reject", async (c) => {
     service: row.service as string,
     public_key: row.public_key as string,
     agent_ip: row.agent_ip as string,
+    agent_name: (row.agent_name as string | null) ?? null,
   }, c.env);
 
   return c.json({ claim_id: claimId, status: "rejected" });
@@ -674,6 +698,7 @@ claimsRouter.post("/:claimId/revoke", async (c) => {
     service: row.service as string,
     public_key: row.public_key as string,
     agent_ip: row.agent_ip as string,
+    agent_name: (row.agent_name as string | null) ?? null,
   }, c.env);
 
   return c.json({ claim_id: claimId, status: "revoked", blockchain_tx_status: "queued" });

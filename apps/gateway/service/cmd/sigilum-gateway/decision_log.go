@@ -25,7 +25,6 @@ var decisionLogRedactedKeyFragments = []string{
 
 var decisionLogHashedKeyFragments = []string{
 	"namespace",
-	"subject",
 	"public_key",
 	"agent_key",
 	"key_id",
@@ -164,6 +163,59 @@ func sanitizeDecisionString(key string, value string) string {
 		return trimmed[:256] + "...(truncated)"
 	}
 	return trimmed
+}
+
+func constructDID(namespace, service, agent, subject string) string {
+	namespace = strings.TrimSpace(namespace)
+	service = strings.TrimSpace(service)
+	agent = strings.TrimSpace(agent)
+	if agent == "" {
+		agent = "unknown-agent"
+	}
+	did := "did:sigilum:" + namespace + ":" + service + "#" + agent
+	subject = strings.TrimSpace(subject)
+	if subject != "" && subject != namespace {
+		did += "#" + subject
+	}
+	return did
+}
+
+func didAgentFragment(publicKey string) string {
+	fragment := strings.TrimSpace(publicKey)
+	fragment = strings.TrimPrefix(fragment, "ed25519:")
+	if len(fragment) > 24 {
+		fragment = fragment[:12] + "-" + fragment[len(fragment)-8:]
+	}
+	fragment = sanitizeDIDFragment(fragment)
+	if fragment == "" {
+		return "unknown-agent"
+	}
+	return fragment
+}
+
+func sanitizeDIDFragment(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+	var out strings.Builder
+	lastDash := false
+	for i := 0; i < len(trimmed); i++ {
+		ch := trimmed[i]
+		isAlpha := (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
+		isDigit := ch >= '0' && ch <= '9'
+		switch {
+		case isAlpha || isDigit || ch == '.' || ch == '_' || ch == '-':
+			out.WriteByte(ch)
+			lastDash = ch == '-'
+		default:
+			if !lastDash {
+				out.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	return strings.Trim(out.String(), "-")
 }
 
 func hasKeyFragment(key string, fragments []string) bool {
