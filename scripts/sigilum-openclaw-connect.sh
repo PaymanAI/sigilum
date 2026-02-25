@@ -144,25 +144,31 @@ resolve_lifecycle_mode() {
     return 1
   fi
 
+  if [[ "$requested_mode" == "compat" ]]; then
+    printf 'compat'
+    return 0
+  fi
+
   if ensure_systemd_user_available; then
     printf 'stable'
     return 0
   fi
 
-  if is_linux_systemd_host; then
-    if [[ "$requested_mode" == "stable" ]]; then
+  if [[ "$requested_mode" == "stable" ]]; then
+    if is_linux_systemd_host; then
       echo "Systemd host detected, but user manager is unavailable." >&2
       if [[ -n "$SYSTEMD_USER_HELP" ]]; then
         echo "$SYSTEMD_USER_HELP" >&2
       fi
-      echo "--lifecycle-mode stable requires a working systemd --user manager." >&2
-      return 1
     fi
-    if [[ "$requested_mode" == "auto" ]]; then
-      echo "Preflight: systemd user manager is unavailable; falling back to compat mode for this run." | tee -a "$LOG_FILE"
-      if [[ -n "$SYSTEMD_USER_HELP" ]]; then
-        echo "Hint: $SYSTEMD_USER_HELP" | tee -a "$LOG_FILE"
-      fi
+    echo "--lifecycle-mode stable requires a working systemd --user manager." >&2
+    return 1
+  fi
+
+  if is_linux_systemd_host; then
+    echo "Preflight: systemd user manager is unavailable; falling back to compat mode for this run." | tee -a "$LOG_FILE" >&2
+    if [[ -n "$SYSTEMD_USER_HELP" ]]; then
+      echo "Hint: $SYSTEMD_USER_HELP" | tee -a "$LOG_FILE" >&2
     fi
   fi
 
