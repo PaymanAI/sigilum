@@ -16,6 +16,7 @@ const [
   dashboardUrl,
   sigilumRuntimeRoot,
   sigilumGatewayHelperBin,
+  sigilumSubjectResolverBin,
   sigilumHomeDir,
 ] = process.argv.slice(2);
 
@@ -96,6 +97,7 @@ const parsed = parseConfig(fs.readFileSync(configPath, "utf8"), configPath);
 const config = asObject(parsed);
 const runtimeBin = `${String(sigilumRuntimeRoot || "").replace(/\/+$/g, "")}/sigilum`;
 const gatewayHelperBin = String(sigilumGatewayHelperBin || "").trim();
+const subjectResolverBin = String(sigilumSubjectResolverBin || "").trim();
 const sigilumHome = String(sigilumHomeDir || "").trim();
 
 config.agents = asObject(config.agents);
@@ -137,6 +139,7 @@ config.env.vars = {
   SIGILUM_RUNTIME_ROOT: sigilumRuntimeRoot,
   SIGILUM_RUNTIME_BIN: runtimeBin,
   SIGILUM_GATEWAY_HELPER_BIN: gatewayHelperBin,
+  SIGILUM_SUBJECT_RESOLVER_BIN: subjectResolverBin,
   ...(preferredAgentID ? { SIGILUM_AGENT_ID: preferredAgentID } : {}),
 };
 if (sigilumHome) {
@@ -198,6 +201,7 @@ sigilumSkill.env = {
   SIGILUM_RUNTIME_ROOT: sigilumRuntimeRoot,
   SIGILUM_RUNTIME_BIN: runtimeBin,
   SIGILUM_GATEWAY_HELPER_BIN: gatewayHelperBin,
+  SIGILUM_SUBJECT_RESOLVER_BIN: subjectResolverBin,
   ...(preferredAgentID ? { SIGILUM_AGENT_ID: preferredAgentID } : {}),
 };
 if (sigilumHome) {

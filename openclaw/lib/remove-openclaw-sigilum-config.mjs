@@ -77,6 +77,7 @@ delete config.env.vars.SIGILUM_AGENT_ID;
 delete config.env.vars.SIGILUM_RUNTIME_ROOT;
 delete config.env.vars.SIGILUM_RUNTIME_BIN;
 delete config.env.vars.SIGILUM_GATEWAY_HELPER_BIN;
+delete config.env.vars.SIGILUM_SUBJECT_RESOLVER_BIN;
 delete config.env.vars.SIGILUM_HOME;
 
 pruneEmpty(config);

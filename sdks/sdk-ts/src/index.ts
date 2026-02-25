@@ -31,6 +31,7 @@ export type {
   SigilumAgentBindings,
   SigilumCertificate,
   SigilumIdentity,
+  SigilumRequestOptions,
   SignRequestInput,
   SignedRequest,
   VerifySignatureInput,

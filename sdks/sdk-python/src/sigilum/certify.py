@@ -51,6 +51,7 @@ class SigilumBindings:
         method: str = "GET",
         headers: HeaderInput | None = None,
         body: bytes | str | None = None,
+        subject: str | None = None,
     ) -> SignedRequest:
         return sign_http_request(
             identity=self._identity,
@@ -58,6 +59,7 @@ class SigilumBindings:
             method=method,
             headers=headers,
             body=body,
+            subject=subject,
         )
 
     def fetch(
@@ -67,8 +69,15 @@ class SigilumBindings:
         method: str = "GET",
         headers: HeaderInput | None = None,
         body: bytes | str | None = None,
+        subject: str | None = None,
     ) -> Any:
-        signed = self.sign(url=url, method=method, headers=headers, body=body)
+        signed = self.sign(
+            url=url,
+            method=method,
+            headers=headers,
+            body=body,
+            subject=subject,
+        )
         if self._fetcher is not None:
             return self._fetcher(signed.url, signed.method, signed.headers, signed.body)
 
@@ -93,10 +102,17 @@ class SigilumBindings:
         method: str = "GET",
         headers: HeaderInput | None = None,
         body: bytes | str | None = None,
+        subject: str | None = None,
     ) -> Any:
         namespace_base = get_namespace_api_base(self._api_base_url, self._identity.namespace)
         url = _resolve_url(path, namespace_base)
-        return self.fetch(url=url, method=method, headers=headers, body=body)
+        return self.fetch(
+            url=url,
+            method=method,
+            headers=headers,
+            body=body,
+            subject=subject,
+        )
 
 
 def certify(

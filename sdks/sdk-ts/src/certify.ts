@@ -3,6 +3,7 @@ import { signHttpRequest } from "./http-signatures.js";
 import type {
   CertifiedAgent,
   CertifyOptions,
+  SigilumRequestOptions,
   SigilumAgentBindings,
   SignRequestInput,
   SignedRequest,
@@ -34,7 +35,7 @@ function isRequest(input: unknown): input is Request {
 
 function toSignRequestInput(
   input: string | URL | Request,
-  init: RequestInit | undefined,
+  init: SigilumRequestOptions | undefined,
   apiBaseUrl: string,
 ): SignRequestInput {
   if (isRequest(input)) {
@@ -57,6 +58,7 @@ function toSignRequestInput(
       method: init?.method ?? input.method,
       headers,
       body: (init?.body ?? null) as SignRequestInput["body"],
+      subject: init?.subject,
     };
   }
 
@@ -65,12 +67,17 @@ function toSignRequestInput(
     method: init?.method,
     headers: init?.headers,
     body: (init?.body ?? null) as SignRequestInput["body"],
+    subject: init?.subject,
   };
 }
 
-function toRequestInit(signed: SignedRequest, init?: RequestInit): RequestInit {
+function toRequestInit(
+  signed: SignedRequest,
+  init?: SigilumRequestOptions,
+): RequestInit {
+  const { subject: _subject, ...requestInit } = init ?? {};
   return {
-    ...init,
+    ...requestInit,
     method: signed.method,
     headers: signed.headers,
     body: signed.body ?? undefined,
@@ -105,12 +112,15 @@ function buildBindings(options: CertifyOptions): SigilumAgentBindings {
         url: resolveUrl(request.url, apiBaseUrl),
       });
     },
-    async fetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+    async fetch(
+      input: string | URL | Request,
+      init?: SigilumRequestOptions,
+    ): Promise<Response> {
       const signable = toSignRequestInput(input, init, apiBaseUrl);
       const signed = signHttpRequest(identity, signable);
       return fetchImpl(signed.url, toRequestInit(signed, init));
     },
-    async request(path: string, init?: RequestInit): Promise<Response> {
+    async request(path: string, init?: SigilumRequestOptions): Promise<Response> {
       const namespaceBase = getNamespaceApiBase(apiBaseUrl, identity.namespace);
       const url = resolveUrl(path, namespaceBase);
       const signable = toSignRequestInput(url, init, namespaceBase);

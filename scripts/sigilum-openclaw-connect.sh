@@ -24,6 +24,7 @@ Usage:
     [--enable-authz-notify <true|false>] \
     [--owner-token <jwt>] \
     [--lifecycle-mode <auto|stable|compat>] \
+    [--reconnect-only] \
     [--force-install]
 
 What it does:
@@ -32,6 +33,11 @@ What it does:
   3) Bootstraps OpenClaw agent keypairs immediately
   4) Runs: sigilum gateway connect (after install/reload window)
   5) Verifies pair bridge + gateway health; retries reconcile with backoff on failure
+
+Notes:
+  - Pair codes are short-lived and session-scoped. Reused/stale pair codes fail.
+  - For normal re-pairing after first-time setup, prefer: sigilum gateway connect ...
+  - --reconnect-only skips install/key-bootstrap and only performs gateway connect.
 EOF
 }
 
@@ -336,6 +342,7 @@ AGENT_ID=""
 ENABLE_AUTHZ_NOTIFY="false"
 OWNER_TOKEN=""
 LIFECYCLE_MODE="auto"
+RECONNECT_ONLY="false"
 FORCE_INSTALL="false"
 
 while [[ $# -gt 0 ]]; do
@@ -400,6 +407,10 @@ while [[ $# -gt 0 ]]; do
       LIFECYCLE_MODE="${2:-}"
       shift 2
       ;;
+    --reconnect-only)
+      RECONNECT_ONLY="true"
+      shift
+      ;;
     --force-install)
       FORCE_INSTALL="true"
       shift
@@ -428,6 +439,10 @@ fi
 
 if [[ "$ENABLE_AUTHZ_NOTIFY" == "true" && -z "$OWNER_TOKEN" ]]; then
   echo "--owner-token is required when --enable-authz-notify=true" >&2
+  exit 1
+fi
+if [[ "$RECONNECT_ONLY" == "true" && "$FORCE_INSTALL" == "true" ]]; then
+  echo "--reconnect-only and --force-install cannot be combined" >&2
   exit 1
 fi
 if ! valid_lifecycle_mode "$LIFECYCLE_MODE"; then
@@ -491,28 +506,64 @@ if [[ -n "$OWNER_TOKEN" ]]; then
   openclaw_install_cmd+=(--owner-token "$OWNER_TOKEN")
 fi
 
-if [[ "$FORCE_INSTALL" == "true" ]]; then
+INSTALL_CONFIGURED="false"
+if openclaw_install_is_configured "$CONFIG_PATH" "$NAMESPACE" "$API_URL"; then
+  INSTALL_CONFIGURED="true"
+fi
+
+INSTALL_RAN="false"
+SKIP_KEY_BOOTSTRAP="false"
+
+if [[ "$RECONNECT_ONLY" == "true" ]]; then
+  if [[ "$INSTALL_CONFIGURED" != "true" ]]; then
+    echo "--reconnect-only requires an existing OpenClaw Sigilum install for namespace=${NAMESPACE}." >&2
+    echo "Run full setup once: sigilum openclaw connect --session-id ... --pair-code ... --namespace ${NAMESPACE} --api-url ${API_URL}" >&2
+    exit 1
+  fi
+  SKIP_KEY_BOOTSTRAP="true"
+  echo "Reconnect-only mode: skipping OpenClaw install and key bootstrap." | tee -a "$LOG_FILE"
+elif [[ "$FORCE_INSTALL" == "true" ]]; then
   echo "Force install enabled; running OpenClaw install." | tee -a "$LOG_FILE"
+  echo "Note: OpenClaw may reload and local gateway may briefly restart while hooks/skills are applied." | tee -a "$LOG_FILE"
   run "${openclaw_install_cmd[@]}"
-elif openclaw_install_is_configured "$CONFIG_PATH" "$NAMESPACE" "$API_URL"; then
+  INSTALL_RAN="true"
+elif [[ "$INSTALL_CONFIGURED" == "true" ]]; then
   echo "OpenClaw Sigilum install already configured for namespace=${NAMESPACE}; skipping install." | tee -a "$LOG_FILE"
+  echo "Tip: for routine re-pairing, use sigilum gateway connect (pair codes are session-scoped)." | tee -a "$LOG_FILE"
 else
+  if [[ -f "$CONFIG_PATH" || -d "${OPENCLAW_HOME}/hooks/sigilum-plugin" || -d "${OPENCLAW_HOME}/skills/sigilum" ]]; then
+    echo "Warning: existing OpenClaw/Sigilum artifacts detected but configuration check did not match requested namespace/api." | tee -a "$LOG_FILE"
+    echo "Running install to reconcile configuration. Use --force-install explicitly for deterministic reinstall flows." | tee -a "$LOG_FILE"
+  fi
+  echo "Running OpenClaw install for initial/reconcile setup." | tee -a "$LOG_FILE"
+  echo "Note: OpenClaw may reload and local gateway may briefly restart while hooks/skills are applied." | tee -a "$LOG_FILE"
   run "${openclaw_install_cmd[@]}"
+  INSTALL_RAN="true"
 fi
 
-key_bootstrap_cmd=(node "$ROOT_DIR/openclaw/lib/bootstrap-openclaw-agent-keys.mjs" --config "$CONFIG_PATH")
-if [[ -n "$KEY_ROOT" ]]; then
-  key_bootstrap_cmd+=(--key-root "$KEY_ROOT")
+if [[ "$SKIP_KEY_BOOTSTRAP" != "true" ]]; then
+  key_bootstrap_cmd=(node "$ROOT_DIR/openclaw/lib/bootstrap-openclaw-agent-keys.mjs" --config "$CONFIG_PATH")
+  if [[ -n "$KEY_ROOT" ]]; then
+    key_bootstrap_cmd+=(--key-root "$KEY_ROOT")
+  fi
+  if [[ -n "$AGENT_ID" ]]; then
+    key_bootstrap_cmd+=(--agent-id "$AGENT_ID")
+  fi
+  run "${key_bootstrap_cmd[@]}"
 fi
-if [[ -n "$AGENT_ID" ]]; then
-  key_bootstrap_cmd+=(--agent-id "$AGENT_ID")
-fi
-run "${key_bootstrap_cmd[@]}"
 
-echo "+ sleep 2" | tee -a "$LOG_FILE"
-sleep 2
+if [[ "$INSTALL_RAN" == "true" ]]; then
+  echo "Install/reload window: waiting 2s before gateway reconnect..." | tee -a "$LOG_FILE"
+  echo "+ sleep 2" | tee -a "$LOG_FILE"
+  sleep 2
+else
+  echo "No install changes applied; skipping install/reload wait." | tee -a "$LOG_FILE"
+fi
+
+echo "Pair-code note: if connect fails after waiting, start a new pairing session in dashboard and rerun with fresh --session-id/--pair-code." | tee -a "$LOG_FILE"
 if ! reconcile_gateway_connect "$gateway_health_url" "${gateway_connect_cmd[@]}"; then
   echo "Gateway verification failed after ${CONNECT_RETRY_MAX} attempts." >&2
+  echo "Pairing session may have expired. Start a new dashboard pairing session and rerun this command with the latest --session-id/--pair-code." >&2
   exit 1
 fi
 

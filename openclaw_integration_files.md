@@ -35,9 +35,10 @@ Scope:
 | File | Purpose | Modify when |
 |---|---|---|
 | `openclaw/hooks/sigilum-plugin/config.ts` | Resolves plugin env contract and defaults. | Plugin env names/defaults change. |
-| `openclaw/hooks/sigilum-plugin/handler.ts` | Bootstraps agent keys and injects gateway-first policy. | Plugin runtime behavior changes. |
+| `openclaw/hooks/sigilum-plugin/handler.ts` | Bootstraps agent keys, injects gateway-first policy, captures per-message subject hints. | Plugin runtime behavior changes. |
 | `openclaw/hooks/sigilum-authz-notify/handler.ts` | Optional pending-authorization notifications for namespace owner. | Notify logic/API route contract changes. |
 | `openclaw/skills/sigilum/bin/gateway-admin.sh` | Signed gateway helper for MCP tool discovery/calls. | Signing/runtime gateway behavior changes. |
+| `openclaw/skills/sigilum/bin/resolve-subject.mjs` | Subject resolver used by helper for automatic per-request `sigilum-subject` stamping. | Subject resolution behavior changes. |
 | `openclaw/skills/sigilum/bin/sigilum-openclaw.sh` | Runtime resolver for selecting the `sigilum` launcher binary. | Runtime resolution order changes. |
 
 ## Consolidation Notes
@@ -121,6 +122,7 @@ Written by `openclaw/lib/update-openclaw-config.mjs`.
 | `SIGILUM_RUNTIME_ROOT` | persisted/runtime | Runtime root path. |
 | `SIGILUM_RUNTIME_BIN` | persisted/runtime | Absolute launcher path (`<runtime_root>/sigilum`). |
 | `SIGILUM_GATEWAY_HELPER_BIN` | persisted/runtime | Gateway helper path used by skill flows. |
+| `SIGILUM_SUBJECT_RESOLVER_BIN` | persisted/runtime | Subject resolver path used by gateway helper. |
 | `SIGILUM_HOME` | persisted/runtime | Runtime home path used for artifact lookup (optional). |
 
 Removed during uninstall:
@@ -129,6 +131,7 @@ Removed during uninstall:
 - `SIGILUM_RUNTIME_ROOT`
 - `SIGILUM_RUNTIME_BIN`
 - `SIGILUM_GATEWAY_HELPER_BIN`
+- `SIGILUM_SUBJECT_RESOLVER_BIN`
 - `SIGILUM_HOME`
 
 ## 5) Hook env vars (`hooks.internal.entries`)
@@ -146,6 +149,7 @@ Removed during uninstall:
 | `SIGILUM_AUTO_BOOTSTRAP_AGENTS` | persisted/runtime | Enables auto key bootstrap for configured agents. |
 | `SIGILUM_GATEWAY_ADMIN_TOKEN` | runtime override | Optional bearer token for gateway admin inventory calls. |
 | `SIGILUM_LEGACY_RUNTIME_REPORT_PATH` | runtime override | Optional path override for runtime credential discovery report used by legacy key migration. |
+| `SIGILUM_SUBJECT_HINTS_PATH` | runtime override | Optional path override for per-message subject hint store. |
 
 ### `sigilum-authz-notify` hook env
 
@@ -170,6 +174,7 @@ Removed during uninstall:
 | `SIGILUM_RUNTIME_ROOT` | persisted/runtime | Runtime root path. |
 | `SIGILUM_RUNTIME_BIN` | persisted/runtime | Runtime launcher path. |
 | `SIGILUM_GATEWAY_HELPER_BIN` | persisted/runtime | Signed helper binary path. |
+| `SIGILUM_SUBJECT_RESOLVER_BIN` | persisted/runtime | Subject resolver script path. |
 | `SIGILUM_HOME` | persisted/runtime | Optional runtime home path. |
 
 ## 7) Runtime-only skill/helper variables
@@ -186,6 +191,11 @@ Read by `openclaw/skills/sigilum/bin/gateway-admin.sh` and `openclaw/skills/sigi
 | `OPENCLAW_AGENT` | runtime | Additional fallback agent identity candidate. |
 | `OPENCLAW_CONFIG_PATH` | runtime | Optional OpenClaw config path used for helper fallback agent discovery. |
 | `SIGILUM_SUBJECT` | runtime | Optional explicit subject claim override. |
+| `SIGILUM_SUBJECT_RESOLVER_BIN` | runtime | Optional resolver path used to auto-derive subject when unset. |
+| `SIGILUM_SUBJECT_HINTS_PATH` | runtime | Optional subject hint store path (`<OPENCLAW_HOME>/.sigilum/subject-hints.json` by default). |
+| `SIGILUM_SLACK_EMAIL_CACHE_PATH` | runtime | Optional Slack email lookup cache path. |
+| `SLACK_USER_TOKEN` | runtime | Optional Slack user token used for `users.info` email lookup. |
+| `SLACK_BOT_TOKEN` | runtime | Optional Slack bot token fallback used for `users.info` email lookup. |
 | `SIGILUM_HTTP_TIMEOUT_SECONDS` | runtime | Timeout for helper HTTP requests. |
 | `SIGILUM_ALLOW_INSECURE_ADMIN` | runtime | Enables legacy insecure `list/test/discover` admin helpers. |
 | `SIGILUM_RUNTIME_BIN` | runtime | First-priority launcher path in runtime resolver. |

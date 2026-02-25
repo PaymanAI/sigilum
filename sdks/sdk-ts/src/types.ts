@@ -82,6 +82,10 @@ export interface SignedRequest {
   body?: string | Uint8Array | ArrayBuffer | null;
 }
 
+export interface SigilumRequestOptions extends RequestInit {
+  subject?: string;
+}
+
 export interface SigilumAgentBindings {
   namespace: string;
   did: string;
@@ -90,8 +94,8 @@ export interface SigilumAgentBindings {
   certificate: SigilumCertificate;
   apiBaseUrl: string;
   sign(request: SignRequestInput): SignedRequest;
-  fetch(input: string | URL | Request, init?: RequestInit): Promise<Response>;
-  request(path: string, init?: RequestInit): Promise<Response>;
+  fetch(input: string | URL | Request, init?: SigilumRequestOptions): Promise<Response>;
+  request(path: string, init?: SigilumRequestOptions): Promise<Response>;
 }
 
 export type CertifiedAgent<T extends object> = T & {
