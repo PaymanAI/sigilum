@@ -64,19 +64,41 @@ func handleProxyRequest(
 		return
 	}
 	did := constructDID(identity.Namespace, connectionID, didAgentFragment(identity.PublicKey), identity.Subject)
+	recordUsage := func(statusCode int, outcome string, responseBytes int64, durationMS int64) {
+		submitUsageEventAsync(claimsCache, cfg, claimcache.SubmitUsageEventInput{
+			EventID:       requestID,
+			Service:       connectionID,
+			Namespace:     identity.Namespace,
+			PublicKey:     identity.PublicKey,
+			Subject:       identity.Subject,
+			AgentID:       identity.AgentID,
+			Protocol:      "http",
+			Action:        "proxy",
+			Outcome:       outcome,
+			StatusCode:    statusCode,
+			DurationMS:    durationMS,
+			ResponseBytes: responseBytes,
+			RequestMethod: r.Method,
+			RequestPath:   upstreamPath,
+			RemoteIP:      remoteIP,
+		})
+	}
 
 	proxyCfg, err := connectorService.ResolveProxyConfig(connectionID)
 	if err != nil {
+		recordUsage(http.StatusBadGateway, "error", 0, time.Since(start).Milliseconds())
 		writeConnectionError(w, err)
 		return
 	}
 	if connectors.IsMCPConnection(proxyCfg.Connection) {
+		recordUsage(http.StatusBadRequest, "error", 0, time.Since(start).Milliseconds())
 		writeJSON(w, http.StatusBadRequest, errorResponse{
 			Error: "connection protocol is mcp; use /mcp/{connection_id}/...",
 		})
 		return
 	}
 	if block, warning := evaluateRotationPolicy(proxyCfg.Connection, cfg.RotationEnforcement, cfg.RotationGracePeriod, time.Now().UTC()); block {
+		recordUsage(http.StatusForbidden, "forbidden", 0, time.Since(start).Milliseconds())
 		writeJSON(w, http.StatusForbidden, errorResponse{
 			Error: warning,
 			Code:  "ROTATION_REQUIRED",
@@ -98,6 +120,7 @@ func handleProxyRequest(
 
 	proxy, err := connectors.NewReverseProxy(proxyCfg, upstreamPath, r.URL.RawQuery)
 	if err != nil {
+		recordUsage(http.StatusBadRequest, "error", 0, time.Since(start).Milliseconds())
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: fmt.Sprintf("invalid target config: %v", err)})
 		return
 	}
@@ -126,6 +149,11 @@ func handleProxyRequest(
 		gatewayMetricRegistry.recordUpstreamError(fmt.Sprintf("HTTP_%d", recorder.status))
 	}
 	gatewayMetricRegistry.observeUpstream("http", upstreamOutcome, time.Since(upstreamStart))
+	usageOutcome := "success"
+	if recorder.status >= http.StatusBadRequest {
+		usageOutcome = "error"
+	}
+	recordUsage(recorder.status, usageOutcome, int64(recorder.bytesWritten), time.Since(start).Milliseconds())
 	logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_request_end", map[string]any{
 		"request_id":     requestID,
 		"method":         r.Method,
@@ -186,17 +214,43 @@ func handleMCPRequest(
 		return
 	}
 	did := constructDID(identity.Namespace, connectionID, didAgentFragment(identity.PublicKey), identity.Subject)
+	recordUsage := func(statusCode int, outcome string) {
+		actionLabel := "mcp_" + action
+		if strings.TrimSpace(toolName) != "" {
+			actionLabel = actionLabel + ":" + toolName
+		}
+		submitUsageEventAsync(claimsCache, cfg, claimcache.SubmitUsageEventInput{
+			EventID:       requestID,
+			Service:       connectionID,
+			Namespace:     identity.Namespace,
+			PublicKey:     identity.PublicKey,
+			Subject:       identity.Subject,
+			AgentID:       identity.AgentID,
+			Protocol:      "mcp",
+			Action:        actionLabel,
+			Outcome:       outcome,
+			StatusCode:    statusCode,
+			DurationMS:    time.Since(start).Milliseconds(),
+			ResponseBytes: 0,
+			RequestMethod: r.Method,
+			RequestPath:   r.URL.Path,
+			RemoteIP:      remoteIP,
+		})
+	}
 
 	proxyCfg, err := connectorService.ResolveProxyConfig(connectionID)
 	if err != nil {
+		recordUsage(http.StatusBadGateway, "error")
 		writeConnectionError(w, err)
 		return
 	}
 	if !connectors.IsMCPConnection(proxyCfg.Connection) {
+		recordUsage(http.StatusBadRequest, "error")
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "connection protocol is not mcp"})
 		return
 	}
 	if block, warning := evaluateRotationPolicy(proxyCfg.Connection, cfg.RotationEnforcement, cfg.RotationGracePeriod, time.Now().UTC()); block {
+		recordUsage(http.StatusForbidden, "forbidden")
 		writeJSON(w, http.StatusForbidden, errorResponse{
 			Error: warning,
 			Code:  "ROTATION_REQUIRED",
@@ -214,6 +268,7 @@ func handleMCPRequest(
 
 	refreshMode, err := parseMCPDiscoveryRefreshMode(r.URL.Query().Get("refresh"), mcpDiscoveryRefreshModeAuto)
 	if err != nil {
+		recordUsage(http.StatusBadRequest, "error")
 		writeJSON(w, http.StatusBadRequest, errorResponse{
 			Error: err.Error(),
 			Code:  "INVALID_REFRESH_MODE",
@@ -237,6 +292,7 @@ func handleMCPRequest(
 		gatewayMetricRegistry.recordMCPDiscovery("error")
 		gatewayMetricRegistry.observeUpstream("mcp", "error", time.Since(discoveryStart))
 		gatewayMetricRegistry.recordUpstreamError("MCP_DISCOVERY_FAILED")
+		recordUsage(http.StatusBadGateway, "error")
 		writeJSON(w, http.StatusBadGateway, errorResponse{
 			Error: fmt.Sprintf("mcp discovery failed: %v", err),
 			Code:  "MCP_DISCOVERY_FAILED",
@@ -279,6 +335,7 @@ func handleMCPRequest(
 	switch action {
 	case "list":
 		if r.Method != http.MethodGet {
+			recordUsage(http.StatusMethodNotAllowed, "error")
 			writeMethodNotAllowed(w)
 			return
 		}
@@ -291,6 +348,7 @@ func handleMCPRequest(
 		})
 	case "explain":
 		if r.Method != http.MethodGet {
+			recordUsage(http.StatusMethodNotAllowed, "error")
 			writeMethodNotAllowed(w)
 			return
 		}
@@ -308,11 +366,13 @@ func handleMCPRequest(
 		})
 	case "call":
 		if r.Method != http.MethodPost {
+			recordUsage(http.StatusMethodNotAllowed, "error")
 			writeMethodNotAllowed(w)
 			return
 		}
 		if !mcpruntime.ToolAllowed(toolName, tools, effectivePolicy) {
 			gatewayMetricRegistry.recordMCPToolCall("forbidden")
+			recordUsage(http.StatusForbidden, "forbidden")
 			writeJSON(w, http.StatusForbidden, errorResponse{
 				Error: fmt.Sprintf("tool %q is not allowed for subject", toolName),
 				Code:  "MCP_TOOL_FORBIDDEN",
@@ -329,6 +389,7 @@ func handleMCPRequest(
 				"decision":    "deny",
 				"reason_code": codeMCPToolRateLimited,
 			})
+			recordUsage(http.StatusTooManyRequests, "rate_limited")
 			writeJSON(w, http.StatusTooManyRequests, errorResponse{
 				Error: "mcp tool call rate limit exceeded for this connection and namespace; retry in one minute",
 				Code:  codeMCPToolRateLimited,
@@ -338,6 +399,7 @@ func handleMCPRequest(
 
 		arguments, parseErr := resolveToolArguments(body)
 		if parseErr != nil {
+			recordUsage(http.StatusBadRequest, "error")
 			writeJSON(w, http.StatusBadRequest, errorResponse{Error: parseErr.Error()})
 			return
 		}
@@ -349,6 +411,7 @@ func handleMCPRequest(
 			if errors.As(callErr, &circuitErr) {
 				gatewayMetricRegistry.recordMCPToolCall("circuit_open")
 				gatewayMetricRegistry.recordUpstreamError("MCP_CIRCUIT_OPEN")
+				recordUsage(http.StatusServiceUnavailable, "error")
 				writeJSON(w, http.StatusServiceUnavailable, errorResponse{
 					Error: "mcp upstream circuit breaker is open after repeated failures; retry after cooldown",
 					Code:  "MCP_CIRCUIT_OPEN",
@@ -358,6 +421,7 @@ func handleMCPRequest(
 			gatewayMetricRegistry.recordMCPToolCall("error")
 			gatewayMetricRegistry.observeUpstream("mcp", "error", time.Since(toolCallStart))
 			gatewayMetricRegistry.recordUpstreamError("MCP_TOOL_CALL_FAILED")
+			recordUsage(http.StatusBadGateway, "error")
 			writeJSON(w, http.StatusBadGateway, errorResponse{
 				Error: fmt.Sprintf("mcp tool call failed: %v", callErr),
 				Code:  "MCP_TOOL_CALL_FAILED",
@@ -374,9 +438,12 @@ func handleMCPRequest(
 			"result":                 json.RawMessage(result),
 		})
 	default:
+		recordUsage(http.StatusNotFound, "error")
 		writeNotFound(w, "mcp action not found")
 		return
 	}
+
+	recordUsage(http.StatusOK, "success")
 
 	logGatewayDecisionIf(cfg.LogProxyRequests, "mcp_request_end", map[string]any{
 		"request_id":  requestID,
@@ -387,6 +454,26 @@ func handleMCPRequest(
 		"action":      action,
 		"duration_ms": time.Since(start).Milliseconds(),
 	})
+}
+
+func submitUsageEventAsync(claimsCache *claimcache.Cache, cfg config.Config, input claimcache.SubmitUsageEventInput) {
+	if claimsCache == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := claimsCache.SubmitUsageEvent(ctx, input); err != nil {
+			logGatewayDecisionIf(cfg.LogProxyRequests, "usage_submit_failed", map[string]any{
+				"service":   input.Service,
+				"namespace": input.Namespace,
+				"subject":   input.Subject,
+				"protocol":  input.Protocol,
+				"action":    input.Action,
+				"error":     err,
+			})
+		}
+	}()
 }
 
 func resolveToolArguments(body []byte) (json.RawMessage, error) {

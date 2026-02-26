@@ -38,6 +38,23 @@ function parseNonNegativeInt(raw: string | undefined, defaultValue: number): num
   return parsed;
 }
 
+type UsageSort = "recent" | "calls_desc" | "subject_asc";
+
+function parseUsageSort(raw: string | undefined): UsageSort {
+  const normalized = (raw ?? "").trim().toLowerCase();
+  if (normalized === "calls_desc") return "calls_desc";
+  if (normalized === "subject_asc") return "subject_asc";
+  return "recent";
+}
+
+function parseISODateTime(raw: string | undefined): string | null {
+  const value = (raw ?? "").trim();
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed).toISOString();
+}
+
 async function selectNamespaceClaims(
   env: Env,
   namespace: string,
@@ -226,6 +243,178 @@ namespacesRouter.get("/:namespace/claims", async (c) => {
       offset,
       total: lookup.total,
       has_more: offset + limit < lookup.total,
+    },
+  });
+});
+
+/**
+ * GET /v1/namespaces/:namespace/usage
+ * Aggregated usage/audit view grouped by subject + provider + agent.
+ * Query params:
+ * - subject: partial subject match
+ * - provider: exact service slug
+ * - agent: partial agent_id/public_key match
+ * - from, to: ISO date-time bounds
+ * - sort: recent | calls_desc | subject_asc
+ * - limit, offset: pagination over grouped rows
+ */
+namespacesRouter.get("/:namespace/usage", async (c) => {
+  const namespace = c.req.param("namespace");
+
+  if (!NAMESPACE_RE.test(namespace)) {
+    return c.json(createErrorResponse("Invalid namespace format", "VALIDATION_ERROR"), 400);
+  }
+
+  const token = getBearerToken(c);
+  if (!token) {
+    return c.json(createErrorResponse("Authentication required", "UNAUTHORIZED"), 401);
+  }
+  const payload = await verifyJWT(c.env, token);
+  if (!payload) {
+    return c.json(createErrorResponse("Invalid or expired token", "TOKEN_EXPIRED"), 401);
+  }
+  if (payload.namespace !== namespace) {
+    return c.json(createErrorResponse("Not authorized to view usage in this namespace", "FORBIDDEN"), 403);
+  }
+
+  const subjectFilter = (c.req.query("subject") ?? "").trim().toLowerCase();
+  const providerFilter = (c.req.query("provider") ?? "").trim();
+  const agentFilter = (c.req.query("agent") ?? "").trim().toLowerCase();
+  const sort = parseUsageSort(c.req.query("sort"));
+  const limit = parsePositiveInt(c.req.query("limit"), 50, 200);
+  const offset = parseNonNegativeInt(c.req.query("offset"), 0);
+
+  const from = c.req.query("from") ? parseISODateTime(c.req.query("from")) : null;
+  const to = c.req.query("to") ? parseISODateTime(c.req.query("to")) : null;
+  if (c.req.query("from") && !from) {
+    return c.json(createErrorResponse("Invalid 'from' date-time; expected ISO format", "VALIDATION_ERROR"), 400);
+  }
+  if (c.req.query("to") && !to) {
+    return c.json(createErrorResponse("Invalid 'to' date-time; expected ISO format", "VALIDATION_ERROR"), 400);
+  }
+
+  const where: string[] = ["namespace = ?"];
+  const params: Array<string | number> = [namespace];
+
+  if (subjectFilter) {
+    where.push("LOWER(subject) LIKE ?");
+    params.push(`%${subjectFilter}%`);
+  }
+  if (providerFilter) {
+    where.push("service = ?");
+    params.push(providerFilter);
+  }
+  if (agentFilter) {
+    where.push("(LOWER(COALESCE(agent_id, '')) LIKE ? OR LOWER(public_key) LIKE ?)");
+    params.push(`%${agentFilter}%`, `%${agentFilter}%`);
+  }
+  if (from) {
+    where.push("created_at >= ?");
+    params.push(from);
+  }
+  if (to) {
+    where.push("created_at <= ?");
+    params.push(to);
+  }
+
+  const whereSQL = where.join(" AND ");
+  const orderBy =
+    sort === "calls_desc"
+      ? "total_calls DESC, last_used_at DESC"
+      : sort === "subject_asc"
+        ? "subject ASC, provider ASC, total_calls DESC"
+        : "last_used_at DESC, total_calls DESC";
+
+  const [rows, totalRow, summaryRow] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT
+         subject,
+         service AS provider,
+         CASE
+           WHEN TRIM(COALESCE(agent_id, '')) = '' THEN NULL
+           ELSE agent_id
+         END AS agent_id,
+         public_key,
+         COUNT(*) AS total_calls,
+         SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_calls,
+         SUM(CASE WHEN outcome != 'success' THEN 1 ELSE 0 END) AS error_calls,
+         MAX(created_at) AS last_used_at
+       FROM usage_events
+       WHERE ${whereSQL}
+       GROUP BY subject, provider, public_key, agent_id
+       ORDER BY ${orderBy}
+       LIMIT ? OFFSET ?`,
+    )
+      .bind(...params, limit, offset)
+      .all(),
+    c.env.DB.prepare(
+      `SELECT COUNT(*) AS cnt FROM (
+         SELECT 1
+         FROM usage_events
+         WHERE ${whereSQL}
+         GROUP BY subject, service, public_key, agent_id
+       )`,
+    )
+      .bind(...params)
+      .first<{ cnt: number }>(),
+    c.env.DB.prepare(
+      `SELECT
+         COUNT(*) AS total_events,
+         SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS successful_events,
+         SUM(CASE WHEN outcome != 'success' THEN 1 ELSE 0 END) AS failed_events,
+         COUNT(DISTINCT subject) AS unique_subjects,
+         COUNT(DISTINCT service) AS unique_providers,
+         COUNT(DISTINCT CASE
+           WHEN TRIM(COALESCE(agent_id, '')) = '' THEN public_key
+           ELSE agent_id
+         END) AS unique_agents
+       FROM usage_events
+       WHERE ${whereSQL}`,
+    )
+      .bind(...params)
+      .first<{
+        total_events: number;
+        successful_events: number;
+        failed_events: number;
+        unique_subjects: number;
+        unique_providers: number;
+        unique_agents: number;
+      }>(),
+  ]);
+
+  const total = Number(totalRow?.cnt ?? 0);
+  return c.json({
+    rows: rows.results.map((row) => ({
+      subject: row.subject,
+      provider: row.provider,
+      agent_id: row.agent_id ?? null,
+      public_key: row.public_key,
+      total_calls: Number(row.total_calls ?? 0),
+      success_calls: Number(row.success_calls ?? 0),
+      error_calls: Number(row.error_calls ?? 0),
+      last_used_at: row.last_used_at,
+    })),
+    summary: {
+      total_events: Number(summaryRow?.total_events ?? 0),
+      successful_events: Number(summaryRow?.successful_events ?? 0),
+      failed_events: Number(summaryRow?.failed_events ?? 0),
+      unique_subjects: Number(summaryRow?.unique_subjects ?? 0),
+      unique_providers: Number(summaryRow?.unique_providers ?? 0),
+      unique_agents: Number(summaryRow?.unique_agents ?? 0),
+    },
+    pagination: {
+      limit,
+      offset,
+      total,
+      has_more: offset + limit < total,
+    },
+    applied_filters: {
+      subject: subjectFilter || null,
+      provider: providerFilter || null,
+      agent: agentFilter || null,
+      from: from ?? null,
+      to: to ?? null,
+      sort,
     },
   });
 });

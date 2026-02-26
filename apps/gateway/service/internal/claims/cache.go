@@ -58,6 +58,24 @@ type SubmitClaimResult struct {
 	Code       string
 }
 
+type SubmitUsageEventInput struct {
+	EventID       string
+	Service       string
+	Namespace     string
+	PublicKey     string
+	Subject       string
+	AgentID       string
+	Protocol      string
+	Action        string
+	Outcome       string
+	StatusCode    int
+	DurationMS    int64
+	ResponseBytes int64
+	RequestMethod string
+	RequestPath   string
+	RemoteIP      string
+}
+
 type approvalSnapshot struct {
 	approved   map[string]struct{}
 	expiresAt  time.Time
@@ -372,6 +390,129 @@ func (c *Cache) SubmitClaim(ctx context.Context, input SubmitClaimInput) (Submit
 	}
 
 	return result, nil
+}
+
+func (c *Cache) SubmitUsageEvent(ctx context.Context, input SubmitUsageEventInput) error {
+	service := strings.TrimSpace(input.Service)
+	namespace := strings.TrimSpace(input.Namespace)
+	publicKey := strings.TrimSpace(input.PublicKey)
+	subject := strings.TrimSpace(input.Subject)
+	eventID := strings.TrimSpace(input.EventID)
+	protocol := strings.TrimSpace(strings.ToLower(input.Protocol))
+	action := strings.TrimSpace(input.Action)
+	outcome := strings.TrimSpace(strings.ToLower(input.Outcome))
+
+	if service == "" {
+		return errors.New("usage submit requires service")
+	}
+	if namespace == "" {
+		return errors.New("usage submit requires namespace")
+	}
+	if publicKey == "" {
+		return errors.New("usage submit requires public key")
+	}
+	if subject == "" {
+		return errors.New("usage submit requires subject")
+	}
+	if eventID == "" {
+		generatedNonce, err := claimNonce()
+		if err != nil {
+			return err
+		}
+		eventID = "ue_" + generatedNonce
+	}
+	if protocol == "" {
+		protocol = "http"
+	}
+	if action == "" {
+		action = "proxy"
+	}
+	if outcome == "" {
+		outcome = "success"
+	}
+	if c.bindings == nil {
+		return errors.New("claims cache signer is not configured")
+	}
+	if c.resolveServiceAPIKey == nil {
+		return errors.New("service API key resolver is not configured")
+	}
+
+	serviceAPIKey := strings.TrimSpace(c.resolveServiceAPIKey(service))
+	if serviceAPIKey == "" {
+		return fmt.Errorf("service API key not configured for service %q", service)
+	}
+
+	payloadMap := map[string]any{
+		"event_id":   eventID,
+		"namespace":  namespace,
+		"service":    service,
+		"public_key": publicKey,
+		"subject":    subject,
+		"protocol":   protocol,
+		"action":     action,
+		"outcome":    outcome,
+	}
+	if agentID := strings.TrimSpace(input.AgentID); agentID != "" {
+		payloadMap["agent_id"] = agentID
+	}
+	if input.StatusCode > 0 {
+		payloadMap["status_code"] = input.StatusCode
+	}
+	if input.DurationMS > 0 {
+		payloadMap["duration_ms"] = input.DurationMS
+	}
+	if input.ResponseBytes >= 0 {
+		payloadMap["response_bytes"] = input.ResponseBytes
+	}
+	if method := strings.TrimSpace(strings.ToUpper(input.RequestMethod)); method != "" {
+		payloadMap["request_method"] = method
+	}
+	if requestPath := strings.TrimSpace(input.RequestPath); requestPath != "" {
+		payloadMap["request_path"] = requestPath
+	}
+	if remoteIP := strings.TrimSpace(input.RemoteIP); remoteIP != "" {
+		payloadMap["remote_ip"] = remoteIP
+	}
+
+	payload, err := json.Marshal(payloadMap)
+	if err != nil {
+		return fmt.Errorf("encode usage submit payload: %w", err)
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && c.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+		defer cancel()
+	}
+
+	usageURL := strings.TrimRight(c.baseURL, "/") + "/v1/usage/events"
+	resp, err := c.bindings.Do(ctx, sigilum.SignRequestInput{
+		URL:     usageURL,
+		Method:  http.MethodPost,
+		Subject: subject,
+		Headers: map[string]string{
+			"Authorization": "Bearer " + serviceAPIKey,
+			"Content-Type":  "application/json",
+		},
+		Body: payload,
+	})
+	if err != nil {
+		return fmt.Errorf("usage submit request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
+		if len(body) > 0 {
+			return fmt.Errorf("usage submit failed: HTTP %d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+		return fmt.Errorf("usage submit failed: HTTP %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 func (c *Cache) runBackgroundRefresh() {

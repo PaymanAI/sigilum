@@ -32,6 +32,7 @@ function isDashboardSessionRoute(pathname: string): boolean {
 
   // Namespace owner listing endpoint is JWT/cookie protected in route handlers.
   if (/^\/v1\/namespaces\/[^/]+\/claims$/.test(pathname)) return true;
+  if (/^\/v1\/namespaces\/[^/]+\/usage$/.test(pathname)) return true;
 
   return false;
 }
@@ -69,6 +70,13 @@ function extractExpectations(
       : typeof body?.public_key === "string"
         ? body.public_key
         : undefined;
+    return { expectedNamespace, expectedPublicKey };
+  }
+
+  if (pathname === "/v1/usage/events" && method === "POST") {
+    const expectedNamespace = typeof body?.namespace === "string" ? body.namespace : undefined;
+    const expectedPublicKey =
+      typeof body?.public_key === "string" ? body.public_key : undefined;
     return { expectedNamespace, expectedPublicKey };
   }
 
