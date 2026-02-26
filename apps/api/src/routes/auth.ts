@@ -974,7 +974,7 @@ authRouter.patch("/settings", async (c) => {
 /**
  * DELETE /v1/auth/account
  * Delete the current user's account and all associated data.
- * This is irreversible: removes user, credentials, services, API keys, webhooks, and authorizations.
+ * This is irreversible: removes user, credentials, services, API keys, webhooks, authorizations, and usage/audit records.
  */
 authRouter.delete("/account", async (c) => {
   const token = getBearerToken(c);
@@ -1000,6 +1000,10 @@ authRouter.delete("/account", async (c) => {
 
   // Delete all authorizations in the user's namespace
   await db.prepare("DELETE FROM authorizations WHERE namespace = ?")
+    .bind(payload.namespace).run();
+
+  // Delete usage/audit records in the user's namespace
+  await db.prepare("DELETE FROM usage_events WHERE namespace = ?")
     .bind(payload.namespace).run();
 
   // Delete all WebAuthn credentials

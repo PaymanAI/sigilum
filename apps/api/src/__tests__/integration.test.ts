@@ -677,6 +677,11 @@ describe("Namespaces upstream behavior", () => {
     expect(res.status).toBe(401);
   });
 
+  it("requires namespace-owner auth for namespace usage listing", async () => {
+    const res = await req("/v1/namespaces/alice/usage");
+    expect(res.status).toBe(401);
+  });
+
   it("forbids namespace claims listing for other namespaces", async () => {
     const cookie = await createSessionCookie({ JWT_SECRET: "test-jwt-secret" }, {
       userId: "user_1",
@@ -708,6 +713,29 @@ describe("Namespaces upstream behavior", () => {
     expect(res.status).toBe(200);
     const data = (await res.json()) as { claims: Array<{ claim_id: string }> };
     expect(data.claims.some((claim) => claim.claim_id === "cl_1")).toBe(true);
+  });
+
+  it("allows namespace-owner usage listing", async () => {
+    const cookie = await createSessionCookie({ JWT_SECRET: "test-jwt-secret" });
+    const res = await req("/v1/namespaces/alice/usage", {
+      headers: { Cookie: cookie },
+    });
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as {
+      rows: Array<unknown>;
+      summary: {
+        total_events: number;
+        successful_events: number;
+        failed_events: number;
+        unique_subjects: number;
+        unique_providers: number;
+        unique_agents: number;
+      };
+      pagination: { total: number };
+    };
+    expect(Array.isArray(data.rows)).toBe(true);
+    expect(data.summary.total_events).toBe(0);
+    expect(data.pagination.total).toBe(0);
   });
 
   it("resolves namespace from D1", async () => {
