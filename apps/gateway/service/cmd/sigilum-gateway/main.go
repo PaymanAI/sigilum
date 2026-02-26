@@ -25,6 +25,7 @@ const (
 	headerSignature        = "signature"
 	headerNamespace        = "sigilum-namespace"
 	headerSubject          = "sigilum-subject"
+	headerAgentID          = "sigilum-agent-id"
 	headerAgentKey         = "sigilum-agent-key"
 	headerAgentCert        = "sigilum-agent-cert"
 	slackAliasConnectionID = "slack-proxy"
@@ -56,6 +57,7 @@ type testResponse struct {
 type authorizedIdentity struct {
 	Namespace string
 	Subject   string
+	AgentID   string
 	PublicKey string
 }
 

@@ -629,9 +629,9 @@ signed_request() {
   local content_digest=""
   if [[ -n "$body" ]]; then
     content_digest="$(build_content_digest "$body")"
-    components=("@method" "@target-uri" "content-digest" "sigilum-namespace" "sigilum-subject" "sigilum-agent-key" "sigilum-agent-cert")
+    components=("@method" "@target-uri" "content-digest" "sigilum-namespace" "sigilum-subject" "sigilum-agent-id" "sigilum-agent-key" "sigilum-agent-cert")
   else
-    components=("@method" "@target-uri" "sigilum-namespace" "sigilum-subject" "sigilum-agent-key" "sigilum-agent-cert")
+    components=("@method" "@target-uri" "sigilum-namespace" "sigilum-subject" "sigilum-agent-id" "sigilum-agent-key" "sigilum-agent-cert")
   fi
 
   local quoted_components=()
@@ -650,6 +650,7 @@ signed_request() {
     fi
     printf '"sigilum-namespace": %s\n' "$SIG_NAMESPACE"
     printf '"sigilum-subject": %s\n' "$SIG_SUBJECT"
+    printf '"sigilum-agent-id": %s\n' "$AGENT_ID"
     printf '"sigilum-agent-key": %s\n' "$SIG_PUBLIC_KEY"
     printf '"sigilum-agent-cert": %s\n' "$SIG_CERT_HEADER"
     # Intentionally omit trailing newline so payload matches SDK verification.
@@ -665,6 +666,7 @@ signed_request() {
     "signature: sig1=:${sig_b64}:"
     "sigilum-namespace: ${SIG_NAMESPACE}"
     "sigilum-subject: ${SIG_SUBJECT}"
+    "sigilum-agent-id: ${AGENT_ID}"
     "sigilum-agent-key: ${SIG_PUBLIC_KEY}"
     "sigilum-agent-cert: ${SIG_CERT_HEADER}"
   )

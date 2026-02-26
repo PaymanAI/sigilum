@@ -7,20 +7,34 @@ import (
 	"strings"
 )
 
-func extractSigilumIdentity(headers http.Header) (namespace string, publicKey string, subject string, err error) {
+func extractSigilumIdentity(headers http.Header) (namespace string, publicKey string, subject string, agentID string, err error) {
 	namespace = strings.TrimSpace(headers.Get(headerNamespace))
 	if namespace == "" {
-		return "", "", "", fmt.Errorf("missing %s header", headerNamespace)
+		return "", "", "", "", fmt.Errorf("missing %s header", headerNamespace)
 	}
 	subject = strings.TrimSpace(headers.Get(headerSubject))
 	if subject == "" {
-		return "", "", "", fmt.Errorf("missing %s header", headerSubject)
+		return "", "", "", "", fmt.Errorf("missing %s header", headerSubject)
 	}
 	publicKey = strings.TrimSpace(headers.Get(headerAgentKey))
 	if publicKey == "" {
-		return "", "", "", fmt.Errorf("missing %s header", headerAgentKey)
+		return "", "", "", "", fmt.Errorf("missing %s header", headerAgentKey)
 	}
-	return namespace, publicKey, subject, nil
+	agentID = strings.TrimSpace(headers.Get(headerAgentID))
+	if agentID != "" {
+		sigInput := strings.TrimSpace(headers.Get(headerSignatureInput))
+		if sigInput == "" {
+			return "", "", "", "", fmt.Errorf("missing %s header", headerSignatureInput)
+		}
+		components, parseErr := parseSignatureComponents(sigInput)
+		if parseErr != nil {
+			return "", "", "", "", parseErr
+		}
+		if !hasSignatureComponent(components, headerAgentID) {
+			return "", "", "", "", fmt.Errorf("%s must be covered by signature-input", headerAgentID)
+		}
+	}
+	return namespace, publicKey, subject, agentID, nil
 }
 
 func validateSigilumAuthHeaders(headers http.Header) error {
@@ -29,6 +43,7 @@ func validateSigilumAuthHeaders(headers http.Header) error {
 		headerSignature,
 		headerNamespace,
 		headerSubject,
+		headerAgentID,
 		headerAgentKey,
 		headerAgentCert,
 	} {
@@ -63,19 +78,32 @@ func validateSignatureComponents(signatureInput string, hasBody bool) error {
 		return err
 	}
 
-	expected := []string{"@method", "@target-uri", "sigilum-namespace", "sigilum-subject", "sigilum-agent-key", "sigilum-agent-cert"}
+	expectedSets := [][]string{
+		{"@method", "@target-uri", "sigilum-namespace", "sigilum-subject", "sigilum-agent-key", "sigilum-agent-cert"},
+		{"@method", "@target-uri", "sigilum-namespace", "sigilum-subject", "sigilum-agent-id", "sigilum-agent-key", "sigilum-agent-cert"},
+	}
 	if hasBody {
-		expected = []string{"@method", "@target-uri", "content-digest", "sigilum-namespace", "sigilum-subject", "sigilum-agent-key", "sigilum-agent-cert"}
-	}
-	if len(components) != len(expected) {
-		return errInvalidSignedComponentSet
-	}
-	for idx := range expected {
-		if components[idx] != expected[idx] {
-			return errInvalidSignedComponentSet
+		expectedSets = [][]string{
+			{"@method", "@target-uri", "content-digest", "sigilum-namespace", "sigilum-subject", "sigilum-agent-key", "sigilum-agent-cert"},
+			{"@method", "@target-uri", "content-digest", "sigilum-namespace", "sigilum-subject", "sigilum-agent-id", "sigilum-agent-key", "sigilum-agent-cert"},
 		}
 	}
-	return nil
+	for _, expected := range expectedSets {
+		if len(components) != len(expected) {
+			continue
+		}
+		match := true
+		for idx := range expected {
+			if components[idx] != expected[idx] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return nil
+		}
+	}
+	return errInvalidSignedComponentSet
 }
 
 func parseSignatureComponents(signatureInput string) ([]string, error) {
@@ -114,4 +142,13 @@ func parseSignatureComponents(signatureInput string) ([]string, error) {
 		components = append(components, component)
 	}
 	return components, nil
+}
+
+func hasSignatureComponent(components []string, expected string) bool {
+	for _, component := range components {
+		if component == expected {
+			return true
+		}
+	}
+	return false
 }
