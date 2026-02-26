@@ -54,6 +54,20 @@ func TestValidateSignatureComponentsWithBody(t *testing.T) {
 	}
 }
 
+func TestValidateSignatureComponentsNoBodyWithAgentID(t *testing.T) {
+	input := `sig1=("@method" "@target-uri" "sigilum-namespace" "sigilum-subject" "sigilum-agent-id" "sigilum-agent-key" "sigilum-agent-cert");created=1;keyid="did:sigilum:alice#ed25519-test";alg="ed25519";nonce="abc"`
+	if err := validateSignatureComponents(input, false); err != nil {
+		t.Fatalf("expected valid component set with agent id, got error: %v", err)
+	}
+}
+
+func TestValidateSignatureComponentsWithBodyAndAgentID(t *testing.T) {
+	input := `sig1=("@method" "@target-uri" "content-digest" "sigilum-namespace" "sigilum-subject" "sigilum-agent-id" "sigilum-agent-key" "sigilum-agent-cert");created=1;keyid="did:sigilum:alice#ed25519-test";alg="ed25519";nonce="abc"`
+	if err := validateSignatureComponents(input, true); err != nil {
+		t.Fatalf("expected valid component set with body and agent id, got error: %v", err)
+	}
+}
+
 func TestValidateSignatureComponentsRejectsWrongSet(t *testing.T) {
 	input := `sig1=("@method" "@target-uri" "sigilum-namespace" "sigilum-agent-key");created=1;keyid="did:sigilum:alice#ed25519-test";alg="ed25519";nonce="abc"`
 	err := validateSignatureComponents(input, false)
@@ -351,9 +365,40 @@ func TestExtractSigilumIdentityRequiresSubject(t *testing.T) {
 	headers.Set(headerNamespace, "alice")
 	headers.Set(headerAgentKey, "ed25519:test")
 
-	_, _, _, err := extractSigilumIdentity(headers)
+	_, _, _, _, err := extractSigilumIdentity(headers)
 	if err == nil {
 		t.Fatal("expected missing sigilum-subject error")
+	}
+}
+
+func TestExtractSigilumIdentityRejectsUnsignedAgentID(t *testing.T) {
+	headers := http.Header{}
+	headers.Set(headerNamespace, "alice")
+	headers.Set(headerSubject, "customer-12345")
+	headers.Set(headerAgentKey, "ed25519:test")
+	headers.Set(headerAgentID, "main")
+	headers.Set(headerSignatureInput, `sig1=("@method" "@target-uri" "sigilum-namespace" "sigilum-subject" "sigilum-agent-key" "sigilum-agent-cert");created=1;keyid="did:sigilum:alice#ed25519-test";alg="ed25519";nonce="abc"`)
+
+	_, _, _, _, err := extractSigilumIdentity(headers)
+	if err == nil {
+		t.Fatal("expected unsigned sigilum-agent-id to be rejected")
+	}
+}
+
+func TestExtractSigilumIdentityAllowsSignedAgentID(t *testing.T) {
+	headers := http.Header{}
+	headers.Set(headerNamespace, "alice")
+	headers.Set(headerSubject, "customer-12345")
+	headers.Set(headerAgentKey, "ed25519:test")
+	headers.Set(headerAgentID, "main")
+	headers.Set(headerSignatureInput, `sig1=("@method" "@target-uri" "sigilum-namespace" "sigilum-subject" "sigilum-agent-id" "sigilum-agent-key" "sigilum-agent-cert");created=1;keyid="did:sigilum:alice#ed25519-test";alg="ed25519";nonce="abc"`)
+
+	_, _, _, agentID, err := extractSigilumIdentity(headers)
+	if err != nil {
+		t.Fatalf("expected signed sigilum-agent-id to be accepted, got %v", err)
+	}
+	if agentID != "main" {
+		t.Fatalf("expected agent id main, got %q", agentID)
 	}
 }
 

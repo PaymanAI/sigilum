@@ -21,6 +21,8 @@ const submitClaimSchema = z.object({
   service: z.string().min(1),
   agent_ip: z.string(),
   nonce: z.string().min(8).max(256),
+  subject: z.string().trim().min(1).max(256).optional(),
+  agent_id: z.string().trim().min(1).max(128).optional(),
   agent_name: z.string().trim().min(1).max(128).optional(),
 });
 
@@ -161,22 +163,33 @@ claimsRouter.post("/", async (c) => {
   const isNewService = currentCount === 0;
 
   const claimId = `cl_${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
-  const agentName = body.agent_name?.trim() || null;
+  let subject = body.subject?.trim() || null;
+  const agentId = body.agent_id?.trim() || null;
+  let agentName = body.agent_name?.trim() || null;
+  const claimBinding = (c.req.header("X-Sigilum-Claim-Binding") ?? "").trim().toLowerCase();
+
+  // Backward compatibility: older gateway versions populated agent_name with subject.
+  if (!subject && claimBinding === "namespace-only" && agentName) {
+    subject = agentName;
+    agentName = null;
+  }
 
   // Auto-reject if this is a new service and the service connection limit is reached
   if (isNewService && connectedServices >= serviceLimit) {
     await c.env.DB.prepare(
-      `INSERT INTO authorizations (claim_id, namespace, service, public_key, agent_ip, agent_name, status, approved_at, revoked_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'rejected', NULL, NULL)
+      `INSERT INTO authorizations (claim_id, namespace, service, public_key, agent_ip, subject, agent_id, agent_name, status, approved_at, revoked_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'rejected', NULL, NULL)
        ON CONFLICT(namespace, service, public_key) DO UPDATE SET
          claim_id = excluded.claim_id,
          agent_ip = excluded.agent_ip,
+         subject = excluded.subject,
+         agent_id = excluded.agent_id,
          agent_name = excluded.agent_name,
          status = excluded.status,
          approved_at = NULL,
          revoked_at = NULL`,
     )
-      .bind(claimId, body.namespace, body.service, body.public_key, body.agent_ip, agentName)
+      .bind(claimId, body.namespace, body.service, body.public_key, body.agent_ip, subject, agentId, agentName)
       .run();
 
     await dispatchWebhookEvent(c.env.DB, "request.rejected", {
@@ -185,6 +198,8 @@ claimsRouter.post("/", async (c) => {
       service: body.service,
       public_key: body.public_key,
       agent_ip: body.agent_ip,
+      subject,
+      agent_id: agentId,
       agent_name: agentName,
       reason: "service_limit_reached",
     }, c.env);
@@ -203,17 +218,19 @@ claimsRouter.post("/", async (c) => {
   // Auto-reject if namespace owner has reached their agent-per-service limit
   if (currentCount >= agentLimit) {
     await c.env.DB.prepare(
-      `INSERT INTO authorizations (claim_id, namespace, service, public_key, agent_ip, agent_name, status, approved_at, revoked_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'rejected', NULL, NULL)
+      `INSERT INTO authorizations (claim_id, namespace, service, public_key, agent_ip, subject, agent_id, agent_name, status, approved_at, revoked_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'rejected', NULL, NULL)
        ON CONFLICT(namespace, service, public_key) DO UPDATE SET
          claim_id = excluded.claim_id,
          agent_ip = excluded.agent_ip,
+         subject = excluded.subject,
+         agent_id = excluded.agent_id,
          agent_name = excluded.agent_name,
          status = excluded.status,
          approved_at = NULL,
          revoked_at = NULL`,
     )
-      .bind(claimId, body.namespace, body.service, body.public_key, body.agent_ip, agentName)
+      .bind(claimId, body.namespace, body.service, body.public_key, body.agent_ip, subject, agentId, agentName)
       .run();
 
     await dispatchWebhookEvent(c.env.DB, "request.rejected", {
@@ -222,6 +239,8 @@ claimsRouter.post("/", async (c) => {
       service: body.service,
       public_key: body.public_key,
       agent_ip: body.agent_ip,
+      subject,
+      agent_id: agentId,
       agent_name: agentName,
       reason: "agent_limit_reached",
     }, c.env);
@@ -261,17 +280,19 @@ claimsRouter.post("/", async (c) => {
 
     if (pendingCount >= maxPendingCount) {
       await c.env.DB.prepare(
-        `INSERT INTO authorizations (claim_id, namespace, service, public_key, agent_ip, agent_name, status, approved_at, revoked_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'rejected', NULL, NULL)
+        `INSERT INTO authorizations (claim_id, namespace, service, public_key, agent_ip, subject, agent_id, agent_name, status, approved_at, revoked_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'rejected', NULL, NULL)
          ON CONFLICT(namespace, service, public_key) DO UPDATE SET
            claim_id = excluded.claim_id,
            agent_ip = excluded.agent_ip,
+           subject = excluded.subject,
+           agent_id = excluded.agent_id,
            agent_name = excluded.agent_name,
            status = excluded.status,
            approved_at = NULL,
            revoked_at = NULL`,
       )
-        .bind(claimId, body.namespace, body.service, body.public_key, body.agent_ip, agentName)
+        .bind(claimId, body.namespace, body.service, body.public_key, body.agent_ip, subject, agentId, agentName)
         .run();
 
       // Dispatch webhook event
@@ -281,6 +302,8 @@ claimsRouter.post("/", async (c) => {
         service: body.service,
         public_key: body.public_key,
         agent_ip: body.agent_ip,
+        subject,
+        agent_id: agentId,
         agent_name: agentName,
         reason: "max_pending_reached",
       }, c.env);
@@ -340,17 +363,19 @@ claimsRouter.post("/", async (c) => {
       if (autoConnectedServices >= serviceLimit) {
         // Service limit reached, create as pending instead
         await c.env.DB.prepare(
-          `INSERT INTO authorizations (claim_id, namespace, service, public_key, agent_ip, agent_name, status, approved_at, revoked_at)
-           VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, NULL)
+          `INSERT INTO authorizations (claim_id, namespace, service, public_key, agent_ip, subject, agent_id, agent_name, status, approved_at, revoked_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, NULL)
            ON CONFLICT(namespace, service, public_key) DO UPDATE SET
              claim_id = excluded.claim_id,
              agent_ip = excluded.agent_ip,
+             subject = excluded.subject,
+             agent_id = excluded.agent_id,
              agent_name = excluded.agent_name,
              status = excluded.status,
              approved_at = NULL,
              revoked_at = NULL`,
         )
-          .bind(claimId, body.namespace, body.service, body.public_key, body.agent_ip, agentName)
+          .bind(claimId, body.namespace, body.service, body.public_key, body.agent_ip, subject, agentId, agentName)
           .run();
 
         return c.json(
@@ -367,17 +392,19 @@ claimsRouter.post("/", async (c) => {
 
     // Ensure a pending row exists for this request first.
     await c.env.DB.prepare(
-      `INSERT INTO authorizations (claim_id, namespace, service, public_key, agent_ip, agent_name, status, approved_at, revoked_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, NULL)
+      `INSERT INTO authorizations (claim_id, namespace, service, public_key, agent_ip, subject, agent_id, agent_name, status, approved_at, revoked_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, NULL)
        ON CONFLICT(namespace, service, public_key) DO UPDATE SET
          claim_id = excluded.claim_id,
          agent_ip = excluded.agent_ip,
+         subject = excluded.subject,
+         agent_id = excluded.agent_id,
          agent_name = excluded.agent_name,
          status = excluded.status,
          approved_at = NULL,
          revoked_at = NULL`,
     )
-      .bind(claimId, body.namespace, body.service, body.public_key, body.agent_ip, agentName)
+      .bind(claimId, body.namespace, body.service, body.public_key, body.agent_ip, subject, agentId, agentName)
       .run();
 
     // Atomically approve only if limit is still available.
@@ -422,6 +449,8 @@ claimsRouter.post("/", async (c) => {
       service: body.service,
       public_key: body.public_key,
       agent_ip: body.agent_ip,
+      subject,
+      agent_id: agentId,
       agent_name: agentName,
       auto_approved: true,
     }, c.env);
@@ -439,17 +468,19 @@ claimsRouter.post("/", async (c) => {
 
   // Store claim in database as pending (no blockchain interaction yet)
   await c.env.DB.prepare(
-    `INSERT INTO authorizations (claim_id, namespace, service, public_key, agent_ip, agent_name, status, approved_at, revoked_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, NULL)
+    `INSERT INTO authorizations (claim_id, namespace, service, public_key, agent_ip, subject, agent_id, agent_name, status, approved_at, revoked_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, NULL)
      ON CONFLICT(namespace, service, public_key) DO UPDATE SET
        claim_id = excluded.claim_id,
        agent_ip = excluded.agent_ip,
+       subject = excluded.subject,
+       agent_id = excluded.agent_id,
        agent_name = excluded.agent_name,
        status = excluded.status,
        approved_at = NULL,
        revoked_at = NULL`,
   )
-    .bind(claimId, body.namespace, body.service, body.public_key, body.agent_ip, agentName)
+    .bind(claimId, body.namespace, body.service, body.public_key, body.agent_ip, subject, agentId, agentName)
     .run();
 
   return c.json(
@@ -596,6 +627,8 @@ claimsRouter.post("/:claimId/approve", async (c) => {
     service: row.service as string,
     public_key: row.public_key as string,
     agent_ip: row.agent_ip as string,
+    subject: (row.subject as string | null) ?? null,
+    agent_id: (row.agent_id as string | null) ?? null,
     agent_name: (row.agent_name as string | null) ?? null,
   }, c.env);
 
@@ -641,6 +674,8 @@ claimsRouter.post("/:claimId/reject", async (c) => {
     service: row.service as string,
     public_key: row.public_key as string,
     agent_ip: row.agent_ip as string,
+    subject: (row.subject as string | null) ?? null,
+    agent_id: (row.agent_id as string | null) ?? null,
     agent_name: (row.agent_name as string | null) ?? null,
   }, c.env);
 
@@ -698,6 +733,8 @@ claimsRouter.post("/:claimId/revoke", async (c) => {
     service: row.service as string,
     public_key: row.public_key as string,
     agent_ip: row.agent_ip as string,
+    subject: (row.subject as string | null) ?? null,
+    agent_id: (row.agent_id as string | null) ?? null,
     agent_name: (row.agent_name as string | null) ?? null,
   }, c.env);
 

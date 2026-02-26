@@ -2686,6 +2686,18 @@
               "null"
             ]
           },
+          "subject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agent_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "agent_name": {
             "type": [
               "string",
@@ -2737,6 +2749,18 @@
           "approved_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "subject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agent_id": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "agent_name": {
             "type": [
@@ -2814,6 +2838,21 @@
             "type": "string",
             "minLength": 8,
             "maxLength": 256
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "agent_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "agent_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
           }
         }
       },

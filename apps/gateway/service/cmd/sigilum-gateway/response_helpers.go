@@ -54,6 +54,7 @@ var corsAllowedHeaderSet = map[string]struct{}{
 	"signature":             {},
 	"signature-input":       {},
 	"sigilum-agent-cert":    {},
+	"sigilum-agent-id":      {},
 	"sigilum-agent-key":     {},
 	"sigilum-namespace":     {},
 	"sigilum-subject":       {},
@@ -272,6 +273,7 @@ func resolveAllowedCORSHeaders(requested string) string {
 		"Content-Digest",
 		"Sigilum-Namespace",
 		"Sigilum-Subject",
+		"Sigilum-Agent-Id",
 		"Sigilum-Agent-Key",
 		"Sigilum-Agent-Cert",
 	}

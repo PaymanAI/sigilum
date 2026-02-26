@@ -276,7 +276,13 @@ func TestSubmitClaimPostsClaimPayload(t *testing.T) {
 		if body["nonce"] == "" {
 			t.Fatalf("expected nonce to be populated")
 		}
-		if body["agent_name"] != "agent-main" {
+		if body["subject"] != "customer-12345" {
+			t.Fatalf("expected subject to be forwarded, got %q", body["subject"])
+		}
+		if body["agent_id"] != "agent-main" {
+			t.Fatalf("expected agent id to be forwarded, got %q", body["agent_id"])
+		}
+		if body["agent_name"] != "OpenClaw Main" {
 			t.Fatalf("expected agent name to be forwarded, got %q", body["agent_name"])
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -306,7 +312,9 @@ func TestSubmitClaimPostsClaimPayload(t *testing.T) {
 		Namespace: "gateway",
 		PublicKey: "ed25519:agent-key",
 		AgentIP:   "203.0.113.10",
-		Subject:   "agent-main",
+		Subject:   "customer-12345",
+		AgentID:   "agent-main",
+		AgentName: "OpenClaw Main",
 	})
 	if err != nil {
 		t.Fatalf("submit claim failed: %v", err)

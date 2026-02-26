@@ -473,7 +473,9 @@ beforeEach(async () => {
       namespace: "alice",
       public_key: "ed25519:pk1",
       service: "my-service",
-      agent_name: "agent-main",
+      subject: "customer-12345",
+      agent_id: "main",
+      agent_name: "OpenClaw Main",
       status: "approved",
       approved_at: "2026-01-01T00:00:00.000Z",
       created_at: "2026-01-01T00:00:00.000Z",
@@ -483,7 +485,9 @@ beforeEach(async () => {
       namespace: "bob",
       public_key: "ed25519:pk2",
       service: "my-service",
-      agent_name: "agent-bob",
+      subject: "customer-67890",
+      agent_id: "bob",
+      agent_name: "OpenClaw Bob",
       status: "pending",
       approved_at: null,
       created_at: "2026-01-01T00:00:00.000Z",
@@ -644,11 +648,19 @@ describe("Namespaces claims cache endpoint", () => {
     });
     expect(res.status).toBe(200);
     const data = (await res.json()) as {
-      claims: Array<{ claim_id: string; status?: string; agent_name?: string | null }>;
+      claims: Array<{
+        claim_id: string;
+        status?: string;
+        subject?: string | null;
+        agent_id?: string | null;
+        agent_name?: string | null;
+      }>;
     };
     expect(data.claims.length).toBe(1);
     expect(data.claims[0]?.claim_id).toBe("cl_1");
-    expect(data.claims[0]?.agent_name).toBe("agent-main");
+    expect(data.claims[0]?.subject).toBe("customer-12345");
+    expect(data.claims[0]?.agent_id).toBe("main");
+    expect(data.claims[0]?.agent_name).toBe("OpenClaw Main");
   });
 
   it("rejects service mismatch between API key and query", async () => {
