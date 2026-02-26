@@ -122,7 +122,7 @@ func resolveAuthorizedIdentity(
 	requestID string,
 	cfg config.Config,
 ) (authorizedIdentity, bool) {
-	namespace, publicKey, subject, identityErr := extractSigilumIdentity(headers)
+	namespace, publicKey, subject, agentID, identityErr := extractSigilumIdentity(headers)
 	if identityErr != nil {
 		logGatewayDecisionIf(cfg.LogProxyRequests, "proxy_auth_denied", map[string]any{
 			"request_id":  requestID,
@@ -145,6 +145,7 @@ func resolveAuthorizedIdentity(
 	return authorizedIdentity{
 		Namespace: namespace,
 		Subject:   subject,
+		AgentID:   agentID,
 		PublicKey: publicKey,
 	}, true
 }
@@ -269,6 +270,7 @@ func enforceClaimAuthorization(
 				PublicKey: identity.PublicKey,
 				AgentIP:   remoteIP,
 				Subject:   identity.Subject,
+				AgentID:   identity.AgentID,
 			})
 			claimAttempt.Result = submitResult
 			claimAttempt.Err = submitErr

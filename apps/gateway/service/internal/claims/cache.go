@@ -44,6 +44,8 @@ type SubmitClaimInput struct {
 	AgentIP   string
 	Nonce     string
 	Subject   string
+	AgentID   string
+	AgentName string
 }
 
 type SubmitClaimResult struct {
@@ -285,16 +287,23 @@ func (c *Cache) SubmitClaim(ctx context.Context, input SubmitClaimInput) (Submit
 		nonce = generatedNonce
 	}
 
-	payload, err := json.Marshal(map[string]string{
+	payloadMap := map[string]string{
 		"namespace":  namespace,
 		"public_key": publicKey,
 		"service":    service,
 		"agent_ip":   agentIP,
 		"nonce":      nonce,
-		// "agent_name" maps to the subject identity (who triggered the request).
-		// Historical naming; subject in Sigilum headers.
-		"agent_name": strings.TrimSpace(input.Subject),
-	})
+	}
+	if subject := strings.TrimSpace(input.Subject); subject != "" {
+		payloadMap["subject"] = subject
+	}
+	if agentID := strings.TrimSpace(input.AgentID); agentID != "" {
+		payloadMap["agent_id"] = agentID
+	}
+	if agentName := strings.TrimSpace(input.AgentName); agentName != "" {
+		payloadMap["agent_name"] = agentName
+	}
+	payload, err := json.Marshal(payloadMap)
 	if err != nil {
 		return SubmitClaimResult{}, fmt.Errorf("encode claim submit payload: %w", err)
 	}
