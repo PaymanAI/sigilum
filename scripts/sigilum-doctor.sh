@@ -498,6 +498,9 @@ const out = {
   parse_error: "",
   mode: "",
   namespace: "",
+  sigilum_home: "",
+  runtime_has_service_key: false,
+  has_service_api_key_env: false,
   authz_enabled: false,
   has_owner_token: false,
 };
@@ -523,13 +526,26 @@ try {
     }
   }
   const hooks = (parsed && parsed.hooks && parsed.hooks.internal && parsed.hooks.internal.entries) || {};
+  const skills = (parsed && parsed.skills && parsed.skills.entries) || {};
   const plugin = hooks["sigilum-plugin"] || {};
   const notify = hooks["sigilum-authz-notify"] || {};
+  const skill = skills["sigilum"] || {};
   const pluginEnv = (plugin && plugin.env) || {};
   const notifyEnv = (notify && notify.env) || {};
+  const skillEnv = (skill && skill.env) || {};
   out.parse_ok = true;
-  out.mode = String(pluginEnv.SIGILUM_MODE || "");
-  out.namespace = String(pluginEnv.SIGILUM_NAMESPACE || "");
+  out.mode = String(pluginEnv.SIGILUM_MODE || skillEnv.SIGILUM_MODE || "");
+  out.namespace = String(pluginEnv.SIGILUM_NAMESPACE || skillEnv.SIGILUM_NAMESPACE || "");
+  out.sigilum_home = String(pluginEnv.SIGILUM_HOME || skillEnv.SIGILUM_HOME || "").trim();
+  out.has_service_api_key_env = String(pluginEnv.SIGILUM_SERVICE_API_KEY || skillEnv.SIGILUM_SERVICE_API_KEY || "").trim().length > 0;
+  if (out.sigilum_home) {
+    try {
+      const entries = fs.readdirSync(out.sigilum_home, { withFileTypes: true });
+      out.runtime_has_service_key = entries.some(
+        (entry) => entry.isFile() && entry.name.startsWith("service-api-key-"),
+      );
+    } catch {}
+  }
   out.authz_enabled = Boolean(notify && notify.enabled);
   out.has_owner_token = String(notifyEnv.SIGILUM_OWNER_TOKEN || "").trim().length > 0;
 } catch {}
@@ -543,6 +559,9 @@ NODE
     has_owner_token="$(json_field "$summary_json" "has_owner_token")"
     config_mode="$(json_field "$summary_json" "mode")"
     config_namespace="$(json_field "$summary_json" "namespace")"
+    config_sigilum_home="$(json_field "$summary_json" "sigilum_home")"
+    runtime_has_service_key="$(json_field "$summary_json" "runtime_has_service_key")"
+    has_service_api_key_env="$(json_field "$summary_json" "has_service_api_key_env")"
 
     if [[ "$parse_ok" != "true" ]]; then
       record_fail "Config parse" "${parse_error:-Unknown parse error}"
@@ -569,6 +588,26 @@ NODE
           add_action "Run: sigilum auth login --mode managed --namespace ${config_namespace} --owner-token-stdin"
         else
           add_action "Run: sigilum auth login --mode managed --namespace <namespace> --owner-token-stdin"
+        fi
+      fi
+
+      if [[ "$config_mode" == "managed" ]]; then
+        if [[ -z "$config_sigilum_home" ]]; then
+          record_fail "Managed runtime home" "Managed mode detected but SIGILUM_HOME is missing from OpenClaw Sigilum config"
+          add_action "Reinstall managed integration to set runtime home: sigilum openclaw install --mode managed --non-interactive"
+        else
+          record_info "Managed runtime home" "$config_sigilum_home"
+        fi
+
+        if [[ "$runtime_has_service_key" == "true" || "$has_service_api_key_env" == "true" ]]; then
+          record_ok "Managed service key" "Service API key detected for managed runtime"
+        else
+          if [[ -n "$config_sigilum_home" ]]; then
+            record_fail "Managed service key" "No service API key found in ${config_sigilum_home} (expected service-api-key-*)"
+          else
+            record_fail "Managed service key" "No service API key found for managed runtime"
+          fi
+          add_action "Provision a gateway service API key through dashboard pairing, then rerun install: sigilum openclaw install --mode managed --non-interactive"
         fi
       fi
     fi

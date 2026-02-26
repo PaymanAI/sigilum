@@ -18,23 +18,46 @@ import (
 var signatureInputPattern = regexp.MustCompile(`^sig1=\(([^)]*)\);created=(\d+);keyid="([^"]+)";alg="([^"]+)";nonce="([^"]+)"$`)
 var signaturePattern = regexp.MustCompile(`^sig1=:([^:]+):$`)
 
-var requiredComponentsNoBody = []string{
-	"@method",
-	"@target-uri",
-	"sigilum-namespace",
-	"sigilum-subject",
-	"sigilum-agent-key",
-	"sigilum-agent-cert",
+var requiredComponentSetsNoBody = [][]string{
+	{
+		"@method",
+		"@target-uri",
+		"sigilum-namespace",
+		"sigilum-subject",
+		"sigilum-agent-key",
+		"sigilum-agent-cert",
+	},
+	{
+		"@method",
+		"@target-uri",
+		"sigilum-namespace",
+		"sigilum-subject",
+		"sigilum-agent-id",
+		"sigilum-agent-key",
+		"sigilum-agent-cert",
+	},
 }
 
-var requiredComponentsWithBody = []string{
-	"@method",
-	"@target-uri",
-	"content-digest",
-	"sigilum-namespace",
-	"sigilum-subject",
-	"sigilum-agent-key",
-	"sigilum-agent-cert",
+var requiredComponentSetsWithBody = [][]string{
+	{
+		"@method",
+		"@target-uri",
+		"content-digest",
+		"sigilum-namespace",
+		"sigilum-subject",
+		"sigilum-agent-key",
+		"sigilum-agent-cert",
+	},
+	{
+		"@method",
+		"@target-uri",
+		"content-digest",
+		"sigilum-namespace",
+		"sigilum-subject",
+		"sigilum-agent-id",
+		"sigilum-agent-key",
+		"sigilum-agent-cert",
+	},
 }
 
 const (
@@ -402,19 +425,26 @@ func containsComponent(components []string, value string) bool {
 }
 
 func hasValidSignedComponentSet(components []string, hasBody bool) bool {
-	expected := requiredComponentsNoBody
+	expectedSets := requiredComponentSetsNoBody
 	if hasBody {
-		expected = requiredComponentsWithBody
+		expectedSets = requiredComponentSetsWithBody
 	}
-	if len(components) != len(expected) {
-		return false
-	}
-	for idx := range expected {
-		if components[idx] != expected[idx] {
-			return false
+	for _, expected := range expectedSets {
+		if len(components) != len(expected) {
+			continue
+		}
+		match := true
+		for idx := range expected {
+			if components[idx] != expected[idx] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 func randomUUIDV4() (string, error) {

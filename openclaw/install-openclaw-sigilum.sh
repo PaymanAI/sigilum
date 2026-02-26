@@ -498,6 +498,19 @@ sync_service_api_keys() {
   printf '%s' "$copied"
 }
 
+count_service_api_keys() {
+  local home="$1"
+  if [[ -z "$home" || ! -d "$home" ]]; then
+    printf '0'
+    return 0
+  fi
+  local files
+  shopt -s nullglob
+  files=("${home%/}"/service-api-key-*)
+  shopt -u nullglob
+  printf '%s' "${#files[@]}"
+}
+
 run_cmd() {
   local cmd="$1"
   local -a parts=()
@@ -1080,7 +1093,19 @@ if [[ -n "$KEY_SOURCE_HOME" ]]; then
   printf '\n'
   log_ok "Synced ${SYNCED_KEYS_COUNT} service API key file(s) into runtime home: ${RUNTIME_HOME}"
 else
-  log_warn "No service API key source found to sync into runtime home."
+  EXISTING_RUNTIME_KEYS="$(count_service_api_keys "$RUNTIME_HOME")"
+  if [[ "$EXISTING_RUNTIME_KEYS" != "0" ]]; then
+    log_ok "Using ${EXISTING_RUNTIME_KEYS} existing service API key file(s) in runtime home: ${RUNTIME_HOME}"
+  elif [[ "$MODE" == "managed" ]]; then
+    log_error "No service API key source found and runtime home has no service API key files."
+    log_error "Managed mode requires a service API key before signed gateway authorization can work."
+    printf '\n'
+    printf '%sProvision a service API key, then rerun install:%s\n' "${CLR_BOLD}${CLR_CYAN}" "${CLR_RESET}" >&2
+    printf '  %ssigilum gateway connect --session-id <id> --pair-code <code> --namespace %s --api-url %s%s\n' "${CLR_BOLD}${CLR_YELLOW}" "$NAMESPACE" "$API_URL" "${CLR_RESET}" >&2
+    exit 1
+  else
+    log_warn "No service API key source found to sync into runtime home."
+  fi
 fi
 
 node "$UPDATE_OPENCLAW_CONFIG_SCRIPT" \
