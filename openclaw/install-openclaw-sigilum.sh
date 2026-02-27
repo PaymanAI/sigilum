@@ -455,6 +455,7 @@ detect_service_key_source_home() {
   fi
   candidates+=(
     "${ROOT_DIR}/.sigilum-workspace"
+    "${HOME}/.sigilum-workspace"
     "${HOME}/.sigilum"
     "${OPENCLAW_HOME}/workspace/.sigilum"
   )

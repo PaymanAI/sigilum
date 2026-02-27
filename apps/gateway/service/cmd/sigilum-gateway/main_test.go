@@ -323,6 +323,29 @@ func TestResolveServiceAPIKeyFallsBackToFile(t *testing.T) {
 	}
 }
 
+func TestResolveServiceAPIKeyFallsBackToHomeSigilumWorkspaceFile(t *testing.T) {
+	isolateServiceKeyHome(t)
+	t.Setenv("SIGILUM_SERVICE_API_KEY_DEMO_SERVICE_GATEWAY", "")
+	t.Setenv("SIGILUM_HOME", "")
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("lookup user home dir: %v", err)
+	}
+	keyDir := filepath.Join(home, ".sigilum-workspace")
+	if err := os.MkdirAll(keyDir, 0o700); err != nil {
+		t.Fatalf("create key dir: %v", err)
+	}
+	keyFile := filepath.Join(keyDir, "service-api-key-demo-service-gateway")
+	if err := os.WriteFile(keyFile, []byte("workspace-key\n"), 0o600); err != nil {
+		t.Fatalf("write key file: %v", err)
+	}
+
+	if got := resolveServiceAPIKey("demo-service-gateway", "", ""); got != "workspace-key" {
+		t.Fatalf("expected workspace key fallback, got %q", got)
+	}
+}
+
 func TestResolveServiceAPIKeyPrefersFileOverDefault(t *testing.T) {
 	isolateServiceKeyHome(t)
 	t.Setenv("SIGILUM_SERVICE_API_KEY_DEMO_SERVICE_GATEWAY", "")
