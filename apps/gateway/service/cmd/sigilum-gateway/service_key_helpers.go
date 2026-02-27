@@ -42,6 +42,7 @@ func candidateServiceKeyHomes(explicitHome string) []string {
 		candidates = append(candidates, value)
 	}
 	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		candidates = append(candidates, filepath.Join(home, ".sigilum-workspace"))
 		candidates = append(candidates, filepath.Join(home, ".sigilum"))
 		candidates = append(candidates, filepath.Join(home, ".openclaw", "workspace", ".sigilum"))
 		candidates = append(candidates, filepath.Join(home, ".openclaw", ".sigilum"))
